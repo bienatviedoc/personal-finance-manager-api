@@ -11,15 +11,18 @@ public static class IdentityEndpoints
 {
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder api)
     {
-        api.MapGet("/me", GetMe).WithName("GetMe").WithTags("Identity");
-        api.MapPost("/auth/logout", SignOut).WithName("SignOut").WithTags("Identity");
+        // Every endpoint here can also answer 401 (not signed in) and, for POSTs, 400 (anti-forgery).
+        api.MapGet("/me", GetMe).WithName("GetMe").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
+        api.MapPost("/auth/logout", SignOut).WithName("SignOut").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous();
         auth.MapGet("/antiforgery", GetAntiforgeryToken).WithName("GetAntiforgeryToken");
         auth.MapPost("/register", Register).WithName("Register");
-        auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail");
+        auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail").ProducesProblem(StatusCodes.Status400BadRequest);
         auth.MapPost("/resend-verification", ResendVerification).WithName("ResendVerification");
-        auth.MapPost("/login", SignIn).WithName("SignIn");
+        auth.MapPost("/login", SignIn).WithName("SignIn")
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status403Forbidden);
 
         return api;
     }
