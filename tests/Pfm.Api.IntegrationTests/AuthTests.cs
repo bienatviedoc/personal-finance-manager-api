@@ -178,6 +178,25 @@ public class AuthTests(PfmApi api)
         Assert.Equal(["password"], await ErrorFieldsAsync(response));
     }
 
+    [Theory]
+    [InlineData("/api/v1/auth/register", "{}", "email,password")]
+    [InlineData("/api/v1/auth/register", "{\"email\":null,\"password\":\"correct horse battery staple\"}", "email")]
+    [InlineData("/api/v1/auth/login", "{}", "email,password")]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"someone@example.com\"}", "password")]
+    [InlineData("/api/v1/auth/resend-verification", "{}", "email")]
+    [InlineData("/api/v1/auth/verify-email", "{}", "token,userId")]
+    public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
+    {
+        var browser = api.CreateBrowser();
+        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
+        request.Headers.Add("X-XSRF-TOKEN", await browser.AntiforgeryTokenAsync());
+
+        var response = await browser.Http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(fields.Split(','), (await ErrorFieldsAsync(response)).Order());
+    }
+
     private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
     {
         using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -234,6 +253,92 @@ public class AuthTests(PfmApi api)
         Assert.Equal(HttpStatusCode.NoContent, (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/me")).StatusCode);
     }
+
+    [Fact]
+    public async Task A_session_ends_once_the_users_security_stamp_changes()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/api/v1/me")).StatusCode);
+
+        // What a password reset or deactivation does to every session the user has.
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            var users = scope.ServiceProvider.GetRequiredService<Microsoft.AspNetCore.Identity.UserManager<Pfm.Infrastructure.Identity.User>>();
+            await users.UpdateSecurityStampAsync((await users.FindByEmailAsync(email))!);
+        }
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task An_email_with_surrounding_spaces_is_the_same_address()
+    {
+        var browser = api.CreateBrowser();
+        var email = NewEmail();
+
+        await browser.PostAsync("/api/v1/auth/register", new { email = $"  {email} ", password = Password });
+        await browser.PostAsync("/api/v1/auth/register", new { email, password = "a different password" });
+
+        var sent = api.Emails.To(email);
+        Assert.Equal(2, sent.Count);
+        Assert.Contains(CapturedEmails.Links(sent[0]), link => link.AbsolutePath == "/verify-email");
+        Assert.DoesNotContain(CapturedEmails.Links(sent[1]), link => link.AbsolutePath == "/verify-email");
+
+        await browser.PostAsync("/api/v1/auth/verify-email", VerificationFrom(CapturedEmails.Links(sent[0]).Single()));
+        var signIn = await browser.PostAsync("/api/v1/auth/login", new { email = $" {email}  ", password = Password });
+        Assert.Equal(HttpStatusCode.NoContent, signIn.StatusCode);
+    }
+
+    [Fact]
+    public async Task Registering_the_same_email_at_the_same_moment_answers_every_request_the_same_way()
+    {
+        var email = NewEmail();
+        var browsers = Enumerable.Range(0, 12).Select(_ => api.CreateBrowser()).ToList();
+        var tokens = await Task.WhenAll(browsers.Select(browser => browser.AntiforgeryTokenAsync()));
+
+        var responses = await Task.WhenAll(browsers.Select((browser, i) =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = JsonContent.Create(new { email, password = Password }) };
+            request.Headers.Add("X-XSRF-TOKEN", tokens[i]);
+            return browser.Http.SendAsync(request);
+        }));
+
+        Assert.All(responses, response => Assert.Equal(HttpStatusCode.Accepted, response.StatusCode));
+    }
+
+    [Fact]
+    public async Task Registering_an_existing_email_takes_about_as_long_as_registering_a_new_one()
+    {
+        // Without this, response time alone would reveal which emails have a user. Medians over several
+        // runs; the bar is loose (half as long) because hashing a password dominates both paths.
+        var (_, existing) = await api.RegisteredAndVerifiedAsync();
+        var browser = api.CreateBrowser();
+        await TimeAsync(browser, NewEmail());
+
+        var forExisting = new List<double>();
+        var forNew = new List<double>();
+        for (var run = 0; run < 7; run++)
+        {
+            forExisting.Add(await TimeAsync(browser, existing));
+            forNew.Add(await TimeAsync(browser, NewEmail()));
+        }
+
+        Assert.True(Median(forExisting) >= Median(forNew) / 2, $"existing {Median(forExisting):F1} ms, new {Median(forNew):F1} ms");
+    }
+
+    private static async Task<double> TimeAsync(Browser browser, string email)
+    {
+        var token = await browser.AntiforgeryTokenAsync();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register") { Content = JsonContent.Create(new { email, password = Password }) };
+        request.Headers.Add("X-XSRF-TOKEN", token);
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var response = await browser.Http.SendAsync(request);
+        clock.Stop();
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        return clock.Elapsed.TotalMilliseconds;
+    }
+
+    private static double Median(List<double> values) => values.Order().ElementAt(values.Count / 2);
 
     private sealed record MeBody(Guid Id, string Email);
 

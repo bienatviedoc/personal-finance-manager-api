@@ -19,6 +19,12 @@ public sealed class PfmApi : IAsyncLifetime
     /// <summary>A route that exists only in tests, for exercising the unhandled-exception path.</summary>
     public const string ThrowingPath = "/__tests/throw";
 
+    /// <summary>
+    /// A route that exists only in tests: answers with the user the request's ICurrentUser resolves
+    /// to, which is who user-owned data is filtered by.
+    /// </summary>
+    public const string CurrentUserPath = "/__tests/current-user";
+
     private readonly PostgreSqlContainer _database = new PostgreSqlBuilder("postgres:17-alpine").Build();
 
     /// <summary>Where emails' links point: the SPA's address.</summary>
@@ -124,6 +130,8 @@ public sealed class PfmApi : IAsyncLifetime
             builder.ConfigureServices(services =>
             {
                 services.AddTransient<IStartupFilter, ThrowingRouteFilter>();
+                // Check the session against the user's security stamp on every request, not every few minutes.
+                services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
             });
@@ -139,6 +147,13 @@ public sealed class PfmApi : IAsyncLifetime
                 if (context.Request.Path == ThrowingPath)
                 {
                     throw new InvalidOperationException("secret internal detail");
+                }
+
+                if (context.Request.Path == CurrentUserPath)
+                {
+                    var currentUser = context.RequestServices.GetRequiredService<ICurrentUser>();
+                    await context.Response.WriteAsync(currentUser.UserId?.ToString() ?? "");
+                    return;
                 }
 
                 await nextMiddleware(context);

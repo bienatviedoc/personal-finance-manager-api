@@ -23,8 +23,15 @@ internal sealed class SmtpEmailSender(IOptions<SmtpOptions> options) : IEmailSen
         mime.Subject = message.Subject;
         mime.Body = new TextPart("plain") { Text = message.Body };
 
+        if (!smtp.UseStartTls && !string.IsNullOrEmpty(smtp.Username))
+        {
+            throw new InvalidOperationException("Email cannot be sent: SMTP credentials are only sent over TLS. Set Smtp:UseStartTls.");
+        }
+
         using var client = new SmtpClient();
-        var security = smtp.UseStartTls ? SecureSocketOptions.StartTlsWhenAvailable : SecureSocketOptions.None;
+        // Required, not opportunistic: a server that does not offer STARTTLS fails the send instead of
+        // receiving credentials and links in plain text.
+        var security = smtp.UseStartTls ? SecureSocketOptions.StartTls : SecureSocketOptions.None;
         await client.ConnectAsync(smtp.Host, smtp.Port, security, cancellationToken);
         if (!string.IsNullOrEmpty(smtp.Username))
         {

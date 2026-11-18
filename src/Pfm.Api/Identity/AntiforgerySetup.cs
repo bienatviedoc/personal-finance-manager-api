@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http.Metadata;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Pfm.Api.Identity;
 
@@ -22,6 +24,25 @@ public static class AntiforgerySetup
             options.Cookie.SecurePolicy = cookies.SecurePolicy;
             options.Cookie.SameSite = SameSiteMode.Strict;
         });
+
+    /// <summary>
+    /// Documents, in OpenAPI, the 400 that every endpoint changing something can answer when the
+    /// token is missing or invalid, unless the endpoint already documents a 400 of its own.
+    /// </summary>
+    public static TBuilder DocumentAntiforgeryRefusals<TBuilder>(this TBuilder builder)
+        where TBuilder : IEndpointConventionBuilder
+    {
+        builder.Add(endpoint =>
+        {
+            var methods = endpoint.Metadata.OfType<HttpMethodMetadata>().SelectMany(metadata => metadata.HttpMethods);
+            var documentsBadRequest = endpoint.Metadata.OfType<IProducesResponseTypeMetadata>().Any(metadata => metadata.StatusCode == StatusCodes.Status400BadRequest);
+            if (methods.Any(method => !SafeMethods.Contains(method)) && !documentsBadRequest)
+            {
+                endpoint.Metadata.Add(new ProducesResponseTypeMetadata(StatusCodes.Status400BadRequest, typeof(ProblemDetails), ["application/problem+json"]));
+            }
+        });
+        return builder;
+    }
 
     /// <summary>Refuses any request under /api that changes something without a valid token.</summary>
     public static IApplicationBuilder UseApiAntiforgery(this IApplicationBuilder app) =>

@@ -3,6 +3,8 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Api.Identity;
@@ -45,6 +47,8 @@ public static class IdentityEndpoints
     private static async Task<Results<Accepted, ValidationProblem>> Register(
         RegisterRequest request, UserManager<User> users, IdentityEmails emails, CancellationToken cancellationToken)
     {
+        request = request with { Email = request.Email?.Trim()! };
+
         // Validate first: the answer must not depend on whether the email already has a user.
         var errors = await ValidateRegistrationAsync(request, users);
         if (errors.Count > 0)
@@ -55,16 +59,25 @@ public static class IdentityEndpoints
         var existing = await users.FindByEmailAsync(request.Email);
         if (existing is not null)
         {
-            await emails.SendAlreadyRegisteredAsync(existing, cancellationToken);
-            return TypedResults.Accepted((string?)null);
+            return await AlreadyRegisteredAsync(existing, request.Password, users, emails, cancellationToken);
         }
 
         var user = new User { UserName = request.Email, Email = request.Email };
-        var created = await users.CreateAsync(user, request.Password);
-        if (created.Errors.Any(error => error.Code is "DuplicateEmail" or "DuplicateUserName"))
+        IdentityResult created;
+        try
         {
-            // Registered by a concurrent request a moment ago: answer as for any existing email.
-            return TypedResults.Accepted((string?)null);
+            created = await users.CreateAsync(user, request.Password);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // Another request registered this email a moment ago: answer as for any existing email.
+            created = IdentityResult.Failed(new IdentityError { Code = "DuplicateEmail" });
+        }
+
+        if (created.Errors.Any(error => error.Code is "DuplicateEmail" or "DuplicateUserName")
+            && await users.FindByEmailAsync(request.Email) is { } registeredMeanwhile)
+        {
+            return await AlreadyRegisteredAsync(registeredMeanwhile, request.Password, users, emails, cancellationToken);
         }
 
         if (!created.Succeeded)
@@ -80,11 +93,23 @@ public static class IdentityEndpoints
         return TypedResults.Accepted((string?)null);
     }
 
+    /// <summary>
+    /// The answer for an email that already has a user: the same as for a new one, and as slow, since a
+    /// new registration hashes the password. The user is told by email; nothing about them changes.
+    /// </summary>
+    private static async Task<Accepted> AlreadyRegisteredAsync(
+        User existing, string password, UserManager<User> users, IdentityEmails emails, CancellationToken cancellationToken)
+    {
+        users.PasswordHasher.HashPassword(existing, password);
+        await emails.SendAlreadyRegisteredAsync(existing, cancellationToken);
+        return TypedResults.Accepted((string?)null);
+    }
+
     private static async Task<Dictionary<string, string[]>> ValidateRegistrationAsync(RegisterRequest request, UserManager<User> users)
     {
         var errors = new Dictionary<string, string[]>();
 
-        var email = request.Email?.Trim() ?? "";
+        var email = request.Email ?? "";
         if (!MailAddress.TryCreate(email, out var address) || address.Address != email || address.DisplayName.Length > 0)
         {
             errors["email"] = ["Enter a valid email address."];
@@ -105,8 +130,14 @@ public static class IdentityEndpoints
         return errors;
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult>> VerifyEmail(VerifyEmailRequest request, UserManager<User> users)
+    private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> VerifyEmail(VerifyEmailRequest request, UserManager<User> users)
     {
+        var missing = RequiredFields.Missing(("userId", request.UserId != Guid.Empty), ("token", !string.IsNullOrEmpty(request.Token)));
+        if (missing.Count > 0)
+        {
+            return TypedResults.ValidationProblem(missing);
+        }
+
         var user = await users.FindByIdAsync(request.UserId.ToString());
         var confirmed = user is not null && (await users.ConfirmEmailAsync(user, request.Token)).Succeeded;
 
@@ -116,9 +147,16 @@ public static class IdentityEndpoints
     }
 
     /// <summary>Always answers the same way, so it cannot be used to find out which emails have a user.</summary>
-    private static async Task<Accepted> ResendVerification(
+    private static async Task<Results<Accepted, ValidationProblem>> ResendVerification(
         ResendVerificationRequest request, UserManager<User> users, IdentityEmails emails, CancellationToken cancellationToken)
     {
+        request = request with { Email = request.Email?.Trim()! };
+        var missing = RequiredFields.Missing(("email", !string.IsNullOrWhiteSpace(request.Email)));
+        if (missing.Count > 0)
+        {
+            return TypedResults.ValidationProblem(missing);
+        }
+
         var user = await users.FindByEmailAsync(request.Email);
         if (user is { EmailConfirmed: false })
         {
@@ -133,9 +171,16 @@ public static class IdentityEndpoints
     /// Checks the password before anything else, so only someone who knows it learns whether the
     /// email address is confirmed. Unknown emails cost a password hash too, so timing reveals nothing.
     /// </summary>
-    private static async Task<Results<NoContent, ProblemHttpResult>> SignIn(
+    private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> SignIn(
         SignInRequest request, UserManager<User> users, SignInManager<User> signIn)
     {
+        request = request with { Email = request.Email?.Trim()! };
+        var missing = RequiredFields.Missing(("email", !string.IsNullOrWhiteSpace(request.Email)), ("password", !string.IsNullOrEmpty(request.Password)));
+        if (missing.Count > 0)
+        {
+            return TypedResults.ValidationProblem(missing);
+        }
+
         var user = await users.FindByEmailAsync(request.Email);
         var passwordMatches = user is null
             ? HashAndReject(users, request.Password)

@@ -15,4 +15,21 @@ public class OpenApiTests(PfmApi api)
         var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
         Assert.StartsWith("3.", document.GetProperty("openapi").GetString());
     }
+
+    [Fact]
+    public async Task Every_operation_that_changes_something_documents_its_bad_request_answer()
+    {
+        // Any of them can answer 400 for a missing anti-forgery token or a body that cannot be read.
+        var response = await api.CreateClient().GetAsync("/openapi/v1.json");
+        var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+        var undocumented = document.GetProperty("paths").EnumerateObject()
+            .SelectMany(path => path.Value.EnumerateObject()
+                .Where(operation => operation.Name is "post" or "put" or "patch" or "delete")
+                .Where(operation => !operation.Value.GetProperty("responses").TryGetProperty("400", out _))
+                .Select(operation => $"{operation.Name.ToUpperInvariant()} {path.Name}"))
+            .ToArray();
+
+        Assert.Empty(undocumented);
+    }
 }

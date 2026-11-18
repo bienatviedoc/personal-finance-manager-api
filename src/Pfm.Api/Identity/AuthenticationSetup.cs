@@ -34,13 +34,14 @@ public static class AuthenticationSetup
             options.ExpireTimeSpan = TimeSpan.FromDays(7);
             options.SlidingExpiration = true;
 
-            // An API answers with status codes; the SPA decides where to send the viewer.
-            options.Events = new CookieAuthenticationEvents
-            {
-                OnRedirectToLogin = context => StatusOnly(context, StatusCodes.Status401Unauthorized),
-                OnRedirectToAccessDenied = context => StatusOnly(context, StatusCodes.Status403Forbidden),
-            };
+            // An API answers with status codes; the SPA decides where to send the viewer. Set on the
+            // existing events, never by replacing them: Identity's security-stamp check lives there.
+            options.Events.OnRedirectToLogin = context => StatusOnly(context, StatusCodes.Status401Unauthorized);
+            options.Events.OnRedirectToAccessDenied = context => StatusOnly(context, StatusCodes.Status403Forbidden);
         });
+
+        // A changed security stamp (password reset, deactivation) ends every session within this time.
+        services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(5));
 
         services.AddAuthorizationBuilder()
             .SetFallbackPolicy(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());

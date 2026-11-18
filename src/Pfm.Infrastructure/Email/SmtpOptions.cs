@@ -9,7 +9,7 @@ public sealed class SmtpOptions
 
     public int Port { get; set; } = 587;
 
-    /// <summary>Upgrade to TLS when the server offers it. Off only for a local catcher.</summary>
+    /// <summary>Require STARTTLS. Off only for a local catcher, and never with credentials.</summary>
     public bool UseStartTls { get; set; } = true;
 
     public string? Username { get; set; }

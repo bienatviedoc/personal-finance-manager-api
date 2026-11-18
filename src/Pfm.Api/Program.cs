@@ -45,7 +45,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains(InfrastructureServices.ReadyTag),
 }).AllowAnonymous();
 
-app.MapGroup("/api/v1").MapIdentityEndpoints();
+app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints();
 
 app.Run();
 

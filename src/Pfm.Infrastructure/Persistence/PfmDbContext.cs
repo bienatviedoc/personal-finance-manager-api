@@ -23,6 +23,9 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     private static readonly System.Reflection.PropertyInfo CurrentUserIdProperty =
         typeof(PfmDbContext).GetProperty(nameof(CurrentUserId), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
 
+    protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) =>
+        optionsBuilder.AddInterceptors(OwnerChangeInterceptor.Instance);
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

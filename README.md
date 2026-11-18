@@ -81,6 +81,8 @@ the browser never holds a token a script could read.
   stack runs over plain `http://localhost`, so there they follow the request's scheme instead (see
   `CookiePolicy`). In any other environment the API must sit behind TLS. A TLS-terminating proxy in front of it
   will also need forwarded headers configured; that belongs with the deployment work.
+- **Sessions** last 7 days, renewed while in use, and end within 5 minutes of the user's security stamp changing
+  (a password reset or deactivation).
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
 
@@ -89,8 +91,11 @@ the browser never holds a token a script could read.
 An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmDbContext` enforces it:
 
 - every query, including bulk updates and deletes, sees only the signed-in user's rows;
-- new rows are stamped with the signed-in user;
-- changing or deleting another user's row fails, even for a row attached without loading it.
+- new rows are stamped with the signed-in user, whatever owner they were given;
+- changing or deleting another user's row fails, even for a row attached without loading it;
+- a row's owner never changes, whether through a tracked change or a bulk update.
+
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user.
@@ -111,7 +116,9 @@ runs for no user, such as background jobs, sees no user-owned data until it acts
   caused it; CI fails when the committed file is out of date.
 - **Configuration**: the database connection string is `ConnectionStrings__Pfm`. `App__PublicUrl` is the SPA's
   address, which emailed links point to; the API refuses to start without it. Email goes out through
-  `Smtp__Host`, `Smtp__Port`, `Smtp__Username` and `Smtp__Password`. No secrets in the
+  `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password` and `Smtp__From`. STARTTLS is required
+  (`Smtp__UseStartTls`, on by default); turn it off only for a local catcher such as Mailpit, never with
+  credentials. No secrets in the
   repository; the credentials in `compose.yaml` and `appsettings.Development.json` are for the local
   database only.
 - **Build**: nullable reference types are on and warnings are errors, for every project.

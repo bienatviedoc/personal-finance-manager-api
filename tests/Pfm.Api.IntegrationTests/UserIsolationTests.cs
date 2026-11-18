@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
@@ -64,7 +65,7 @@ public class UserIsolationTests(PfmApi api) : IAsyncLifetime
         {
             var forged = Forge(db, bobsNote, claimingToOwnIt ? _alice : _bob);
             forged.Text = "changed by Alice";
-            await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+            await AssertRefusedAsync(db, claimingToOwnIt);
         }
 
         Assert.Equal("Bob's", await TextOfAsync(_bob, bobsNote));
@@ -80,7 +81,7 @@ public class UserIsolationTests(PfmApi api) : IAsyncLifetime
         await using (var db = As(_alice))
         {
             db.Notes.Remove(Forge(db, bobsNote, claimingToOwnIt ? _alice : _bob));
-            await Assert.ThrowsAnyAsync<Exception>(() => db.SaveChangesAsync());
+            await AssertRefusedAsync(db, claimingToOwnIt);
         }
 
         Assert.Equal("Bob's", await TextOfAsync(_bob, bobsNote));
@@ -115,9 +116,21 @@ public class UserIsolationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task User_owned_data_is_filtered_by_the_user_the_session_cookie_belongs_to()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var me = JsonSerializer.Deserialize<JsonElement>(await (await browser.GetAsync("/api/v1/me")).Content.ReadAsStringAsync());
+
+        var filteredBy = await (await browser.GetAsync(PfmApi.CurrentUserPath)).Content.ReadAsStringAsync();
+
+        Assert.Equal(me.GetProperty("id").GetString(), filteredBy);
+    }
+
+    [Fact]
     public async Task Every_user_owned_entity_is_isolated_by_the_signed_in_user()
     {
-        await using var real = api.Services.CreateAsyncScope().ServiceProvider.GetRequiredService<PfmDbContext>();
+        await using var scope = api.Services.CreateAsyncScope();
+        var real = scope.ServiceProvider.GetRequiredService<PfmDbContext>();
         await using var withNotes = As(_alice);
 
         Assert.Empty(UnisolatedUserOwnedEntities(real));
@@ -131,6 +144,71 @@ public class UserIsolationTests(PfmApi api) : IAsyncLifetime
             .Where(type => typeof(IUserOwned).IsAssignableFrom(type.ClrType))
             .Where(type => type.GetDeclaredQueryFilters().Count == 0 || !type.FindProperty(nameof(IUserOwned.UserId))!.IsConcurrencyToken)
             .Select(type => type.ClrType.Name)];
+
+    /// <summary>
+    /// A forged row claiming Bob as owner is stopped by the owner check before anything is sent; one
+    /// claiming Alice gets past it, but the owner is part of the UPDATE or DELETE condition, so the
+    /// database changes nothing and EF reports it.
+    /// </summary>
+    private static async Task AssertRefusedAsync(IsolationDbContext db, bool claimingToOwnIt)
+    {
+        if (claimingToOwnIt)
+        {
+            await Assert.ThrowsAsync<DbUpdateConcurrencyException>(() => db.SaveChangesAsync());
+        }
+        else
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+        }
+    }
+
+    [Fact]
+    public async Task A_row_added_for_someone_else_still_belongs_to_the_user_who_added_it()
+    {
+        Guid noteId;
+        await using (var db = As(_alice))
+        {
+            var note = new Note("meant for Bob");
+            typeof(Note).GetProperty(nameof(Note.UserId))!.SetValue(note, _bob);
+            db.Notes.Add(note);
+            await db.SaveChangesAsync();
+            noteId = note.Id;
+        }
+
+        Assert.Equal("meant for Bob", await TextOfAsync(_alice, noteId));
+        Assert.Null(await TextOfAsync(_bob, noteId));
+    }
+
+    [Fact]
+    public async Task A_user_cannot_give_their_row_to_another_user()
+    {
+        var alicesNote = await AddNoteAsync(_alice, "Alice's");
+
+        await using (var db = As(_alice))
+        {
+            var note = await db.Notes.SingleAsync(row => row.Id == alicesNote);
+            db.Entry(note).Property(row => row.UserId).CurrentValue = _bob;
+            await Assert.ThrowsAsync<InvalidOperationException>(() => db.SaveChangesAsync());
+        }
+
+        Assert.Equal("Alice's", await TextOfAsync(_alice, alicesNote));
+        Assert.Null(await TextOfAsync(_bob, alicesNote));
+    }
+
+    [Fact]
+    public async Task A_bulk_update_cannot_give_rows_to_another_user()
+    {
+        var alicesNote = await AddNoteAsync(_alice, "Alice's");
+
+        await using (var db = As(_alice))
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                db.Notes.Where(note => note.Id == alicesNote).ExecuteUpdateAsync(setters => setters.SetProperty(note => note.UserId, _bob)));
+        }
+
+        Assert.Equal("Alice's", await TextOfAsync(_alice, alicesNote));
+        Assert.Null(await TextOfAsync(_bob, alicesNote));
+    }
 
     /// <summary>
     /// A row attached without loading it, the way code can update or delete by id. It claims the
