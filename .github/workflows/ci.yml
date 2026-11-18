@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Pfm.slnx
+
+      - name: Build
+        run: dotnet build Pfm.slnx --no-restore -c Release
+
+      - name: OpenAPI document is up to date
+        run: git diff --exit-code -- openapi
+
+      # Integration tests start PostgreSQL through Testcontainers, using the runner's Docker.
+      - name: Test
+        run: dotnet test Pfm.slnx --no-build -c Release
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -t pfm-api .
+      - name: Build worker image
+        run: docker build -t pfm-worker --build-arg PROJECT=Pfm.Worker .
