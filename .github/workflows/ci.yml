@@ -25,8 +25,13 @@ jobs:
         run: git diff --exit-code -- openapi
 
       # Integration tests start PostgreSQL through Testcontainers, using the runner's Docker.
-      - name: Test
-        run: dotnet test Pfm.slnx --no-build -c Release
+      # Fails when line coverage of Domain and Application is below 85% (spec section 13).
+      - name: Test with coverage
+        run: scripts/test-with-coverage.sh --no-build -c Release
+
+      - name: Coverage summary
+        if: always()
+        run: cat TestResults/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" || true
 
   images:
     runs-on: ubuntu-latest

@@ -26,8 +26,12 @@ public static class ModuleBoundaries
                 .SelectMany(other => Layers.Select(layer => $"{root}.{layer}.{other}"))
                 .ToArray();
 
+            // A module's own code, including its contracts: a contract that exposes another
+            // module's internals would hand them to every caller.
+            var moduleCode = $@"^{root}\.(({string.Join('|', Layers)})\.{module}|Application\.Contracts\.{module})(\.|$)";
+
             var result = Types.InAssemblies(assemblies)
-                .That().ResideInNamespaceMatching($@"^{root}\.({string.Join('|', Layers)})\.{module}(\.|$)")
+                .That().ResideInNamespaceMatching(moduleCode)
                 .ShouldNot().HaveDependencyOnAny(otherModulesInternals)
                 .GetResult();
 

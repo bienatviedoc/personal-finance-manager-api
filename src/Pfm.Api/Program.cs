@@ -32,9 +32,6 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains(InfrastructureServices.ReadyTag),
 });
 
-// Module endpoints are mapped onto this group, one sub-group per module.
-app.MapGroup("/api/v1");
-
 app.Run();
 
 public partial class Program;

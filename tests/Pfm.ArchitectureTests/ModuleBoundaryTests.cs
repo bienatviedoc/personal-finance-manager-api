@@ -20,8 +20,23 @@ public class ModuleBoundaryTests
     {
         var violations = ModuleBoundaries.FindViolations("ArchFixture", typeof(FixtureMarker).Assembly);
 
-        var violation = Assert.Single(violations);
-        Assert.Contains("ArchFixture.Domain.Budgets.UsesAccountInternals", violation);
+        Assert.Contains(violations, violation => violation.Contains("ArchFixture.Domain.Budgets.UsesAccountInternals"));
+    }
+
+    [Fact]
+    public void The_rule_reports_a_contract_that_exposes_another_modules_internals()
+    {
+        var violations = ModuleBoundaries.FindViolations("ArchFixture", typeof(FixtureMarker).Assembly);
+
+        Assert.Contains(violations, violation => violation.Contains("ArchFixture.Application.Contracts.Budgets.ILeaksAccountInternals"));
+    }
+
+    [Fact]
+    public void The_rule_reports_nothing_beyond_the_planted_violations()
+    {
+        var violations = ModuleBoundaries.FindViolations("ArchFixture", typeof(FixtureMarker).Assembly);
+
+        Assert.Equal(2, violations.Count);
     }
 
     [Fact]

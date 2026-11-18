@@ -3,13 +3,41 @@ namespace Pfm.ArchitectureTests;
 /// <summary>Dependencies point inwards: Api and Worker → Infrastructure → Application → Domain.</summary>
 public class LayerDependencyTests
 {
+    /// <summary>
+    /// The core runtime assemblies the domain may use. Anything else, including other System.*
+    /// assemblies such as System.Text.Json or System.ComponentModel.Annotations, is a framework
+    /// concern. Widening this list is a deliberate decision, made in review.
+    /// </summary>
+    private static readonly string[] DomainAllowedReferences =
+    [
+        "System.Runtime",
+        "System.Collections",
+        "System.Linq",
+        "System.Memory",
+        "System.Runtime.Numerics",
+
+        // The base class library facade. Coverage instrumentation adds it when tests run with coverage.
+        "netstandard",
+    ];
+
     [Fact]
-    public void Domain_references_nothing_but_the_base_class_library()
+    public void Domain_compiles_against_core_runtime_assemblies_only()
     {
         var references = Layout.References(Layout.Domain);
 
         Assert.All(references, reference =>
-            Assert.True(reference.StartsWith("System.", StringComparison.Ordinal), $"Pfm.Domain references {reference}"));
+            Assert.True(DomainAllowedReferences.Contains(reference), $"Pfm.Domain references {reference}"));
+    }
+
+    [Fact]
+    public void Domain_project_declares_no_package_or_project_references()
+    {
+        // Compiled references only show what code uses today; the project file shows what it could use.
+        var project = Layout.ProjectFile("Pfm.Domain");
+
+        Assert.Empty(project.Descendants("PackageReference"));
+        Assert.Empty(project.Descendants("ProjectReference"));
+        Assert.Empty(project.Descendants("FrameworkReference"));
     }
 
     [Fact]

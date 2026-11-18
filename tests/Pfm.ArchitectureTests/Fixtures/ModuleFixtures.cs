@@ -24,6 +24,14 @@ namespace ArchFixture.Domain.Budgets
     }
 }
 
+namespace ArchFixture.Application.Contracts.Budgets
+{
+    public interface ILeaksAccountInternals
+    {
+        ArchFixture.Domain.Accounts.AccountInternals? Account { get; }
+    }
+}
+
 namespace ArchFixture.Application.Budgets
 {
     public sealed class UsesAccountContracts

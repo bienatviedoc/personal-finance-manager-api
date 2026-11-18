@@ -40,6 +40,10 @@ dotnet test Pfm.slnx
 
 Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
+CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
+project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
+the same way; the report lands in `TestResults/coverage/`.
+
 ## Layout
 
 A modular monolith. Dependencies point inwards, and the architecture tests fail the build when they do not.
