@@ -106,7 +106,8 @@ public class UserIsolationTests(PfmApi api) : IAsyncLifetime
     {
         await AddNoteAsync(_alice, "Alice's");
 
-        await using var db = As(null);
+        // What background jobs get: the host's default when nobody signs in.
+        await using var db = new IsolationDbContext(_options, new NoCurrentUser());
 
         Assert.Empty(await db.Notes.ToListAsync());
         db.Notes.Add(new Note("nobody's"));
