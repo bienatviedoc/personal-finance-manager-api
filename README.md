@@ -15,7 +15,8 @@ Requires Docker.
 docker compose up --build
 ```
 
-This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080 and the worker.
+This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080, the worker, and
+[Mailpit](https://mailpit.axllent.org), which catches every email the API sends: read them at http://localhost:8025.
 
 | URL | What |
 | --- | --- |
@@ -65,6 +66,35 @@ Code in one module may use another module only through that module's contracts, 
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
 
+## Signing in
+
+Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
+the browser never holds a token a script could read.
+
+- **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
+  registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
+  and OpenAPI are open; a test fails when that list changes.
+- **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
+  from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
+  it is tied to who is signed in.
+- **Cookies** are `Secure` with the `__Host-` prefix everywhere except the Development environment. The local
+  stack runs over plain `http://localhost`, so there they follow the request's scheme instead (see
+  `CookiePolicy`). In any other environment the API must sit behind TLS. A TLS-terminating proxy in front of it
+  will also need forwarded headers configured; that belongs with the deployment work.
+- **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
+  restarts and are shared by every API instance.
+
+## User-owned data
+
+An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmDbContext` enforces it:
+
+- every query, including bulk updates and deletes, sees only the signed-in user's rows;
+- new rows are stamped with the signed-in user;
+- changing or deleting another user's row fails, even for a row attached without loading it.
+
+Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
+runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user.
+
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
@@ -79,7 +109,9 @@ Code in one module may use another module only through that module's contracts, 
   A test fails when the model has changes that no migration covers.
 - **OpenAPI**: building `Pfm.Api` rewrites `openapi/pfm-api.json`. Commit it with the change that
   caused it; CI fails when the committed file is out of date.
-- **Configuration**: the database connection string is `ConnectionStrings__Pfm`. No secrets in the
+- **Configuration**: the database connection string is `ConnectionStrings__Pfm`. `App__PublicUrl` is the SPA's
+  address, which emailed links point to; the API refuses to start without it. Email goes out through
+  `Smtp__Host`, `Smtp__Port`, `Smtp__Username` and `Smtp__Password`. No secrets in the
   repository; the credentials in `compose.yaml` and `appsettings.Development.json` are for the local
   database only.
 - **Build**: nullable reference types are on and warnings are errors, for every project.

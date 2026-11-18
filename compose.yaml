@@ -3,8 +3,17 @@
 # ConnectionStrings__Pfm from their secret store.
 name: pfm
 
-x-connection: &connection
+x-environment: &environment
+  # The local stack runs over plain HTTP; Development relaxes cookies to match (see CookiePolicy).
+  ASPNETCORE_ENVIRONMENT: Development
+  DOTNET_ENVIRONMENT: Development
   ConnectionStrings__Pfm: Host=db;Port=5432;Database=pfm;Username=pfm;Password=pfm
+  # Links in emails point at the SPA's dev server.
+  App__PublicUrl: http://localhost:5173
+  # Every email lands in Mailpit: http://localhost:8025
+  Smtp__Host: mailpit
+  Smtp__Port: "1025"
+  Smtp__UseStartTls: "false"
 
 services:
   db:
@@ -23,12 +32,18 @@ services:
       timeout: 3s
       retries: 30
 
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
   # Applies database migrations, then exits. The API and worker wait for it.
   migrate:
     build: .
     image: pfm-api
     command: ["migrate"]
-    environment: *connection
+    environment: *environment
     depends_on:
       db:
         condition: service_healthy
@@ -36,12 +51,14 @@ services:
   api:
     build: .
     image: pfm-api
-    environment: *connection
+    environment: *environment
     ports:
       - "8080:8080"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mailpit:
+        condition: service_started
 
   worker:
     build:
@@ -49,7 +66,7 @@ services:
       args:
         PROJECT: Pfm.Worker
     image: pfm-worker
-    environment: *connection
+    environment: *environment
     depends_on:
       migrate:
         condition: service_completed_successfully

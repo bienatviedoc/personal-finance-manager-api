@@ -3,6 +3,8 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
 using Testcontainers.PostgreSql;
 
@@ -19,23 +21,82 @@ public sealed class PfmApi : IAsyncLifetime
 
     private readonly PostgreSqlContainer _database = new PostgreSqlBuilder("postgres:17-alpine").Build();
 
+    /// <summary>Where emails' links point: the SPA's address.</summary>
+    public const string PublicUrl = "https://pfm.test";
+
     private WebApplicationFactory<Program>? _factory;
 
     public IServiceProvider Services => Factory.Services;
+
+    /// <summary>The test database server, for tests that need a database of their own on it.</summary>
+    public string ConnectionString => _database.GetConnectionString();
+
+    /// <summary>Every email the API has sent, instead of delivering them.</summary>
+    public CapturedEmails Emails { get; } = new();
 
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("The API has not been started.");
 
     public HttpClient CreateClient() => Factory.CreateClient();
 
+    /// <summary>A client that behaves like one browser: it talks HTTPS and keeps its cookies.</summary>
+    public Browser CreateBrowser() =>
+        new(Factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true }));
+
+    /// <summary>The password every test user registers with.</summary>
+    public const string Password = "correct horse battery staple";
+
+    public static string NewEmail() => $"user-{Guid.NewGuid():N}@example.com";
+
+    /// <summary>The last link emailed to an address.</summary>
+    public Uri LastLinkTo(string email) => CapturedEmails.Links(Emails.To(email)[^1]).Single();
+
+    /// <summary>What the SPA's verify-email screen posts: the user id and token from the emailed link.</summary>
+    public static object VerificationFrom(Uri link)
+    {
+        var query = System.Web.HttpUtility.ParseQueryString(link.Query);
+        return new { userId = query["userId"], token = query["token"] };
+    }
+
+    /// <summary>A browser for a new user who has registered and confirmed their email, not yet signed in.</summary>
+    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync()
+    {
+        var browser = CreateBrowser();
+        var email = NewEmail();
+        (await browser.PostAsync("/api/v1/auth/register", new { email, password = Password })).EnsureSuccessStatusCode();
+        (await browser.PostAsync("/api/v1/auth/verify-email", VerificationFrom(LastLinkTo(email)))).EnsureSuccessStatusCode();
+        return (browser, email);
+    }
+
+    /// <summary>A browser signed in as a new user.</summary>
+    public async Task<(Browser Browser, string Email)> SignedInAsync()
+    {
+        var (browser, email) = await RegisteredAndVerifiedAsync();
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).EnsureSuccessStatusCode();
+        return (browser, email);
+    }
+
+    /// <summary>
+    /// A second copy of the API in the Development environment, used over plain HTTP the way the
+    /// local stack is (no TLS in front of it).
+    /// </summary>
+    public Browser CreateDevelopmentBrowserOverHttp()
+    {
+        var development = CreateFactory(ConnectionString, Emails, environment: "Development");
+        _extraFactories.Add(development);
+        return new Browser(development.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost"), HandleCookies = true }));
+    }
+
+    private readonly List<WebApplicationFactory<Program>> _extraFactories = [];
+
     /// <summary>A second copy of the API whose database cannot be reached.</summary>
     public WebApplicationFactory<Program> WithUnreachableDatabase() =>
-        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2");
+        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2", new CapturedEmails());
 
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
-        _factory = CreateFactory(_database.GetConnectionString());
+        _factory = CreateFactory(_database.GetConnectionString(), Emails);
         await _factory.Services.MigrateDatabaseAsync();
     }
 
@@ -46,15 +107,26 @@ public sealed class PfmApi : IAsyncLifetime
             await _factory.DisposeAsync();
         }
 
+        foreach (var factory in _extraFactories)
+        {
+            await factory.DisposeAsync();
+        }
+
         await _database.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString) =>
+    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, string environment = "Production") =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
-            builder.UseEnvironment("Production");
+            builder.UseEnvironment(environment);
             builder.UseSetting($"ConnectionStrings:{InfrastructureServices.ConnectionStringName}", connectionString);
-            builder.ConfigureServices(services => services.AddTransient<IStartupFilter, ThrowingRouteFilter>());
+            builder.UseSetting("App:PublicUrl", PublicUrl);
+            builder.ConfigureServices(services =>
+            {
+                services.AddTransient<IStartupFilter, ThrowingRouteFilter>();
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(emails);
+            });
         });
 
     private sealed class ThrowingRouteFilter : IStartupFilter
