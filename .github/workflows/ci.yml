@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore Pfm.slnx
+
+      - name: Build
+        run: dotnet build Pfm.slnx --no-restore -c Release
+
+      - name: OpenAPI document is up to date
+        run: git diff --exit-code -- openapi
+
+      # Integration tests start PostgreSQL through Testcontainers, using the runner's Docker.
+      # Fails when line coverage of Domain and Application is below 85% (spec section 13).
+      - name: Test with coverage
+        run: scripts/test-with-coverage.sh --no-build -c Release
+
+      - name: Coverage summary
+        if: always()
+        run: cat TestResults/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" || true
+
+  images:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build API image
+        run: docker build -t pfm-api .
+      - name: Build worker image
+        run: docker build -t pfm-worker --build-arg PROJECT=Pfm.Worker .

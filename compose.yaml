@@ -1,0 +1,58 @@
+# Local development stack: `docker compose up --build`.
+# The credentials below are for the local database only; real environments supply
+# ConnectionStrings__Pfm from their secret store.
+name: pfm
+
+x-connection: &connection
+  ConnectionStrings__Pfm: Host=db;Port=5432;Database=pfm;Username=pfm;Password=pfm
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: pfm
+      POSTGRES_USER: pfm
+      POSTGRES_PASSWORD: pfm
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pfm -d pfm"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # Applies database migrations, then exits. The API and worker wait for it.
+  migrate:
+    build: .
+    image: pfm-api
+    command: ["migrate"]
+    environment: *connection
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    image: pfm-api
+    environment: *connection
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      args:
+        PROJECT: Pfm.Worker
+    image: pfm-worker
+    environment: *connection
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  db-data:

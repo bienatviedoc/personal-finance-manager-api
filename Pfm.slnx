@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Pfm.Api/Pfm.Api.csproj" />
+    <Project Path="src/Pfm.Application/Pfm.Application.csproj" />
+    <Project Path="src/Pfm.Domain/Pfm.Domain.csproj" />
+    <Project Path="src/Pfm.Infrastructure/Pfm.Infrastructure.csproj" />
+    <Project Path="src/Pfm.Worker/Pfm.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Pfm.Api.IntegrationTests/Pfm.Api.IntegrationTests.csproj" />
+    <Project Path="tests/Pfm.ArchitectureTests/Pfm.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>
