@@ -4,11 +4,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
 using Pfm.Infrastructure.Transactions;
-using Pfm.Application.Transactions.Categories;
 
 namespace Pfm.Infrastructure;
 

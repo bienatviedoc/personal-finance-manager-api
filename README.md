@@ -68,11 +68,25 @@ Code in one module may use another module only through that module's contracts, 
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
 
+Categories belong to `Transactions` (spec section 5), so `Budgets`, `Imports` and `Reports` reach them through
+its contracts.
+
+### Use cases
+
+A use case is a command or query with its handler in `Pfm.Application.<Module>`, and each command has one
+FluentValidation validator next to it (see `Pfm.Application.Transactions.Categories`). An endpoint only maps
+HTTP: it builds the command, runs its validator (failures become a validation problem keyed by request field,
+see `Validation` in `Pfm.Api`), calls the handler and maps the result. Domain rules live on the domain types
+and are unit-tested in `Pfm.Domain.UnitTests`; an endpoint turns a broken rule into a validation problem
+naming the field at fault.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
 
+- **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
+  categories are created in it, in the same transaction as the user.
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
   registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
   and OpenAPI are open; a test fails when that list changes.
@@ -121,7 +135,9 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 `IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
-runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user.
+runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
+`IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
+if they were signed in. Registration uses it to create the new user's default categories.
 
 ## Conventions
 
