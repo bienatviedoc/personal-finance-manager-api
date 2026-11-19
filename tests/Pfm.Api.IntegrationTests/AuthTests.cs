@@ -95,6 +95,26 @@ public class AuthTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Signing_in_with_an_email_that_has_no_user_is_refused_like_a_wrong_password()
+    {
+        var (browser, email) = await api.RegisteredAndVerifiedAsync();
+
+        var unknownEmail = await browser.PostAsync("/api/v1/auth/login", new { email = NewEmail(), password = Password });
+        var wrongPassword = await browser.PostAsync("/api/v1/auth/login", new { email, password = "not the right password" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, unknownEmail.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
+        Assert.Equal(await ProblemTitleAsync(wrongPassword), await ProblemTitleAsync(unknownEmail));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    private static async Task<string?> ProblemTitleAsync(HttpResponseMessage response)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("title").GetString();
+    }
+
+    [Fact]
     public async Task Signing_out_ends_the_session()
     {
         var (browser, _) = await api.SignedInAsync();
