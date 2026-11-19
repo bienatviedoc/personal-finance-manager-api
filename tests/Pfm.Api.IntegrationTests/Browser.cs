@@ -25,6 +25,13 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PostJsonAsync(string path, string body, Traceparent? traceparent = null) =>
         PostAsync(path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent);
 
+    public Task<HttpResponseMessage> PatchAsync(string path, object body) =>
+        ChangeAsync(HttpMethod.Patch, path, JsonContent.Create(body), traceparent: null);
+
+    /// <summary>Patches with a body exactly as written.</summary>
+    public Task<HttpResponseMessage> PatchJsonAsync(string path, string body) =>
+        ChangeAsync(HttpMethod.Patch, path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent: null);
+
     public Task<HttpResponseMessage> PutAsync(string path, object body) =>
         ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body), traceparent: null);
 
