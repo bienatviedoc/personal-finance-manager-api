@@ -21,9 +21,9 @@ public static class ProfileEndpoints
 
     /// <summary>Changes the settings sent; any left out stay as they were.</summary>
     private static async Task<Results<Ok<ProfileResponse>, ValidationProblem, UnauthorizedHttpResult>> UpdateMe(
-        UpdateProfileCommand command, UpdateProfileHandler handler, CancellationToken cancellationToken)
+        UpdateProfileRequest request, UpdateProfileHandler handler, CancellationToken cancellationToken)
     {
-        var result = await handler.HandleAsync(command, cancellationToken);
+        var result = await handler.HandleAsync(new UpdateProfileCommand(request.BaseCurrency, request.TimeZone, request.Locale), cancellationToken);
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
@@ -32,6 +32,12 @@ public static class ProfileEndpoints
         return result.Outcome is { } profile ? TypedResults.Ok(ProfileResponse.From(profile)) : TypedResults.Unauthorized();
     }
 }
+
+/// <summary>The settings to change. Leave one out (or null) to keep it as it is.</summary>
+/// <param name="BaseCurrency">An ISO 4217 code the app supports, such as <c>VND</c>.</param>
+/// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
+/// <param name="Locale">A language tag: <c>en</c> or <c>vi</c>.</param>
+public sealed record UpdateProfileRequest(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null);
 
 /// <summary>The signed-in user and their settings.</summary>
 /// <param name="TimeZone">An IANA time zone id.</param>

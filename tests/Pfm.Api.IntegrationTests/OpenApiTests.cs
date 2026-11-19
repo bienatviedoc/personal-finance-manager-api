@@ -32,4 +32,17 @@ public class OpenApiTests(PfmApi api)
 
         Assert.Empty(undocumented);
     }
+
+    [Fact]
+    public async Task The_contract_names_no_Application_type()
+    {
+        // Requests and responses are the API's own types, so changing a use case cannot change the contract unseen.
+        var response = await api.CreateClient().GetAsync("/openapi/v1.json");
+        var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        var applicationTypes = typeof(Pfm.Application.ApplicationServices).Assembly.GetTypes().Select(type => type.Name).ToHashSet();
+
+        var schemas = document.GetProperty("components").GetProperty("schemas").EnumerateObject().Select(schema => schema.Name);
+
+        Assert.DoesNotContain(schemas, applicationTypes.Contains);
+    }
 }
