@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
-using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Domain;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
@@ -49,7 +49,7 @@ public static class IdentityEndpoints
     /// </summary>
     private static async Task<Results<Accepted, ValidationProblem>> Register(
         RegisterRequest request, UserManager<User> users, IdentityEmails emails, PfmDbContext db,
-        CreateDefaultCategoriesHandler defaultCategories, CancellationToken cancellationToken)
+        IDefaultCategories defaultCategories, CancellationToken cancellationToken)
     {
         request = request with { Email = request.Email?.Trim()! };
 
@@ -93,7 +93,7 @@ public static class IdentityEndpoints
     /// </summary>
     private static async Task<IdentityResult> CreateWithDefaultCategoriesAsync(
         User user, RegisterRequest request, UserManager<User> users, PfmDbContext db,
-        CreateDefaultCategoriesHandler defaultCategories, CancellationToken cancellationToken)
+        IDefaultCategories defaultCategories, CancellationToken cancellationToken)
     {
         // Disposing without committing rolls back, including after a failed statement.
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -110,7 +110,7 @@ public static class IdentityEndpoints
 
         if (created.Succeeded)
         {
-            await defaultCategories.HandleAsync(new CreateDefaultCategories(user.Id, LanguageOf(request)), cancellationToken);
+            await defaultCategories.CreateForNewUserAsync(user.Id, LanguageOf(request), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
         }
 

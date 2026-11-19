@@ -1,5 +1,6 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Transactions.Categories;
 
 namespace Pfm.Application;
@@ -16,6 +17,7 @@ public static class ApplicationServices
         services.AddScoped<UpdateCategoryHandler>();
         services.AddScoped<ArchiveCategoryHandler>();
         services.AddScoped<CreateDefaultCategoriesHandler>();
+        services.AddScoped<IDefaultCategories>(provider => provider.GetRequiredService<CreateDefaultCategoriesHandler>());
 
         return services;
     }

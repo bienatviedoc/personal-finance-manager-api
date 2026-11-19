@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Pfm.Application.Abstractions;
 using Pfm.Domain;
+using Pfm.Domain.Transactions;
 using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Infrastructure.Persistence;
@@ -36,6 +37,10 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         // Trigram indexes back free-text search on payee and note.
         modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PfmDbContext).Assembly);
+
+        // A user's data goes with them. Configured here, outside the modules, because no module may
+        // reach into Identity's user.
+        modelBuilder.Entity<Category>().HasOne<User>().WithMany().HasForeignKey(category => category.UserId).OnDelete(DeleteBehavior.Cascade);
 
         IsolateUserOwnedData(modelBuilder);
     }
