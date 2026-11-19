@@ -18,7 +18,7 @@ public sealed class Institution : IUserOwned
     {
     }
 
-    private Institution(string name, string? color, string? logoKey, DateTimeOffset now)
+    private Institution(string name, Color? color, string? logoKey, DateTimeOffset now)
     {
         Id = Guid.CreateVersion7(now);
         CreatedAt = now;
@@ -31,8 +31,8 @@ public sealed class Institution : IUserOwned
 
     public string Name { get; private set; } = "";
 
-    /// <summary>A colour as <c>#rrggbb</c>, in lower case, or none.</summary>
-    public string? Color { get; private set; }
+    /// <summary>The colour the institution is shown in, or none.</summary>
+    public Color? Color { get; private set; }
 
     /// <summary>One of <see cref="LogoKeys"/>, or none.</summary>
     public string? LogoKey { get; private set; }
@@ -43,10 +43,10 @@ public sealed class Institution : IUserOwned
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
-    public static Institution Create(string name, string? color, string? logoKey, DateTimeOffset now) =>
+    public static Institution Create(string name, Color? color, string? logoKey, DateTimeOffset now) =>
         new(name, color, logoKey, now);
 
-    public void Edit(string name, string? color, string? logoKey, DateTimeOffset now) => Set(name, color, logoKey, now);
+    public void Edit(string name, Color? color, string? logoKey, DateTimeOffset now) => Set(name, color, logoKey, now);
 
     /// <summary>Hides the institution from pickers. Archiving it again changes nothing.</summary>
     public void Archive(DateTimeOffset now)
@@ -63,22 +63,13 @@ public sealed class Institution : IUserOwned
     public static bool IsValidName(string? name) =>
         !string.IsNullOrWhiteSpace(name) && name.Trim().Length <= MaxNameLength;
 
-    /// <summary>A colour is written <c>#rrggbb</c>, in either case.</summary>
-    public static bool IsValidColor(string? color) =>
-        color is { Length: 7 } && color[0] == '#' && color.Skip(1).All(char.IsAsciiHexDigit);
-
     public static bool IsValidLogoKey(string? logoKey) => logoKey is not null && LogoKeys.Contains(logoKey);
 
-    private void Set(string name, string? color, string? logoKey, DateTimeOffset now)
+    private void Set(string name, Color? color, string? logoKey, DateTimeOffset now)
     {
         if (!IsValidName(name))
         {
             throw new ArgumentException($"An institution's name is required and at most {MaxNameLength} characters.", nameof(name));
-        }
-
-        if (color is not null && !IsValidColor(color))
-        {
-            throw new ArgumentException("A colour is written #rrggbb.", nameof(color));
         }
 
         if (logoKey is not null && !IsValidLogoKey(logoKey))
@@ -87,7 +78,7 @@ public sealed class Institution : IUserOwned
         }
 
         Name = name.Trim();
-        Color = color?.ToLowerInvariant();
+        Color = color;
         LogoKey = logoKey;
         UpdatedAt = now;
     }

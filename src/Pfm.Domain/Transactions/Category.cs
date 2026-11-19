@@ -11,10 +11,11 @@ public sealed class Category : IUserOwned
     /// <summary>For persistence, which sets every property itself.</summary>
     private Category()
     {
-        Name = Icon = Color = "";
+        Name = Icon = "";
+        Color = null!;
     }
 
-    private Category(string name, CategoryKind kind, string icon, string color, Guid? parentId, DateTimeOffset now)
+    private Category(string name, CategoryKind kind, string icon, Color color, Guid? parentId, DateTimeOffset now)
     {
         Id = Guid.CreateVersion7(now);
         CreatedAt = now;
@@ -40,8 +41,8 @@ public sealed class Category : IUserOwned
     /// <summary>The key of the icon shown with the category.</summary>
     public string Icon { get; private set; }
 
-    /// <summary>A hex colour such as <c>#ef4444</c>.</summary>
-    public string Color { get; private set; }
+    /// <summary>The colour the category is shown in.</summary>
+    public Color Color { get; private set; }
 
     /// <summary>Hidden from pickers; kept on the transactions that already use it.</summary>
     public bool IsArchived { get; private set; }
@@ -56,12 +57,8 @@ public sealed class Category : IUserOwned
     public static bool IsValidIcon(string? icon) =>
         icon is { Length: > 0 and <= 50 } && icon.All(character => char.IsAsciiLetterLower(character) || char.IsAsciiDigit(character) || character == '-');
 
-    /// <summary>A colour is written <c>#rrggbb</c>, in either case.</summary>
-    public static bool IsValidColor(string? color) =>
-        color is { Length: 7 } && color[0] == '#' && color.Skip(1).All(char.IsAsciiHexDigit);
-
     /// <summary>A top-level category, or a subcategory of <paramref name="parent"/>.</summary>
-    public static Category Create(string name, CategoryKind kind, string icon, string color, DateTimeOffset now, Category? parent = null)
+    public static Category Create(string name, CategoryKind kind, string icon, Color color, DateTimeOffset now, Category? parent = null)
     {
         EnsureValid(name, icon, color);
         if (!Enum.IsDefined(kind))
@@ -91,7 +88,7 @@ public sealed class Category : IUserOwned
     }
 
     /// <summary>Renames, recolours and re-icons the category.</summary>
-    public void Edit(string name, string icon, string color, DateTimeOffset now)
+    public void Edit(string name, string icon, Color color, DateTimeOffset now)
     {
         EnsureValid(name, icon, color);
         Name = name;
@@ -143,8 +140,10 @@ public sealed class Category : IUserOwned
         }
     }
 
-    private static void EnsureValid(string name, string icon, string color)
+    private static void EnsureValid(string name, string icon, Color color)
     {
+        ArgumentNullException.ThrowIfNull(color);
+
         if (!IsValidName(name))
         {
             throw new ArgumentException($"A category's name is required and at most {MaxNameLength} characters.", nameof(name));
@@ -153,11 +152,6 @@ public sealed class Category : IUserOwned
         if (!IsValidIcon(icon))
         {
             throw new ArgumentException("A category's icon is a key of lower-case letters, digits and hyphens.", nameof(icon));
-        }
-
-        if (!IsValidColor(color))
-        {
-            throw new ArgumentException("A category's colour is written #rrggbb.", nameof(color));
         }
     }
 

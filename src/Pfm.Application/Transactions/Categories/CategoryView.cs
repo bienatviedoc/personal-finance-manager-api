@@ -21,6 +21,6 @@ public sealed record CategoryView(
     }
 
     public static CategoryView Of(Category category, IEnumerable<Category> subcategories) =>
-        new(category.Id, category.ParentId, category.Name, category.Kind, category.Icon, category.Color, category.IsArchived,
+        new(category.Id, category.ParentId, category.Name, category.Kind, category.Icon, category.Color.Hex, category.IsArchived,
             [.. subcategories.Select(sub => Of(sub, []))]);
 }

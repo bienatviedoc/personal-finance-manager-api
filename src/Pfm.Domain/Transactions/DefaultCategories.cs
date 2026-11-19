@@ -65,9 +65,9 @@ public static class DefaultCategories
         var categories = new List<Category>();
         foreach (var (entry, kind, color) in Set)
         {
-            var category = Category.Create(NameOf(entry, language), kind, entry.Icon, color, now);
+            var category = Category.Create(NameOf(entry, language), kind, entry.Icon, Color.Parse(color), now);
             categories.Add(category);
-            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, language), kind, sub.Icon, color, now, parent: category)));
+            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, language), kind, sub.Icon, Color.Parse(color), now, parent: category)));
         }
 
         return categories;

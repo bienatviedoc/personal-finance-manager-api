@@ -9,6 +9,9 @@ namespace Pfm.Application.Transactions.Categories;
 public sealed record EditCategoryCommand(Guid Id, string Name, CategoryKind Kind, string Icon, string Color)
 {
     public string Name { get; } = Name?.Trim() ?? "";
+
+    /// <summary>The colour sent, read once; null when it is not a colour.</summary>
+    public Domain.Color? ParsedColor { get; } = Domain.Color.TryParse(Color, out var color) ? color : null;
 }
 
 public sealed class EditCategoryValidator : AbstractValidator<EditCategoryCommand>
@@ -19,7 +22,7 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
         RuleFor(command => command.Name).CategoryName();
         RuleFor(command => command.Kind).CategoryKind();
         RuleFor(command => command.Icon).CategoryIcon();
-        RuleFor(command => command.Color).CategoryColor();
+        RuleFor(command => command.Color).IsColor(command => command.ParsedColor);
     }
 }
 
@@ -55,7 +58,7 @@ public sealed class EditCategoryHandler(
             return Result<CategoryView?>.Invalid(violation.AsErrors());
         }
 
-        category.Edit(command.Name, command.Icon, command.Color, now);
+        category.Edit(command.Name, command.Icon, command.ParsedColor!, now);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return CategoryView.Of(category, subcategories);
     }

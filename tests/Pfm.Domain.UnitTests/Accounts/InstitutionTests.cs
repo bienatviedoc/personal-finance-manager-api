@@ -21,22 +21,19 @@ public class InstitutionTests
     [Fact]
     public void The_name_is_kept_without_surrounding_spaces_and_the_colour_in_lower_case()
     {
-        var institution = Institution.Create("  Techcombank ", "#E30613", "bank", Monday);
+        var institution = Institution.Create("  Techcombank ", Color.Parse("#E30613"), "bank", Monday);
 
         Assert.Equal("Techcombank", institution.Name);
-        Assert.Equal("#e30613", institution.Color);
+        Assert.Equal("#e30613", institution.Color?.Hex);
     }
 
     [Theory]
-    [InlineData("", null, null)]
-    [InlineData("   ", null, null)]
-    [InlineData("ok", "e30613", null)]
-    [InlineData("ok", "#e3061", null)]
-    [InlineData("ok", "#gggggg", null)]
-    [InlineData("ok", null, "vietcombank")]
-    public void An_institution_cannot_be_given_a_blank_name_or_a_malformed_colour_or_logo(string name, string? color, string? logoKey)
+    [InlineData("", null)]
+    [InlineData("   ", null)]
+    [InlineData("ok", "vietcombank")]
+    public void An_institution_cannot_be_given_a_blank_name_or_a_logo_not_on_offer(string name, string? logoKey)
     {
-        Assert.Throws<ArgumentException>(() => Institution.Create(name, color, logoKey, Monday));
+        Assert.Throws<ArgumentException>(() => Institution.Create(name, null, logoKey, Monday));
     }
 
     [Fact]
@@ -49,11 +46,11 @@ public class InstitutionTests
     [Fact]
     public void Editing_changes_every_field_and_when_it_was_updated()
     {
-        var institution = Institution.Create("MoMo", "#a50064", "wallet", Monday);
+        var institution = Institution.Create("MoMo", Color.Parse("#a50064"), "wallet", Monday);
 
         institution.Edit("MoMo wallet", null, null, Tuesday);
 
-        Assert.Equal(("MoMo wallet", (string?)null, (string?)null), (institution.Name, institution.Color, institution.LogoKey));
+        Assert.Equal(("MoMo wallet", (Color?)null, (string?)null), (institution.Name, institution.Color, institution.LogoKey));
         Assert.Equal(Monday, institution.CreatedAt);
         Assert.Equal(Tuesday, institution.UpdatedAt);
     }

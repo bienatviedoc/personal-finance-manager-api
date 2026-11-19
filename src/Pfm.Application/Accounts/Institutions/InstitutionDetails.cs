@@ -6,5 +6,5 @@ namespace Pfm.Application.Accounts.Institutions;
 public sealed record InstitutionDetails(Guid Id, string Name, string? Color, string? LogoKey, bool IsArchived)
 {
     public static InstitutionDetails From(Institution institution) =>
-        new(institution.Id, institution.Name, institution.Color, institution.LogoKey, institution.IsArchived);
+        new(institution.Id, institution.Name, institution.Color?.Hex, institution.LogoKey, institution.IsArchived);
 }

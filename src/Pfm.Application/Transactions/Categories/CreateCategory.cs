@@ -9,6 +9,9 @@ namespace Pfm.Application.Transactions.Categories;
 public sealed record CreateCategoryCommand(Guid? ParentId, string Name, CategoryKind Kind, string Icon, string Color)
 {
     public string Name { get; } = Name?.Trim() ?? "";
+
+    /// <summary>The colour sent, read once; null when it is not a colour.</summary>
+    public Domain.Color? ParsedColor { get; } = Domain.Color.TryParse(Color, out var color) ? color : null;
 }
 
 public sealed class CreateCategoryValidator : AbstractValidator<CreateCategoryCommand>
@@ -18,7 +21,7 @@ public sealed class CreateCategoryValidator : AbstractValidator<CreateCategoryCo
         RuleFor(command => command.Name).CategoryName();
         RuleFor(command => command.Kind).CategoryKind();
         RuleFor(command => command.Icon).CategoryIcon();
-        RuleFor(command => command.Color).CategoryColor();
+        RuleFor(command => command.Color).IsColor(command => command.ParsedColor);
     }
 }
 
@@ -42,7 +45,7 @@ public sealed class CreateCategoryHandler(
         Category category;
         try
         {
-            category = Category.Create(command.Name, command.Kind, command.Icon, command.Color, clock.GetUtcNow(), parent);
+            category = Category.Create(command.Name, command.Kind, command.Icon, command.ParsedColor!, clock.GetUtcNow(), parent);
         }
         catch (CategoryRuleViolation violation)
         {

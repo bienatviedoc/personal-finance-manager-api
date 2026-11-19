@@ -4,7 +4,13 @@ using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Accounts.Institutions;
 
-public sealed record EditInstitutionCommand(Guid Id, string Name, string? Color, string? LogoKey);
+public sealed record EditInstitutionCommand(Guid Id, string Name, string? Color, string? LogoKey)
+{
+    public string Name { get; } = Name?.Trim() ?? "";
+
+    /// <summary>The colour sent, read once; null when none was sent or it is not a colour.</summary>
+    public Domain.Color? ParsedColor { get; } = Domain.Color.TryParse(Color, out var color) ? color : null;
+}
 
 public sealed class EditInstitutionValidator : AbstractValidator<EditInstitutionCommand>
 {
@@ -12,7 +18,7 @@ public sealed class EditInstitutionValidator : AbstractValidator<EditInstitution
     {
         RuleFor(command => command.Id).Required();
         RuleFor(command => command.Name).InstitutionName();
-        RuleFor(command => command.Color).InstitutionColor();
+        RuleFor(command => command.Color).IsColor(command => command.ParsedColor, optional: true);
         RuleFor(command => command.LogoKey).InstitutionLogoKey();
     }
 }
@@ -30,7 +36,7 @@ public sealed class EditInstitutionHandler(
             return (InstitutionDetails?)null;
         }
 
-        institution.Edit(command.Name, command.Color, command.LogoKey, clock.GetUtcNow());
+        institution.Edit(command.Name, command.ParsedColor, command.LogoKey, clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return InstitutionDetails.From(institution);
