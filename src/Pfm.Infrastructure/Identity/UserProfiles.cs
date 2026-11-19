@@ -13,16 +13,16 @@ internal sealed class UserProfiles(PfmDbContext db) : IUserProfiles
             .Select(user => new ProfileDetails(user.Id, user.Email!, user.BaseCurrency, user.TimeZone, user.Locale))
             .SingleOrDefaultAsync(cancellationToken);
 
-    public async Task<bool> SaveAsync(Guid userId, ProfileSettings settings, CancellationToken cancellationToken)
+    public async Task<bool> ChangeSettingsAsync(Guid userId, ProfileSettings settings, CancellationToken cancellationToken)
     {
-        var updated = await db.Users
-            .Where(user => user.Id == userId)
-            .ExecuteUpdateAsync(
-                set => set
-                    .SetProperty(user => user.BaseCurrency, settings.BaseCurrency)
-                    .SetProperty(user => user.TimeZone, settings.TimeZone)
-                    .SetProperty(user => user.Locale, settings.Locale),
-                cancellationToken);
-        return updated == 1;
+        if (await db.Users.FindAsync([userId], cancellationToken) is not { } user)
+        {
+            return false;
+        }
+
+        user.BaseCurrency = settings.BaseCurrency;
+        user.TimeZone = settings.TimeZone;
+        user.Locale = settings.Locale;
+        return true;
     }
 }
