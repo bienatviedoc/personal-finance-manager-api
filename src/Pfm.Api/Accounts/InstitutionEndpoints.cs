@@ -35,18 +35,38 @@ public static class InstitutionEndpoints
     private static async Task<Results<Created<InstitutionResponse>, ValidationProblem>> Create(
         InstitutionRequest request, CreateInstitutionHandler handler, CancellationToken cancellationToken)
     {
-        var created = await handler.HandleAsync(new CreateInstitution(request.Name, request.Color, request.LogoKey), cancellationToken);
-        return TypedResults.Created($"/api/v1/institutions/{created.Id}", InstitutionResponse.From(created));
+        var result = await handler.HandleAsync(new CreateInstitutionCommand(request.Name, request.Color, request.LogoKey), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return TypedResults.Created($"/api/v1/institutions/{result.Outcome.Id}", InstitutionResponse.From(result.Outcome));
     }
 
     private static async Task<Results<Ok<InstitutionResponse>, NotFound, ValidationProblem>> Edit(
-        Guid id, InstitutionRequest request, EditInstitutionHandler handler, CancellationToken cancellationToken) =>
-        await handler.HandleAsync(new EditInstitution(id, request.Name, request.Color, request.LogoKey), cancellationToken) is { } edited
-            ? TypedResults.Ok(InstitutionResponse.From(edited))
-            : TypedResults.NotFound();
+        Guid id, InstitutionRequest request, EditInstitutionHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new EditInstitutionCommand(id, request.Name, request.Color, request.LogoKey), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
 
-    private static async Task<Results<NoContent, NotFound>> Archive(Guid id, ArchiveInstitutionHandler handler, CancellationToken cancellationToken) =>
-        await handler.HandleAsync(new ArchiveInstitution(id), cancellationToken) ? TypedResults.NoContent() : TypedResults.NotFound();
+        return result.Outcome is { } edited ? TypedResults.Ok(InstitutionResponse.From(edited)) : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<NoContent, NotFound, ValidationProblem>> Archive(
+        Guid id, ArchiveInstitutionHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new ArchiveInstitutionCommand(id), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome == ArchiveInstitutionOutcome.Archived ? TypedResults.NoContent() : TypedResults.NotFound();
+    }
 }
 
 /// <summary>What creating or editing an institution sends. Colour is <c>#rrggbb</c>; the logo is one of the logo keys on offer.</summary>

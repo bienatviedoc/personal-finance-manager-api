@@ -1,12 +1,13 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.UseCases;
 using Pfm.Domain.Accounts;
 
 namespace Pfm.Application.Accounts.Institutions;
 
-public sealed record CreateInstitution(string Name, string? Color, string? LogoKey);
+public sealed record CreateInstitutionCommand(string Name, string? Color, string? LogoKey);
 
-public sealed class CreateInstitutionValidator : AbstractValidator<CreateInstitution>
+public sealed class CreateInstitutionValidator : AbstractValidator<CreateInstitutionCommand>
 {
     public CreateInstitutionValidator()
     {
@@ -17,12 +18,11 @@ public sealed class CreateInstitutionValidator : AbstractValidator<CreateInstitu
 }
 
 public sealed class CreateInstitutionHandler(
-    IValidator<CreateInstitution> validator, IInstitutionRepository institutions, IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<CreateInstitutionCommand> validator, IInstitutionRepository institutions, IUnitOfWork unitOfWork, TimeProvider clock)
+    : CommandHandler<CreateInstitutionCommand, InstitutionDetails>(validator)
 {
-    public async Task<InstitutionDetails> HandleAsync(CreateInstitution command, CancellationToken cancellationToken = default)
+    protected override async Task<Result<InstitutionDetails>> ExecuteAsync(CreateInstitutionCommand command, CancellationToken cancellationToken)
     {
-        await validator.ValidateAndThrowAsync(command, cancellationToken);
-
         var institution = Institution.Create(command.Name, command.Color, command.LogoKey, clock.GetUtcNow());
         institutions.Add(institution);
         await unitOfWork.SaveChangesAsync(cancellationToken);

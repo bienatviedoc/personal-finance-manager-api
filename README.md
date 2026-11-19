@@ -55,7 +55,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | Project | Responsibility | Depends on |
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
-| `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
+| `Pfm.Application` | Use cases per module (commands, validators, handlers); interfaces for persistence, storage, email, clock | Domain |
 | `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
@@ -71,28 +71,43 @@ Code in one module may use another module only through that module's contracts, 
 
 ### Use cases
 
-A use case is a command or query in its module's folder of `Pfm.Application`, for example
-`Pfm.Application.Accounts.Institutions.CreateInstitution`, with:
+Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
+input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
+handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
+handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+`AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
+`UseCaseTests` fails when a command has no validator, or more than one.
 
-- a handler (`CreateInstitutionHandler.HandleAsync`) that does the work and returns what the endpoint answers
-  with, or null when the user has no such thing (a 404);
-- for a command, one FluentValidation validator (`CreateInstitutionValidator`), which the handler runs first. A
-  failure becomes a 400 validation problem with errors keyed by request field (`AnswerValidationFailures` in
-  `Pfm.Api`). Validators reuse the domain type's rules, and the domain type still refuses what breaks them;
-- persistence behind an Application interface (`IInstitutionRepository`) implemented in `Pfm.Infrastructure`,
-  with changes saved through `IUnitOfWork`, and the time from `TimeProvider`.
+An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
+turns the outcome into a response. `ValidationProblems.For` turns errors into Problem Details keyed by
+the request's field names (`Email` becomes `email`).
 
-Endpoints only map HTTP to and from the use cases. Handlers are registered per module (`AddAccountsModule`);
-validators are found by scanning.
+What a use case needs from outside, it asks for through an interface in its module (a port, such as
+`IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
+the session cookie). Application never references ASP.NET Core or EF Core.
 
-**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it leaves lists and
-pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever already uses it can
-still show it.
+A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
+`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. A validator reuses its
+domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
+already uses it can still show it.
 
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
+
+The use cases (register, verify email, resend verification, sign in, sign out) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
+API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such as the worker, get
+`NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+method on a port when it needs something Identity does, such as a reset token.
 
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
   registering, signing in, confirming an email address, resending that link, the anti-forgery token, health

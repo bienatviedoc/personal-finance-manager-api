@@ -1,4 +1,5 @@
 using FluentValidation;
+using Pfm.Application.UseCases;
 using Pfm.Domain.Accounts;
 
 namespace Pfm.Application.Accounts.Institutions;
@@ -7,7 +8,7 @@ namespace Pfm.Application.Accounts.Institutions;
 internal static class InstitutionRules
 {
     public static IRuleBuilderOptions<T, string> InstitutionName<T>(this IRuleBuilder<T, string> rule) =>
-        rule.Must(Institution.IsValidName).WithMessage($"Enter a name of at most {Institution.MaxNameLength} characters.");
+        rule.Required().Must(Institution.IsValidName).WithMessage($"Enter a name of at most {Institution.MaxNameLength} characters.");
 
     public static IRuleBuilderOptions<T, string?> InstitutionColor<T>(this IRuleBuilder<T, string?> rule) =>
         rule.Must(color => color is null || Institution.IsValidColor(color)).WithMessage("Enter a colour as #rrggbb.");

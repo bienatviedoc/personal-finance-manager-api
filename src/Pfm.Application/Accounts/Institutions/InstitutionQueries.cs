@@ -1,9 +1,11 @@
+using Pfm.Application.UseCases;
+
 namespace Pfm.Application.Accounts.Institutions;
 
 /// <summary>The user's institutions by name. Archived ones are left out unless asked for.</summary>
 public sealed record ListInstitutions(bool IncludeArchived = false);
 
-public sealed class ListInstitutionsHandler(IInstitutionRepository institutions)
+public sealed class ListInstitutionsHandler(IInstitutionRepository institutions) : IQueryHandler
 {
     public async Task<IReadOnlyList<InstitutionDetails>> HandleAsync(ListInstitutions query, CancellationToken cancellationToken = default)
     {
@@ -18,7 +20,7 @@ public sealed class ListInstitutionsHandler(IInstitutionRepository institutions)
 /// <summary>One of the user's institutions, archived or not, so accounts that use it can still show it.</summary>
 public sealed record GetInstitution(Guid Id);
 
-public sealed class GetInstitutionHandler(IInstitutionRepository institutions)
+public sealed class GetInstitutionHandler(IInstitutionRepository institutions) : IQueryHandler
 {
     public async Task<InstitutionDetails?> HandleAsync(GetInstitution query, CancellationToken cancellationToken = default) =>
         await institutions.FindAsync(query.Id, cancellationToken) is { } institution ? InstitutionDetails.From(institution) : null;

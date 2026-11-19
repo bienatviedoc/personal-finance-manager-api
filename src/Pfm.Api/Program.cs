@@ -3,7 +3,6 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Pfm.Api.Accounts;
 using Pfm.Api.Identity;
-using Pfm.Api.Validation;
 using Pfm.Application;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
@@ -71,7 +70,6 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 
 app.MapGroup("/api/v1")
     .DocumentAntiforgeryRefusals()
-    .AnswerValidationFailures()
     .MapIdentityEndpoints()
     .MapInstitutionEndpoints();
 
