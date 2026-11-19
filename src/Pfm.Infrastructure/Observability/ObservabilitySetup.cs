@@ -26,10 +26,10 @@ public static class ObservabilitySetup
     /// API and the worker. A host adds the instrumentation only it has (the API adds incoming
     /// requests) through the returned builder.
     /// </summary>
-    /// <param name="errorReports">Host-specific changes to error reporting, such as exceptions not worth reporting.</param>
-    public static OpenTelemetryBuilder AddPfmObservability(this IHostApplicationBuilder builder, string serviceName, Action<SentryOptions>? errorReports = null)
+    /// <param name="configureErrorReports">Host-specific Sentry options for error reports, such as exceptions not worth reporting.</param>
+    public static OpenTelemetryBuilder AddPfmObservability(this IHostApplicationBuilder builder, string serviceName, Action<SentryOptions>? configureErrorReports = null)
     {
-        builder.AddLogging(serviceName, errorReports);
+        builder.AddLogging(serviceName, configureErrorReports);
 
         var telemetry = builder.Services.AddOpenTelemetry()
             .ConfigureResource(resource => resource.AddService(serviceName))
@@ -54,7 +54,7 @@ public static class ObservabilitySetup
     /// from the <c>Serilog</c> configuration section; sinks a host registers as
     /// <see cref="ILogEventSink"/> are added too.
     /// </summary>
-    private static void AddLogging(this IHostApplicationBuilder builder, string serviceName, Action<SentryOptions>? errorReports)
+    private static void AddLogging(this IHostApplicationBuilder builder, string serviceName, Action<SentryOptions>? configureErrorReports)
     {
         var configuration = builder.Configuration;
         var development = builder.Environment.IsDevelopment();
@@ -62,7 +62,9 @@ public static class ObservabilitySetup
         var errorTrackerDsn = configuration[ErrorTrackerDsnSetting];
         if (!string.IsNullOrWhiteSpace(errorTrackerDsn))
         {
-            builder.Services.AddSingleton(new ErrorReports(errorTrackerDsn, builder.Environment.EnvironmentName, errorReports));
+            // Built by the container, not handed to it, so the container disposes it, flushing queued reports.
+            var environment = builder.Environment.EnvironmentName;
+            builder.Services.AddSingleton(_ => new ErrorReports(errorTrackerDsn, environment, configureErrorReports));
         }
 
         // The static Log.Logger is left alone, so several hosts can run in one process (tests do).
@@ -93,9 +95,9 @@ public static class ObservabilitySetup
             }
 
             // Started with the logger, so it is ready for the first error.
-            if (services.GetService<ErrorReports>() is { } errorTracker)
+            if (services.GetService<ErrorReports>() is { } errorReports)
             {
-                errorTracker.Start();
+                errorReports.Start();
                 logger.WriteTo.Sentry(ErrorReports.ConfigureSink);
             }
         }, preserveStaticLogger: true);

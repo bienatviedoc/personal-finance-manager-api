@@ -34,18 +34,10 @@ public sealed class FakeErrorTracker : IAsyncDisposable
 
     /// <summary>
     /// The reports received so far. Reports are sent in the background, so this waits until
-    /// <paramref name="until"/> holds or a few seconds pass.
+    /// <paramref name="until"/> holds.
     /// </summary>
-    public async Task<IReadOnlyList<Report>> ReportsAsync(Func<IReadOnlyList<Report>, bool> until)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!until(_reports.ToList()) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20);
-        }
-
-        return _reports.ToList();
-    }
+    public Task<List<Report>> ReportsAsync(Func<List<Report>, bool> until) =>
+        Eventually.ReadAsync(() => _reports.ToList(), until);
 
     private async Task ServeAsync()
     {

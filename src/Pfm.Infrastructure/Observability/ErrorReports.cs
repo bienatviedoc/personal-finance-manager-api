@@ -12,7 +12,7 @@ namespace Pfm.Infrastructure.Observability;
 /// rendered log messages stay behind, in our own logs and traces, where the trace id finds them.
 /// </summary>
 /// <remarks>The Sentry SDK is process-wide; it is closed, flushing what is queued, when the host's services are disposed.</remarks>
-internal sealed class ErrorReports(string dsn, string environment, Action<SentryOptions>? hostSpecific) : IDisposable
+internal sealed class ErrorReports(string dsn, string environment, Action<SentryOptions>? configureForHost) : IDisposable
 {
     private IDisposable? _sdk;
 
@@ -37,7 +37,7 @@ internal sealed class ErrorReports(string dsn, string environment, Action<Sentry
         sentry.SetBeforeSend(Scrub);
         sentry.UseSerilog();
 
-        hostSpecific?.Invoke(sentry);
+        configureForHost?.Invoke(sentry);
     }
 
     /// <summary>Runs as the error is logged, so the trace it happened in is still current.</summary>
@@ -49,8 +49,14 @@ internal sealed class ErrorReports(string dsn, string environment, Action<Sentry
             return null;
         }
 
-        // The template ("Order {Id} failed"), never the message rendered with its values.
+        // The template ("Transaction {Id} failed"), never the message rendered with its values.
         report.Message = report.Message?.Message is { } template ? new SentryMessage { Message = template } : null;
+        // Exception.Data, copied into the report, holds whatever the thrower put there.
+        foreach (var exception in report.SentryExceptions ?? [])
+        {
+            exception.Mechanism?.Data.Clear();
+        }
+
         report.User = new SentryUser();
         report.Request = new SentryRequest();
 

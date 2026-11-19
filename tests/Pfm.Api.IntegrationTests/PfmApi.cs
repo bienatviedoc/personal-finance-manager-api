@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
+using Pfm.Infrastructure.Observability;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Serilog.Core;
@@ -69,7 +70,7 @@ public sealed class PfmApi : IAsyncLifetime
         return new { userId = query["userId"], token = query["token"] };
     }
 
-    /// <summary>A browser for a new user who has registered and confirmed their email, not yet signed in.</summary>
+    /// <summary>A browser (a new one, or the given one) for a new user who has registered and confirmed their email, not yet signed in.</summary>
     public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null)
     {
         browser ??= CreateBrowser();
@@ -79,10 +80,10 @@ public sealed class PfmApi : IAsyncLifetime
         return (browser, email);
     }
 
-    /// <summary>A browser signed in as a new user; by default on this API, or else on the given browser's.</summary>
-    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? on = null)
+    /// <summary>A browser signed in as a new user: a new one on this API, or the given one (perhaps on another copy of the API).</summary>
+    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? browser = null)
     {
-        var (browser, email) = await RegisteredAndVerifiedAsync(on);
+        (browser, var email) = await RegisteredAndVerifiedAsync(browser);
         (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).EnsureSuccessStatusCode();
         return (browser, email);
     }
@@ -106,7 +107,7 @@ public sealed class PfmApi : IAsyncLifetime
 
     /// <summary>A second copy of the API that reports errors to the given error tracker.</summary>
     public WebApplicationFactory<Program> ReportingErrorsTo(FakeErrorTracker tracker) =>
-        CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), settings: new() { ["Sentry:Dsn"] = tracker.Dsn });
+        CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), settings: new() { [ObservabilitySetup.ErrorTrackerDsnSetting] = tracker.Dsn });
 
     /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
     public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
@@ -167,7 +168,7 @@ public sealed class PfmApi : IAsyncLifetime
             {
                 if (context.Request.Path == ThrowingPath)
                 {
-                    throw new InvalidOperationException("secret internal detail");
+                    throw new InvalidOperationException("secret internal detail") { Data = { ["payee"] = "Corner Bakery" } };
                 }
 
                 if (context.Request.Path == CurrentUserPath)

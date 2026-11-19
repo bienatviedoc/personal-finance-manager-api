@@ -10,7 +10,7 @@ using Serilog;
 var builder = WebApplication.CreateBuilder(args);
 
 // A body that cannot be read is the caller's mistake, not ours (see the exception handler below).
-builder.AddPfmObservability("pfm-api", errorReports: sentry => sentry.AddExceptionFilterForType<BadHttpRequestException>())
+builder.AddPfmObservability("pfm-api", configureErrorReports: sentry => sentry.AddExceptionFilterForType<BadHttpRequestException>())
     .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation())
     .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation());
 

@@ -30,36 +30,12 @@ public sealed class CapturedTelemetry
     /// The spans of one trace. A span is exported when it ends, which can be just after the response
     /// reaches the client, so this waits until <paramref name="until"/> holds or a few seconds pass.
     /// </summary>
-    public async Task<IReadOnlyList<Activity>> SpansOfTraceAsync(ActivityTraceId traceId, Func<IReadOnlyList<Activity>, bool> until)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (true)
-        {
-            var spans = _spans.Where(span => span.TraceId == traceId).ToList();
-            if (until(spans) || DateTime.UtcNow > deadline)
-            {
-                return spans;
-            }
-
-            await Task.Delay(20);
-        }
-    }
+    public Task<List<Activity>> SpansOfTraceAsync(ActivityTraceId traceId, Func<List<Activity>, bool> until) =>
+        Eventually.ReadAsync(() => _spans.Where(span => span.TraceId == traceId).ToList(), until);
 
     /// <summary>The log events written while serving one trace, waiting as for spans.</summary>
-    public async Task<IReadOnlyList<LogEvent>> LogsOfTraceAsync(ActivityTraceId traceId, Func<IReadOnlyList<LogEvent>, bool> until)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (true)
-        {
-            var logs = _logs.Where(log => log.TraceId == traceId).ToList();
-            if (until(logs) || DateTime.UtcNow > deadline)
-            {
-                return logs;
-            }
-
-            await Task.Delay(20);
-        }
-    }
+    public Task<List<LogEvent>> LogsOfTraceAsync(ActivityTraceId traceId, Func<List<LogEvent>, bool> until) =>
+        Eventually.ReadAsync(() => _logs.Where(log => log.TraceId == traceId).ToList(), until);
 
     public sealed class SpanExporter(ConcurrentQueue<Activity> spans) : BaseExporter<Activity>
     {

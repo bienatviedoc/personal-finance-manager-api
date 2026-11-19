@@ -40,7 +40,7 @@ public class ObservabilityTests(PfmApi api)
     {
         await using var tracker = new FakeErrorTracker();
         await using var reporting = api.ReportingErrorsTo(tracker);
-        var (browser, email) = await api.SignedInAsync(on: PfmApi.CreateBrowser(reporting));
+        var (browser, email) = await api.SignedInAsync(PfmApi.CreateBrowser(reporting));
         var (traceparent, traceId) = CapturedTelemetry.NewTraceparent();
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{PfmApi.ThrowingPath}?payee=Corner+Bakery&amount=4815.16")
         {
