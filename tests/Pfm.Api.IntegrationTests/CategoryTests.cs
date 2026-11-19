@@ -188,7 +188,7 @@ public class CategoryTests(PfmApi api)
     {
         var response = await browser.GetAsync($"/api/v1/categories?includeArchived={includeArchived}");
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<List<CategoryBody>>())!;
+        return (await response.Content.ReadFromJsonAsync<CategoryList>())!.Items;
     }
 
     private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
@@ -198,4 +198,6 @@ public class CategoryTests(PfmApi api)
     }
 
     private sealed record CategoryBody(Guid Id, Guid? ParentId, string Name, string Kind, string Icon, string Color, bool IsArchived, List<CategoryBody> Subcategories);
+
+    private sealed record CategoryList(List<CategoryBody> Items);
 }

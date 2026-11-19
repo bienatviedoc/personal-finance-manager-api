@@ -7,10 +7,10 @@ namespace Pfm.Infrastructure.Identity;
 
 internal sealed class UserProfiles(PfmDbContext db) : IUserProfiles
 {
-    public Task<UserProfile?> FindAsync(Guid userId, CancellationToken cancellationToken) =>
+    public Task<ProfileDetails?> FindAsync(Guid userId, CancellationToken cancellationToken) =>
         db.Users
             .Where(user => user.Id == userId)
-            .Select(user => new UserProfile(user.Id, user.Email!, user.BaseCurrency, user.TimeZone, user.Locale))
+            .Select(user => new ProfileDetails(user.Id, user.Email!, user.BaseCurrency, user.TimeZone, user.Locale))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<bool> SaveAsync(Guid userId, ProfileSettings settings, CancellationToken cancellationToken)

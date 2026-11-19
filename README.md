@@ -86,7 +86,10 @@ no such thing, and the endpoint answers 404: `EditInstitution` answers `Institut
 `UseCaseTests` fails when a command has no validator, or more than one.
 
 An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
-turns the outcome into a response. `ValidationProblems.For` turns errors into Problem Details keyed by
+turns the outcome into a response. Requests and responses are the API's own types (`InstitutionRequest`,
+`CategoryResponse`), never Application ones, so the OpenAPI contract changes only when an endpoint does: a use
+case answers a `…Details` record (`InstitutionDetails`, `CategoryDetails`, `ProfileDetails`) and the endpoint
+maps it to a `…Response`. A list answers an object with its `items`. `ValidationProblems.For` turns errors into Problem Details keyed by
 the request's field names (`Email` becomes `email`).
 
 What a use case needs from outside, it asks for through an interface in its module (a port, such as

@@ -28,9 +28,9 @@ public sealed class CreateCategoryValidator : AbstractValidator<CreateCategoryCo
 /// <summary>Answers the new category, or null when the parent is not one of the user's categories.</summary>
 public sealed class CreateCategoryHandler(
     IValidator<CreateCategoryCommand> validator, ICategoryRepository categories, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<CreateCategoryCommand, CategoryView?>(validator)
+    : CommandHandler<CreateCategoryCommand, CategoryDetails?>(validator)
 {
-    protected override async Task<Result<CategoryView?>> ExecuteAsync(CreateCategoryCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<CategoryDetails?>> ExecuteAsync(CreateCategoryCommand command, CancellationToken cancellationToken)
     {
         Category? parent = null;
         if (command.ParentId is { } parentId)
@@ -38,7 +38,7 @@ public sealed class CreateCategoryHandler(
             parent = await categories.FindAsync(parentId, cancellationToken);
             if (parent is null)
             {
-                return (CategoryView?)null;
+                return (CategoryDetails?)null;
             }
         }
 
@@ -49,11 +49,11 @@ public sealed class CreateCategoryHandler(
         }
         catch (CategoryRuleViolation violation)
         {
-            return Result<CategoryView?>.Invalid(violation.AsErrors());
+            return Result<CategoryDetails?>.Invalid(violation.AsErrors());
         }
 
         categories.Add(category);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return CategoryView.Of(category, []);
+        return CategoryDetails.Of(category, []);
     }
 }

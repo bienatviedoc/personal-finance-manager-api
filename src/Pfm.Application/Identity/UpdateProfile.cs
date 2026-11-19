@@ -44,11 +44,11 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
 /// </summary>
 /// <remarks>Spec rule 12 (the base currency locks once a budget exists) belongs here once budgets exist.</remarks>
 public sealed class UpdateProfileHandler(IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles)
-    : CommandHandler<UpdateProfileCommand, UserProfile?>(validator)
+    : CommandHandler<UpdateProfileCommand, ProfileDetails?>(validator)
 {
-    private static readonly UserProfile? NoUser = null;
+    private static readonly ProfileDetails? NoUser = null;
 
-    protected override async Task<Result<UserProfile?>> ExecuteAsync(UpdateProfileCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<ProfileDetails?>> ExecuteAsync(UpdateProfileCommand command, CancellationToken cancellationToken)
     {
         if (currentUser.UserId is not { } userId || await profiles.FindAsync(userId, cancellationToken) is not { } profile)
         {

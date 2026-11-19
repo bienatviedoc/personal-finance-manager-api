@@ -9,6 +9,6 @@ public sealed record GetProfile;
 public sealed class GetProfileHandler(ICurrentUser currentUser, IUserProfiles profiles) : IQueryHandler
 {
     /// <summary>The signed-in user's profile, or null when nobody is signed in (or their user is gone).</summary>
-    public async Task<UserProfile?> HandleAsync(GetProfile query, CancellationToken cancellationToken = default) =>
+    public async Task<ProfileDetails?> HandleAsync(GetProfile query, CancellationToken cancellationToken = default) =>
         currentUser.UserId is { } userId ? await profiles.FindAsync(userId, cancellationToken) : null;
 }

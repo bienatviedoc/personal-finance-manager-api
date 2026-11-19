@@ -32,14 +32,14 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
 /// </summary>
 public sealed class EditCategoryHandler(
     IValidator<EditCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<EditCategoryCommand, CategoryView?>(validator)
+    : CommandHandler<EditCategoryCommand, CategoryDetails?>(validator)
 {
-    protected override async Task<Result<CategoryView?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<CategoryDetails?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
     {
         var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)
         {
-            return (CategoryView?)null;
+            return (CategoryDetails?)null;
         }
 
         var now = clock.GetUtcNow();
@@ -54,11 +54,11 @@ public sealed class EditCategoryHandler(
         }
         catch (CategoryRuleViolation violation)
         {
-            return Result<CategoryView?>.Invalid(violation.AsErrors());
+            return Result<CategoryDetails?>.Invalid(violation.AsErrors());
         }
 
         category.Edit(command.Name, command.Icon, command.ParsedColor!, now);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return CategoryView.Of(category, subcategories);
+        return CategoryDetails.Of(category, subcategories);
     }
 }
