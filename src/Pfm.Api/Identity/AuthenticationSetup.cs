@@ -17,7 +17,9 @@ public static class AuthenticationSetup
     /// </summary>
     public static IServiceCollection AddPfmAuthentication(this IServiceCollection services, CookiePolicy cookies)
     {
-        services.AddUsers().AddSignInManager().AddDefaultTokenProviders();
+        services.AddUsers().AddSignInManager().AddDefaultTokenProviders()
+            .AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProviderOptions.ProviderName);
+        services.Configure<IdentityOptions>(options => options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderOptions.ProviderName);
         services.Replace(ServiceDescriptor.Scoped<ISessions, CookieSessions>());
 
         services.AddDataProtection().SetApplicationName("pfm").PersistKeysToDbContext<PfmDbContext>();

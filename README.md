@@ -107,7 +107,8 @@ the browser never holds a token a script could read.
 - **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
   categories are created in it, in the same transaction as the user.
 
-The use cases (register, verify email, resend verification, sign in, sign out) are in
+The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
+reset the password) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
 and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
@@ -116,8 +117,16 @@ API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such
 method on a port when it needs something Identity does, such as a reset token.
 
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
-  registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
-  and OpenAPI are open; a test fails when that list changes.
+  registering, signing in, confirming an email address, resending that link, asking for a password reset,
+  resetting the password, the anti-forgery token, health and OpenAPI are open; a test fails when that list
+  changes.
+- **Password reset:** `POST /api/v1/auth/forgot-password` answers 202 whatever the email, and emails a
+  registered user a link to `/reset-password` in the SPA. `POST /api/v1/auth/reset-password` sets the new
+  password from the link's user id and token. A link works once (resetting changes the security stamp it is
+  bound to, which also ends every session) and lasts an hour (`PasswordResetTokenProvider`, separate from the
+  day that email confirmation links last). A used, expired or tampered link answers 400 with the problem type
+  `urn:pfm:problem:reset-link-invalid`; a password to fix answers a validation problem, and leaves the link
+  usable.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.

@@ -17,6 +17,9 @@ public static class IdentityEndpoints
         auth.MapPost("/register", Register).WithName("Register");
         auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail").ProducesProblem(StatusCodes.Status400BadRequest);
         auth.MapPost("/resend-verification", ResendVerification).WithName("ResendVerification");
+        auth.MapPost("/forgot-password", RequestPasswordReset).WithName("RequestPasswordReset");
+        // Its 400 is a validation problem, or a problem of type ResetLinkInvalid with no errors.
+        auth.MapPost("/reset-password", ResetPassword).WithName("ResetPassword");
         auth.MapPost("/login", SignIn).WithName("SignIn")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
@@ -26,6 +29,12 @@ public static class IdentityEndpoints
 
     /// <summary>Problem type returned when the password is right but the email address is not confirmed yet.</summary>
     public const string EmailNotVerified = "urn:pfm:problem:email-not-verified";
+
+    /// <summary>
+    /// Problem type returned when a password reset link has been tampered with, used or has expired, so the
+    /// screen can tell it apart from a password to fix.
+    /// </summary>
+    public const string ResetLinkInvalid = "urn:pfm:problem:reset-link-invalid";
 
     /// <summary>A fresh request token, tied to whoever is signed in. Fetch it again after signing in or out.</summary>
     private static Ok<AntiforgeryTokenResponse> GetAntiforgeryToken(HttpContext context, IAntiforgery antiforgery)
@@ -72,6 +81,30 @@ public static class IdentityEndpoints
         return result.IsValid ? TypedResults.Accepted((string?)null) : ValidationProblems.For(result);
     }
 
+    /// <summary>Always answers the same way, so it cannot be used to find out which emails have a user.</summary>
+    private static async Task<Results<Accepted, ValidationProblem>> RequestPasswordReset(
+        RequestPasswordResetRequest request, RequestPasswordResetHandler requestReset, CancellationToken cancellationToken)
+    {
+        var result = await requestReset.HandleAsync(new RequestPasswordResetCommand(request.Email), cancellationToken);
+        return result.IsValid ? TypedResults.Accepted((string?)null) : ValidationProblems.For(result);
+    }
+
+    private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> ResetPassword(
+        ResetPasswordRequest request, ResetPasswordHandler reset, CancellationToken cancellationToken)
+    {
+        var result = await reset.HandleAsync(new ResetPasswordCommand(request.UserId, request.Token, request.Password), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            ResetPasswordOutcome.PasswordChanged => TypedResults.NoContent(),
+            _ => TypedResults.Problem(statusCode: StatusCodes.Status400BadRequest, type: ResetLinkInvalid, title: "The link is invalid, has been used or has expired."),
+        };
+    }
+
     private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> SignIn(
         SignInRequest request, SignInHandler signIn, CancellationToken cancellationToken)
     {
@@ -107,6 +140,10 @@ public sealed record RegisterRequest(string Email, string Password, string? Lang
 public sealed record VerifyEmailRequest(Guid UserId, string Token);
 
 public sealed record ResendVerificationRequest(string Email);
+
+public sealed record RequestPasswordResetRequest(string Email);
+
+public sealed record ResetPasswordRequest(Guid UserId, string Token, string Password);
 
 public sealed record SignInRequest(string Email, string Password);
 

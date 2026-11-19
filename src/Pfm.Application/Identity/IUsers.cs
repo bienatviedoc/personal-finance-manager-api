@@ -25,6 +25,15 @@ public interface IUsers
 
     /// <summary>False when there is no such user or the token is invalid or expired.</summary>
     Task<bool> ConfirmEmailAsync(Guid userId, string token);
+
+    /// <summary>A token that lets whoever holds it set the user's password once, until it expires.</summary>
+    Task<string> CreatePasswordResetTokenAsync(Guid userId);
+
+    /// <summary>
+    /// Sets a password the policy accepts, and ends every session the user has. False when there is no
+    /// such user or the token is invalid, already used or expired.
+    /// </summary>
+    Task<bool> ResetPasswordAsync(Guid userId, string token, string newPassword);
 }
 
 /// <summary>What the sign-in use cases need to know about a user.</summary>

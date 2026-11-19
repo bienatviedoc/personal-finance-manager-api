@@ -168,6 +168,7 @@ public class AuthTests(PfmApi api)
         var notice = Assert.Single(api.Emails.To(email).Skip(sentBefore));
         Assert.DoesNotContain(CapturedEmails.Links(notice), link => link.AbsolutePath == "/verify-email");
         Assert.Contains(CapturedEmails.Links(notice), link => link.AbsoluteUri == $"{PfmApi.PublicUrl}/login");
+        Assert.Contains(CapturedEmails.Links(notice), link => link.AbsoluteUri == $"{PfmApi.PublicUrl}/forgot-password");
 
         var withNewPassword = await api.CreateBrowser().PostAsync("/api/v1/auth/login", new { email, password = "an attacker's new password" });
         var withOriginalPassword = await browser.PostAsync("/api/v1/auth/login", new { email, password = Password });
@@ -211,6 +212,10 @@ public class AuthTests(PfmApi api)
     [InlineData("/api/v1/auth/verify-email", "{}", "token,userId")]
     [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\"}", "token")]
     [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"00000000-0000-0000-0000-000000000000\",\"token\":\"a-token\"}", "userId")]
+    [InlineData("/api/v1/auth/forgot-password", "{}", "email")]
+    [InlineData("/api/v1/auth/forgot-password", "{\"email\":\"   \"}", "email")]
+    [InlineData("/api/v1/auth/reset-password", "{}", "password,token,userId")]
+    [InlineData("/api/v1/auth/reset-password", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\",\"password\":\"correct horse battery staple\"}", "token")]
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
     {
         var browser = api.CreateBrowser();
@@ -243,7 +248,7 @@ public class AuthTests(PfmApi api)
     }
 
     [Fact]
-    public void Only_registering_signing_in_and_their_helpers_are_open_to_visitors_who_are_not_signed_in()
+    public void Only_registering_signing_in_resetting_a_password_and_their_helpers_are_open_to_visitors_who_are_not_signed_in()
     {
         var open = api.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
@@ -258,9 +263,11 @@ public class AuthTests(PfmApi api)
                 "* /health/ready",
                 "GET /api/v1/auth/antiforgery",
                 "GET /openapi/{documentName}.json",
+                "POST /api/v1/auth/forgot-password",
                 "POST /api/v1/auth/login",
                 "POST /api/v1/auth/register",
                 "POST /api/v1/auth/resend-verification",
+                "POST /api/v1/auth/reset-password",
                 "POST /api/v1/auth/verify-email",
             ],
             open);
