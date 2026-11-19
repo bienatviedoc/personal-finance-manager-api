@@ -15,7 +15,7 @@ public static class ProfileEndpoints
     }
 
     private static async Task<Results<Ok<UserProfile>, UnauthorizedHttpResult>> GetMe(GetProfileHandler handler, CancellationToken cancellationToken) =>
-        await handler.HandleAsync(cancellationToken) is { } profile ? TypedResults.Ok(profile) : TypedResults.Unauthorized();
+        await handler.HandleAsync(new GetProfile(), cancellationToken) is { } profile ? TypedResults.Ok(profile) : TypedResults.Unauthorized();
 
     /// <summary>Changes the settings sent; any left out stay as they were.</summary>
     private static async Task<Results<Ok<UserProfile>, ValidationProblem, UnauthorizedHttpResult>> UpdateMe(

@@ -90,8 +90,9 @@ What a use case needs from outside, it asks for through an interface in its modu
 `IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
 the session cookie). Application never references ASP.NET Core or EF Core.
 
-A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
-`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+A query is one file too, holding the query record (`ListInstitutions`, `GetProfile`, even when it carries
+nothing) and its handler. It has no validator or `Result`: the handler implements `IQueryHandler` and answers
+directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
 
