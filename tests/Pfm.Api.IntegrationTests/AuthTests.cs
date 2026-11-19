@@ -95,6 +95,26 @@ public class AuthTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Signing_in_with_an_email_that_has_no_user_is_refused_like_a_wrong_password()
+    {
+        var (browser, email) = await api.RegisteredAndVerifiedAsync();
+
+        var unknownEmail = await browser.PostAsync("/api/v1/auth/login", new { email = NewEmail(), password = Password });
+        var wrongPassword = await browser.PostAsync("/api/v1/auth/login", new { email, password = "not the right password" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, unknownEmail.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
+        Assert.Equal(await ProblemTitleAsync(wrongPassword), await ProblemTitleAsync(unknownEmail));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    private static async Task<string?> ProblemTitleAsync(HttpResponseMessage response)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("title").GetString();
+    }
+
+    [Fact]
     public async Task Signing_out_ends_the_session()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -158,6 +178,8 @@ public class AuthTests(PfmApi api)
     [Theory]
     [InlineData("not-an-email", Password, "email")]
     [InlineData("", Password, "email")]
+    [InlineData("   ", Password, "email")]
+    [InlineData("Someone <someone@example.com>", Password, "email")]
     [InlineData("someone@example.com", "too short", "password")]
     public async Task Registering_with_invalid_details_names_the_field_to_fix(string email, string password, string field)
     {
@@ -183,8 +205,12 @@ public class AuthTests(PfmApi api)
     [InlineData("/api/v1/auth/register", "{\"email\":null,\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/login", "{}", "email,password")]
     [InlineData("/api/v1/auth/login", "{\"email\":\"someone@example.com\"}", "password")]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"   \",\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/resend-verification", "{}", "email")]
+    [InlineData("/api/v1/auth/resend-verification", "{\"email\":\"   \"}", "email")]
     [InlineData("/api/v1/auth/verify-email", "{}", "token,userId")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\"}", "token")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"00000000-0000-0000-0000-000000000000\",\"token\":\"a-token\"}", "userId")]
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
     {
         var browser = api.CreateBrowser();

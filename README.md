@@ -54,7 +54,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | Project | Responsibility | Depends on |
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
-| `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
+| `Pfm.Application` | Use cases per module (commands, validators, handlers); interfaces for persistence, storage, email, clock | Domain |
 | `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
@@ -68,10 +68,36 @@ Code in one module may use another module only through that module's contracts, 
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
 
+### Use cases
+
+Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
+input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
+handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
+handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+`AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
+`UseCaseTests` fails when a command has no validator, or more than one.
+
+An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
+turns the outcome into a response. `ValidationProblems.For` turns errors into Problem Details keyed by
+the request's field names (`Email` becomes `email`).
+
+What a use case needs from outside, it asks for through an interface in its module (a port, such as
+`IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
+the session cookie). Application never references ASP.NET Core or EF Core.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
+
+The use cases (register, verify email, resend verification, sign in, sign out) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
+API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such as the worker, get
+`NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+method on a port when it needs something Identity does, such as a reset token.
 
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
   registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
