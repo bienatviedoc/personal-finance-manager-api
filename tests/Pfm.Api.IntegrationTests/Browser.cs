@@ -25,9 +25,25 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PostJsonAsync(string path, string body, Traceparent? traceparent = null) =>
         PostAsync(path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent);
 
-    private async Task<HttpResponseMessage> PostAsync(string path, HttpContent body, Traceparent? traceparent)
+    public Task<HttpResponseMessage> PatchAsync(string path, object body) =>
+        ChangeAsync(HttpMethod.Patch, path, JsonContent.Create(body), traceparent: null);
+
+    /// <summary>Patches with a body exactly as written.</summary>
+    public Task<HttpResponseMessage> PatchJsonAsync(string path, string body) =>
+        ChangeAsync(HttpMethod.Patch, path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent: null);
+
+    public Task<HttpResponseMessage> PutAsync(string path, object body) =>
+        ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body), traceparent: null);
+
+    public Task<HttpResponseMessage> DeleteAsync(string path) =>
+        ChangeAsync(HttpMethod.Delete, path, body: null, traceparent: null);
+
+    private Task<HttpResponseMessage> PostAsync(string path, HttpContent body, Traceparent? traceparent) =>
+        ChangeAsync(HttpMethod.Post, path, body, traceparent);
+
+    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = body };
+        using var request = new HttpRequestMessage(method, path) { Content = body };
         request.Headers.Add("X-XSRF-TOKEN", await AntiforgeryTokenAsync());
         return await SendAsync(request, traceparent);
     }

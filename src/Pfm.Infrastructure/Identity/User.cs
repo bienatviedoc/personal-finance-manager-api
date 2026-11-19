@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Identity;
+using Pfm.Domain;
+using Pfm.Domain.Identity;
 
 namespace Pfm.Infrastructure.Identity;
 
@@ -10,4 +12,11 @@ public sealed class User : IdentityUser<Guid>
         Id = Guid.CreateVersion7();
         SecurityStamp = Guid.NewGuid().ToString();
     }
+
+    public Currency BaseCurrency { get; set; } = ProfileSettings.Default.BaseCurrency;
+
+    /// <summary>An IANA time zone id.</summary>
+    public string TimeZone { get; set; } = ProfileSettings.Default.TimeZone;
+
+    public Locale? Locale { get; set; } = ProfileSettings.Default.Locale;
 }

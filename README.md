@@ -41,7 +41,8 @@ dotnet run --project src/Pfm.Api
 dotnet test Pfm.slnx
 ```
 
-Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -85,6 +86,15 @@ the request's field names (`Email` becomes `email`).
 What a use case needs from outside, it asks for through an interface in its module (a port, such as
 `IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
 the session cookie). Application never references ASP.NET Core or EF Core.
+
+A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
+`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. A validator reuses its
+domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
+already uses it can still show it.
 
 ## Signing in
 
@@ -161,6 +171,10 @@ runs for no user, such as background jobs, sees no user-owned data until it acts
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
+- **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
+  code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
+  (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Enums are listed in the OpenAPI
+  document (see `JsonSetup`), so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:
 

@@ -9,9 +9,9 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Api.IntegrationTests;
 
 /// <summary>
-/// Every user-owned row is visible and changeable only by its own user. No user-owned table exists
-/// yet, so these tests use a test-only <see cref="Note"/> on a context derived from the real one: the
-/// rule is the same convention every user-owned entity gets.
+/// Every user-owned row is visible and changeable only by its own user. These tests use a test-only
+/// <see cref="Note"/> on a context derived from the real one, so they exercise the convention itself,
+/// which every user-owned entity gets; the last of them checks every real entity has it.
 /// </summary>
 [Collection(ApiCollection.Name)]
 public class UserIsolationTests(PfmApi api) : IAsyncLifetime

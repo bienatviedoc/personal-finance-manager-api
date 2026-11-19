@@ -1,9 +1,7 @@
-using System.Security.Claims;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Pfm.Application.Identity;
-using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Api.Identity;
 
@@ -12,7 +10,6 @@ public static class IdentityEndpoints
     public static IEndpointRouteBuilder MapIdentityEndpoints(this IEndpointRouteBuilder api)
     {
         // Every endpoint here can also answer 401 (not signed in) and, for POSTs, 400 (anti-forgery).
-        api.MapGet("/me", GetMe).WithName("GetMe").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
         api.MapPost("/auth/logout", SignOut).WithName("SignOut").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous();
@@ -133,12 +130,6 @@ public static class IdentityEndpoints
         await signOut.HandleAsync(new SignOutCommand(), cancellationToken);
         return TypedResults.NoContent();
     }
-
-    private static async Task<Results<Ok<MeResponse>, UnauthorizedHttpResult>> GetMe(ClaimsPrincipal principal, UserManager<User> users)
-    {
-        var user = await users.GetUserAsync(principal);
-        return user is null ? TypedResults.Unauthorized() : TypedResults.Ok(new MeResponse(user.Id, user.Email!));
-    }
 }
 
 public sealed record AntiforgeryTokenResponse(string Token);
@@ -155,5 +146,3 @@ public sealed record ResetPasswordRequest(Guid UserId, string Token, string Pass
 
 public sealed record SignInRequest(string Email, string Password);
 
-/// <summary>The signed-in user.</summary>
-public sealed record MeResponse(Guid Id, string Email);
