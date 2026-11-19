@@ -2,11 +2,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Npgsql;
-using Sentry;
 using OpenTelemetry;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
+using Sentry;
 using Serilog;
 using Serilog.Core;
 using Serilog.Formatting.Compact;
@@ -16,7 +16,7 @@ namespace Pfm.Infrastructure.Observability;
 public static class ObservabilitySetup
 {
     /// <summary>Where traces, metrics and logs are sent over OTLP. Nothing is sent when it is not set.</summary>
-    public const string OtlpEndpointSetting = "OTEL_EXPORTER_OTLP_ENDPOINT";
+    private const string OtlpEndpointSetting = "OTEL_EXPORTER_OTLP_ENDPOINT";
 
     /// <summary>The error tracker's (Sentry) DSN. No errors are reported when it is not set.</summary>
     public const string ErrorTrackerDsnSetting = "Sentry:Dsn";

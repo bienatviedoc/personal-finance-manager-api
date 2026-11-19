@@ -1,17 +1,19 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 using Pfm.Api.Identity;
 using Pfm.Application;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
-using OpenTelemetry.Metrics;
-using OpenTelemetry.Trace;
 using Serilog;
+using Serilog.Events;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// A body that cannot be read is the caller's mistake, not ours (see the exception handler below).
+// Health probes arrive every few seconds and say nothing new while they succeed, so they are not traced.
+// Not reporting BadHttpRequestException: see the exception handler below.
 builder.AddPfmObservability("pfm-api", configureErrorReports: sentry => sentry.AddExceptionFilterForType<BadHttpRequestException>())
-    .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation())
+    .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation(requests => requests.Filter = request => !IsHealthProbe(request)))
     .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation());
 
 builder.Services.AddApplication();
@@ -33,7 +35,15 @@ if (args is ["migrate"])
 }
 
 // One structured event per request, carrying its method, path (never the query string), status and time.
-app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequiredService<Serilog.ILogger>());
+// A health probe is logged only when it fails.
+app.UseSerilogRequestLogging(options =>
+{
+    options.Logger = app.Services.GetRequiredService<Serilog.ILogger>();
+    options.GetLevel = (request, _, exception) =>
+        exception is not null || request.Response.StatusCode >= StatusCodes.Status500InternalServerError ? LogEventLevel.Error
+        : IsHealthProbe(request) ? LogEventLevel.Verbose
+        : LogEventLevel.Information;
+});
 
 // Every error leaves as RFC 9457 Problem Details: unhandled exceptions and bare status codes alike.
 app.UseExceptionHandler(new ExceptionHandlerOptions
@@ -60,5 +70,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints();
 
 app.Run();
+
+static bool IsHealthProbe(HttpContext request) => request.Request.Path.StartsWithSegments("/health");
 
 public partial class Program;

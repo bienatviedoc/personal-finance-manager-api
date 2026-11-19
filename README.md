@@ -55,7 +55,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
 | `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
-| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, and the implementations of those interfaces | Application |
+| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
 
@@ -93,7 +93,7 @@ the browser never holds a token a script could read.
 - **Logs** are structured, through Serilog: one JSON object per event on the console (readable text in
   Development), with levels set in the `Serilog` section of `appsettings.json`. Every event carries the trace
   and span it was written in. Each request is logged once, with its method, path (never the query string),
-  status and time.
+  status and time. Health probes are not traced, and are logged only when they fail.
 - **Traces and metrics** go through OpenTelemetry: incoming requests, outgoing HTTP calls and database calls
   (Npgsql), plus runtime metrics. A request joins the trace in its `traceparent` header, which the SPA sends
   with every request, so one trace id runs from the browser through to the database.

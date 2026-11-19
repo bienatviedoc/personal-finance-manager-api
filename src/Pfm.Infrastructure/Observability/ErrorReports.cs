@@ -8,8 +8,9 @@ namespace Pfm.Infrastructure.Observability;
 /// <summary>
 /// Reports unhandled errors to the error tracker (Sentry). The tracker is a third party, so a
 /// report says what failed and where, never what the user was doing it with: it carries the
-/// exception (type, message, stack) and the trace id. The request, the user, log properties and
-/// rendered log messages stay behind, in our own logs and traces, where the trace id finds them.
+/// exception (type, message, stack), the log message's template and the trace id. The request, the
+/// user, log property values and rendered log messages stay behind, in our own logs and traces,
+/// where the trace id finds them.
 /// </summary>
 /// <remarks>The Sentry SDK is process-wide; it is closed, flushing what is queued, when the host's services are disposed.</remarks>
 internal sealed class ErrorReports(string dsn, string environment, Action<SentryOptions>? configureForHost) : IDisposable
@@ -55,6 +56,12 @@ internal sealed class ErrorReports(string dsn, string environment, Action<Sentry
         foreach (var exception in report.SentryExceptions ?? [])
         {
             exception.Mechanism?.Data.Clear();
+        }
+
+        // Its "sentry:context:" entries become contexts of their own; only the SDK's contexts (runtime, OS, trace) stay.
+        foreach (var (name, _) in report.Contexts.Where(context => context.Value.GetType().Assembly != typeof(SentryEvent).Assembly).ToList())
+        {
+            report.Contexts.Remove(name);
         }
 
         report.User = new SentryUser();

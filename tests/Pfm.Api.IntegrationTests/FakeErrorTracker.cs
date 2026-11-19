@@ -16,6 +16,7 @@ public sealed class FakeErrorTracker : IAsyncDisposable
     private readonly HttpListener _listener = new();
     private readonly ConcurrentQueue<Report> _reports = new();
     private readonly Task _serving;
+    private volatile bool _stopping;
 
     public FakeErrorTracker()
     {
@@ -41,14 +42,14 @@ public sealed class FakeErrorTracker : IAsyncDisposable
 
     private async Task ServeAsync()
     {
-        while (_listener.IsListening)
+        while (!_stopping)
         {
             HttpListenerContext context;
             try
             {
                 context = await _listener.GetContextAsync();
             }
-            catch (Exception) when (!_listener.IsListening)
+            catch (Exception) when (_stopping)
             {
                 return;
             }
@@ -90,6 +91,7 @@ public sealed class FakeErrorTracker : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        _stopping = true;
         _listener.Stop();
         await _serving;
         _listener.Close();

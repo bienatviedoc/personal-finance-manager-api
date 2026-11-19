@@ -15,16 +15,17 @@ public sealed class CapturedTelemetry
     private readonly ConcurrentQueue<Activity> _spans = new();
     private readonly ConcurrentQueue<LogEvent> _logs = new();
 
-    public SpanExporter Spans => new(_spans);
-
-    public LogSink Logs => new(_logs);
-
-    /// <summary>A traceparent header for a new trace, as the browser sends it, and that trace's id.</summary>
-    public static (string Header, ActivityTraceId TraceId) NewTraceparent()
+    public CapturedTelemetry()
     {
-        var traceId = ActivityTraceId.CreateRandom();
-        return ($"00-{traceId}-{ActivitySpanId.CreateRandom()}-01", traceId);
+        SpanExporter = new CapturingSpanExporter(_spans);
+        LogSink = new CapturingLogSink(_logs);
     }
+
+    /// <summary>Added to the API's tracing pipeline; fills <see cref="SpansOfTraceAsync"/>.</summary>
+    public BaseExporter<Activity> SpanExporter { get; }
+
+    /// <summary>Added to the API's logger; fills <see cref="LogsOfTraceAsync"/>.</summary>
+    public ILogEventSink LogSink { get; }
 
     /// <summary>
     /// The spans of one trace. A span is exported when it ends, which can be just after the response
@@ -37,7 +38,7 @@ public sealed class CapturedTelemetry
     public Task<List<LogEvent>> LogsOfTraceAsync(ActivityTraceId traceId, Func<List<LogEvent>, bool> until) =>
         Eventually.ReadAsync(() => _logs.Where(log => log.TraceId == traceId).ToList(), until);
 
-    public sealed class SpanExporter(ConcurrentQueue<Activity> spans) : BaseExporter<Activity>
+    private sealed class CapturingSpanExporter(ConcurrentQueue<Activity> spans) : BaseExporter<Activity>
     {
         public override ExportResult Export(in Batch<Activity> batch)
         {
@@ -50,7 +51,7 @@ public sealed class CapturedTelemetry
         }
     }
 
-    public sealed class LogSink(ConcurrentQueue<LogEvent> logs) : ILogEventSink
+    private sealed class CapturingLogSink(ConcurrentQueue<LogEvent> logs) : ILogEventSink
     {
         public void Emit(LogEvent logEvent) => logs.Enqueue(logEvent);
     }

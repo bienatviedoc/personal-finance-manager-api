@@ -4,11 +4,11 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
-using OpenTelemetry;
-using OpenTelemetry.Trace;
 using Serilog.Core;
 using Testcontainers.PostgreSql;
 
@@ -94,7 +94,7 @@ public sealed class PfmApi : IAsyncLifetime
     /// </summary>
     public Browser CreateDevelopmentBrowserOverHttp()
     {
-        var development = CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), environment: "Development");
+        var development = CreateFactory(ConnectionString, Emails, environment: "Development");
         _extraFactories.Add(development);
         return new Browser(development.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost"), HandleCookies = true }));
     }
@@ -103,11 +103,11 @@ public sealed class PfmApi : IAsyncLifetime
 
     /// <summary>A second copy of the API whose database cannot be reached.</summary>
     public WebApplicationFactory<Program> WithUnreachableDatabase() =>
-        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2", new CapturedEmails(), new CapturedTelemetry());
+        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2", new CapturedEmails());
 
     /// <summary>A second copy of the API that reports errors to the given error tracker.</summary>
     public WebApplicationFactory<Program> ReportingErrorsTo(FakeErrorTracker tracker) =>
-        CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), settings: new() { [ObservabilitySetup.ErrorTrackerDsnSetting] = tracker.Dsn });
+        CreateFactory(ConnectionString, Emails, settings: new() { [ObservabilitySetup.ErrorTrackerDsnSetting] = tracker.Dsn });
 
     /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
     public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
@@ -135,7 +135,7 @@ public sealed class PfmApi : IAsyncLifetime
         await _database.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry telemetry, string environment = "Production", Dictionary<string, string>? settings = null) =>
+    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -153,9 +153,12 @@ public sealed class PfmApi : IAsyncLifetime
                 services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
-                // Added to the API's own pipelines, so only what they export is captured.
-                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(telemetry.Spans)));
-                services.AddSingleton<ILogEventSink>(telemetry.Logs);
+                if (telemetry is not null)
+                {
+                    // Added to the API's own pipelines, so only what they export is captured.
+                    services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(telemetry.SpanExporter)));
+                    services.AddSingleton(telemetry.LogSink);
+                }
             });
         });
 
@@ -168,7 +171,7 @@ public sealed class PfmApi : IAsyncLifetime
             {
                 if (context.Request.Path == ThrowingPath)
                 {
-                    throw new InvalidOperationException("secret internal detail") { Data = { ["payee"] = "Corner Bakery" } };
+                    throw new InvalidOperationException("secret internal detail") { Data = { ["payee"] = "Corner Bakery", ["sentry:context:payment"] = "Corner Bakery", ["sentry:tag:payee"] = "Corner Bakery" } };
                 }
 
                 if (context.Request.Path == CurrentUserPath)
