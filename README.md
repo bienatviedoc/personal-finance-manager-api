@@ -126,6 +126,15 @@ runs for no user, such as background jobs, sees no user-owned data until it acts
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
+- **Use cases** live in `Pfm.Application.<Module>`: a command (or query) record, its handler, and one
+  FluentValidation validator per command, registered by `AddApplication`. An endpoint only maps HTTP: it binds
+  the command, declares `.Validates<TCommand>()` (which answers an invalid command with a 400 validation problem
+  naming each field as the JSON body spells it) and turns the handler's result into a response. See
+  `UpdateProfile` and `ProfileEndpoints`.
+- **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
+  code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
+  (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Enums are listed in the OpenAPI
+  document (see `JsonSetup`), so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:
 

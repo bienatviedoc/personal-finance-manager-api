@@ -10,9 +10,15 @@ public static class ProfileEndpoints
     {
         var me = api.MapGroup("/me").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
         me.MapGet("", GetMe).WithName("GetMe");
+        me.MapPatch("", UpdateMe).WithName("UpdateMe").Validates<UpdateProfileCommand>();
         return api;
     }
 
     private static async Task<Results<Ok<UserProfile>, UnauthorizedHttpResult>> GetMe(GetProfileHandler handler, CancellationToken cancellationToken) =>
         await handler.HandleAsync(cancellationToken) is { } profile ? TypedResults.Ok(profile) : TypedResults.Unauthorized();
+
+    /// <summary>Changes the settings sent; any left out stay as they were.</summary>
+    private static async Task<Results<Ok<UserProfile>, UnauthorizedHttpResult>> UpdateMe(
+        UpdateProfileCommand command, UpdateProfileHandler handler, CancellationToken cancellationToken) =>
+        await handler.HandleAsync(command, cancellationToken) is { } profile ? TypedResults.Ok(profile) : TypedResults.Unauthorized();
 }
