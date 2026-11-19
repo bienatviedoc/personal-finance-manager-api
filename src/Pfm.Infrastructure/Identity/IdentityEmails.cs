@@ -1,18 +1,19 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Identity;
 
 namespace Pfm.Infrastructure.Identity;
 
 /// <summary>The emails sent about a user's sign-in. English until users can choose a language.</summary>
-public sealed class IdentityEmails(IEmailSender sender, IOptions<AppOptions> app)
+internal sealed class IdentityEmails(IEmailSender sender, IOptions<AppOptions> app) : IIdentityEmails
 {
-    public Task SendVerificationAsync(User user, string token, CancellationToken cancellationToken)
+    public Task SendVerificationAsync(UserDetails user, string token, CancellationToken cancellationToken)
     {
         var link = $"{app.Value.PublicUrl}/verify-email?userId={user.Id}&token={Uri.EscapeDataString(token)}";
 
         return sender.SendAsync(
             new EmailMessage(
-                user.Email!,
+                user.Email,
                 "Confirm your email address",
                 $"""
                 Welcome to Personal Finance Manager.
@@ -26,11 +27,10 @@ public sealed class IdentityEmails(IEmailSender sender, IOptions<AppOptions> app
             cancellationToken);
     }
 
-    /// <summary>Sent when someone registers with an email that already has a user.</summary>
-    public Task SendAlreadyRegisteredAsync(User user, CancellationToken cancellationToken) =>
+    public Task SendAlreadyRegisteredAsync(UserDetails user, CancellationToken cancellationToken) =>
         sender.SendAsync(
             new EmailMessage(
-                user.Email!,
+                user.Email,
                 "Someone tried to register with your email address",
                 $"""
                 Someone tried to register with this email address, but it already has a user.
