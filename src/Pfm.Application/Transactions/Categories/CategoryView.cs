@@ -1,3 +1,4 @@
+using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions.Categories;
@@ -16,7 +17,7 @@ public sealed record CategoryView(
     /// <summary>The tree of the given categories: top-level ones, each with its subcategories, ordered by name.</summary>
     public static IReadOnlyList<CategoryView> Tree(IEnumerable<Category> categories)
     {
-        var all = categories.OrderBy(category => category.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var all = categories.OrderByName(category => category.Name, category => category.Id).ToList();
         return [.. all.Where(category => category.ParentId is null).Select(parent => Of(parent, all.Where(sub => sub.ParentId == parent.Id)))];
     }
 

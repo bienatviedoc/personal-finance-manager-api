@@ -11,8 +11,7 @@ public sealed class ListInstitutionsHandler(IInstitutionRepository institutions)
     {
         var found = await institutions.ListAsync(query.IncludeArchived, cancellationToken);
         return [.. found
-            .OrderBy(institution => institution.Name, StringComparer.InvariantCultureIgnoreCase)
-            .ThenBy(institution => institution.Id)
+            .OrderByName(institution => institution.Name, institution => institution.Id)
             .Select(InstitutionDetails.From)];
     }
 }
