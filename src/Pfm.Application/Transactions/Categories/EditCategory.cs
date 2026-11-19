@@ -36,15 +36,14 @@ public sealed class EditCategoryHandler(
 {
     protected override async Task<Result<CategoryView?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
     {
-        var all = await categories.ListAsync(cancellationToken);
-        var category = all.SingleOrDefault(candidate => candidate.Id == command.Id);
+        var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)
         {
             return (CategoryView?)null;
         }
 
         var now = clock.GetUtcNow();
-        var subcategories = all.Where(candidate => candidate.ParentId == category.Id).ToList();
+        var subcategories = await categories.ListSubcategoriesAsync(category.Id, cancellationToken);
         try
         {
             if (command.Kind != category.Kind)

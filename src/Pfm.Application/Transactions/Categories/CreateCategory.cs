@@ -35,7 +35,7 @@ public sealed class CreateCategoryHandler(
         Category? parent = null;
         if (command.ParentId is { } parentId)
         {
-            parent = (await categories.ListAsync(cancellationToken)).SingleOrDefault(category => category.Id == parentId);
+            parent = await categories.FindAsync(parentId, cancellationToken);
             if (parent is null)
             {
                 return (CategoryView?)null;

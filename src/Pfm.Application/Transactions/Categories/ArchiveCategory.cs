@@ -27,14 +27,13 @@ public sealed class ArchiveCategoryHandler(
 {
     protected override async Task<Result<ArchiveCategoryOutcome>> ExecuteAsync(ArchiveCategoryCommand command, CancellationToken cancellationToken)
     {
-        var all = await categories.ListAsync(cancellationToken);
-        var category = all.SingleOrDefault(candidate => candidate.Id == command.Id);
+        var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)
         {
             return ArchiveCategoryOutcome.NotFound;
         }
 
-        category.Archive([.. all.Where(candidate => candidate.ParentId == category.Id)], clock.GetUtcNow());
+        category.Archive(await categories.ListSubcategoriesAsync(category.Id, cancellationToken), clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return ArchiveCategoryOutcome.Archived;
     }
