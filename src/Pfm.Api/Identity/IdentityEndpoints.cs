@@ -21,7 +21,8 @@ public static class IdentityEndpoints
         auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail").ProducesProblem(StatusCodes.Status400BadRequest);
         auth.MapPost("/resend-verification", ResendVerification).WithName("ResendVerification");
         auth.MapPost("/forgot-password", RequestPasswordReset).WithName("RequestPasswordReset");
-        auth.MapPost("/reset-password", ResetPassword).WithName("ResetPassword").ProducesProblem(StatusCodes.Status400BadRequest);
+        // Its 400 is a validation problem, or a problem of type ResetLinkInvalid with no errors.
+        auth.MapPost("/reset-password", ResetPassword).WithName("ResetPassword");
         auth.MapPost("/login", SignIn).WithName("SignIn")
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden);
