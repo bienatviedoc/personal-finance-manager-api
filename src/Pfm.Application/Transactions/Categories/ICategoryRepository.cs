@@ -2,15 +2,13 @@ using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions.Categories;
 
-/// <summary>The signed-in user's categories.</summary>
+/// <summary>The signed-in user's categories. Changes are saved through <see cref="Abstractions.IUnitOfWork"/>.</summary>
 public interface ICategoryRepository
 {
-    /// <summary>All of the user's categories, archived ones included.</summary>
+    /// <summary>All of the user's categories, archived ones included. A user has dozens, not thousands.</summary>
     Task<IReadOnlyList<Category>> ListAsync(CancellationToken cancellationToken);
 
     void Add(Category category);
-
-    Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>Which categories transactions use. Decides whether a category's kind can still change.</summary>

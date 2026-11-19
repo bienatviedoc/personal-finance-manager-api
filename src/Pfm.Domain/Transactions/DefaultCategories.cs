@@ -60,14 +60,14 @@ public static class DefaultCategories
     ];
 
     /// <summary>A fresh default set, top-level categories before their subcategories.</summary>
-    public static IReadOnlyList<Category> For(Language language)
+    public static IReadOnlyList<Category> For(Language language, DateTimeOffset now)
     {
         var categories = new List<Category>();
         foreach (var (entry, kind, color) in Set)
         {
-            var category = Category.Create(NameOf(entry, language), kind, entry.Icon, color);
+            var category = Category.Create(NameOf(entry, language), kind, entry.Icon, color, now);
             categories.Add(category);
-            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, language), kind, sub.Icon, color, parent: category)));
+            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, language), kind, sub.Icon, color, now, parent: category)));
         }
 
         return categories;

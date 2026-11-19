@@ -21,22 +21,22 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PostAsync(string path, object? body = null) =>
         PostAsync(path, JsonContent.Create(body ?? new { }), traceparent: null);
 
-    public Task<HttpResponseMessage> PutAsync(string path, object body) =>
-        ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body));
-
-    public Task<HttpResponseMessage> DeleteAsync(string path) =>
-        ChangeAsync(HttpMethod.Delete, path, content: null);
-
     /// <summary>Posts a body exactly as written: JSON a serializer would not produce, or not JSON at all.</summary>
     public Task<HttpResponseMessage> PostJsonAsync(string path, string body, Traceparent? traceparent = null) =>
         PostAsync(path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent);
 
+    public Task<HttpResponseMessage> PutAsync(string path, object body) =>
+        ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body), traceparent: null);
+
+    public Task<HttpResponseMessage> DeleteAsync(string path) =>
+        ChangeAsync(HttpMethod.Delete, path, body: null, traceparent: null);
+
     private Task<HttpResponseMessage> PostAsync(string path, HttpContent body, Traceparent? traceparent) =>
         ChangeAsync(HttpMethod.Post, path, body, traceparent);
 
-    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? content, Traceparent? traceparent = null)
+    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent)
     {
-        using var request = new HttpRequestMessage(method, path) { Content = content };
+        using var request = new HttpRequestMessage(method, path) { Content = body };
         request.Headers.Add("X-XSRF-TOKEN", await AntiforgeryTokenAsync());
         return await SendAsync(request, traceparent);
     }

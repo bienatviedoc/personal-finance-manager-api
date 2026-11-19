@@ -4,13 +4,12 @@ using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Pfm.Application.Abstractions;
 using Pfm.Domain;
-using Pfm.Domain.Transactions;
 using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Infrastructure.Persistence;
 
 public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser currentUser, ActingUser? actingUser = null)
-    : IdentityUserContext<User, Guid>(options), IDataProtectionKeyContext
+    : IdentityUserContext<User, Guid>(options), IDataProtectionKeyContext, IUnitOfWork
 {
     /// <summary>
     /// Keys that sign session cookies and emailed links. Kept in the database so they survive
@@ -38,11 +37,19 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PfmDbContext).Assembly);
 
-        // A user's data goes with them. Configured here, outside the modules, because no module may
-        // reach into Identity's user.
-        modelBuilder.Entity<Category>().HasOne<User>().WithMany().HasForeignKey(category => category.UserId).OnDelete(DeleteBehavior.Cascade);
-
         IsolateUserOwnedData(modelBuilder);
+    }
+
+    Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
+
+    async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginTransactionAsync(CancellationToken cancellationToken) =>
+        new Transaction(await Database.BeginTransactionAsync(cancellationToken));
+
+    private sealed class Transaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction) : IUnitOfWorkTransaction
+    {
+        public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
+
+        public ValueTask DisposeAsync() => transaction.DisposeAsync();
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)

@@ -22,7 +22,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     Kind = table.Column<string>(type: "character varying(10)", maxLength: 10, nullable: false),
                     Icon = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
                     Color = table.Column<string>(type: "character varying(7)", maxLength: 7, nullable: false),
-                    IsArchived = table.Column<bool>(type: "boolean", nullable: false)
+                    IsArchived = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAt = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -32,12 +34,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         column: x => x.ParentId,
                         principalTable: "Categories",
                         principalColumn: "Id");
-                    table.ForeignKey(
-                        name: "FK_Categories_Users_UserId",
-                        column: x => x.UserId,
-                        principalTable: "Users",
-                        principalColumn: "Id",
-                        onDelete: ReferentialAction.Cascade);
                 });
 
             migrationBuilder.CreateIndex(

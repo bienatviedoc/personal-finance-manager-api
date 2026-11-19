@@ -4,7 +4,10 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Accounts.Institutions;
+using Pfm.Application.Identity;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
@@ -35,6 +38,9 @@ public static class InfrastructureServices
             options.UseNpgsql(connectionString);
         });
 
+        services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
+        services.AddScoped<IInstitutionRepository, InstitutionRepository>();
+
         services.AddHealthChecks().AddDbContextCheck<PfmDbContext>("database", tags: [ReadyTag]);
 
         var app = services.AddOptions<AppOptions>()
@@ -60,8 +66,9 @@ public static class InfrastructureServices
         System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name == "GetDocument.Insider";
 
     /// <summary>
-    /// Registers users and their store. Hosts that sign people in add the sign-in manager and
-    /// token providers on the returned builder.
+    /// Registers users, their store and what the Identity module's use cases need. Hosts that sign
+    /// people in add the sign-in manager and token providers on the returned builder, and replace
+    /// <see cref="ISessions"/>.
     /// </summary>
     public static IdentityBuilder AddUsers(this IServiceCollection services) =>
         services
@@ -81,11 +88,15 @@ public static class InfrastructureServices
                 options.Password.RequiredUniqueChars = 1;
             })
             .AddEntityFrameworkStores<PfmDbContext>()
-            .AddIdentityEmails();
+            .AddSignInPorts();
 
-    private static IdentityBuilder AddIdentityEmails(this IdentityBuilder builder)
+    private static IdentityBuilder AddSignInPorts(this IdentityBuilder builder)
     {
-        builder.Services.AddTransient<IdentityEmails>();
+        // The session belongs to the host: only one that signs people in replaces this.
+        builder.Services.TryAddScoped<ISessions, NoSessions>();
+        builder.Services.AddScoped<IUsers, IdentityUsers>();
+        builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
+        builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
         return builder;
     }
 

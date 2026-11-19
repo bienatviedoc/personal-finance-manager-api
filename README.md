@@ -41,7 +41,8 @@ dotnet run --project src/Pfm.Api
 dotnet test Pfm.slnx
 ```
 
-Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -54,7 +55,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | Project | Responsibility | Depends on |
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
-| `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
+| `Pfm.Application` | Use cases per module (commands, validators, handlers); interfaces for persistence, storage, email, clock | Domain |
 | `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
@@ -73,12 +74,30 @@ its contracts.
 
 ### Use cases
 
-A use case is a command or query with its handler in `Pfm.Application.<Module>`, and each command has one
-FluentValidation validator next to it (see `Pfm.Application.Transactions.Categories`). An endpoint only maps
-HTTP: it builds the command, runs its validator (failures become a validation problem keyed by request field,
-see `Validation` in `Pfm.Api`), calls the handler and maps the result. Domain rules live on the domain types
-and are unit-tested in `Pfm.Domain.UnitTests`; an endpoint turns a broken rule into a validation problem
-naming the field at fault.
+Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
+input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
+handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
+handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+`AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
+`UseCaseTests` fails when a command has no validator, or more than one.
+
+An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
+turns the outcome into a response. `ValidationProblems.For` turns errors into Problem Details keyed by
+the request's field names (`Email` becomes `email`).
+
+What a use case needs from outside, it asks for through an interface in its module (a port, such as
+`IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
+the session cookie). Application never references ASP.NET Core or EF Core.
+
+A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
+`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
+domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
+already uses it can still show it.
 
 ## Signing in
 
@@ -87,6 +106,15 @@ the browser never holds a token a script could read.
 
 - **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
   categories are created in it, in the same transaction as the user.
+
+The use cases (register, verify email, resend verification, sign in, sign out) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
+API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such as the worker, get
+`NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+method on a port when it needs something Identity does, such as a reset token.
+
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
   registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
   and OpenAPI are open; a test fails when that list changes.
