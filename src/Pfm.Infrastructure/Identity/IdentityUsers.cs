@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Pfm.Application.Identity;
+using Pfm.Domain;
 
 namespace Pfm.Infrastructure.Identity;
 
@@ -13,9 +14,9 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
     // Identity's store finds by id through the DbContext, so a user loaded earlier in the request costs no query.
     public async Task<UserDetails?> FindByIdAsync(Guid userId) => Details(await users.FindByIdAsync(userId.ToString()));
 
-    public async Task<NewUser> CreateAsync(string email, string password)
+    public async Task<NewUser> CreateAsync(string email, string password, Locale? locale)
     {
-        var user = new User { UserName = email, Email = email };
+        var user = new User { UserName = email, Email = email, Locale = locale };
         IdentityResult created;
         try
         {

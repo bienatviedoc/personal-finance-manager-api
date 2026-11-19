@@ -10,7 +10,7 @@ public class CategoryTests(PfmApi api)
     [Fact]
     public async Task A_new_user_starts_with_default_income_and_expense_categories()
     {
-        var (browser, _) = await api.SignedInAsync(language: "en");
+        var (browser, _) = await api.SignedInAsync(locale: "en");
 
         var categories = await CategoriesAsync(browser);
 
@@ -23,7 +23,7 @@ public class CategoryTests(PfmApi api)
     [Fact]
     public async Task A_user_who_registers_in_Vietnamese_gets_the_default_categories_in_Vietnamese()
     {
-        var (browser, _) = await api.SignedInAsync(language: "vi");
+        var (browser, _) = await api.SignedInAsync(locale: "vi");
 
         var categories = await CategoriesAsync(browser);
 
@@ -34,7 +34,7 @@ public class CategoryTests(PfmApi api)
     }
 
     [Fact]
-    public async Task A_user_who_registers_without_a_language_gets_the_default_categories_in_English()
+    public async Task A_user_who_registers_without_a_locale_gets_the_default_categories_in_English()
     {
         var (browser, _) = await api.SignedInAsync();
 
@@ -42,14 +42,14 @@ public class CategoryTests(PfmApi api)
     }
 
     [Fact]
-    public async Task Registering_in_a_language_the_app_does_not_speak_is_refused()
+    public async Task Registering_in_a_locale_the_app_does_not_speak_is_refused()
     {
         var email = PfmApi.NewEmail();
 
-        var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password = PfmApi.Password, language = "fr" });
+        var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password = PfmApi.Password, locale = "fr" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("language", await ErrorFieldsAsync(response));
+        Assert.Contains("locale", await ErrorFieldsAsync(response));
         Assert.Empty(api.Emails.To(email));
     }
 

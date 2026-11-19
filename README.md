@@ -111,8 +111,9 @@ already uses it can still show it.
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
 
-- **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
-  categories are created in it, in the same transaction as the user.
+- **Registering** takes an optional `locale` (`en` or `vi`): it is saved as the new user's locale (see the
+  glossary), and their default categories are created in it, in the same transaction as the user. Left out, the
+  user has no locale yet (the SPA follows the browser) and the categories are in English.
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password) are in

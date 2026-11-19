@@ -1,7 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Pfm.Application.Identity;
 using Pfm.Domain;
-using Pfm.Domain.Identity;
 
 namespace Pfm.Api.Identity;
 

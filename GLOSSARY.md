@@ -76,6 +76,10 @@ _Avoid_: Deleted user, suspended user
 The single currency a user chooses for totals, budgets and reports across accounts in different currencies.
 _Avoid_: Home currency, default currency, reporting currency
 
+**Locale**:
+The language a user uses the app in, English or Vietnamese: the interface, how amounts and dates are written, and the names of the default categories they start with. A user registers in a locale and can change it later; one who has never chosen one sees their browser's.
+_Avoid_: Language (as a separate setting), culture
+
 **Budget month**:
 The calendar month, from the 1st, that a budget applies to.
 _Avoid_: Period, cycle, salary month

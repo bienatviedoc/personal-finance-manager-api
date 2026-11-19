@@ -1,5 +1,4 @@
 using Pfm.Domain;
-using Pfm.Domain.Identity;
 
 namespace Pfm.Application.Identity;
 

@@ -163,13 +163,13 @@ public class DefaultCategoriesTests
         static object[] Shape(IReadOnlyList<Category> set) =>
             [.. set.Select(category => (category.Kind, category.Icon, category.Color, IsSubcategory: category.ParentId is not null))];
 
-        Assert.Equal(Shape(DefaultCategories.For(Language.English, Now)), Shape(DefaultCategories.For(Language.Vietnamese, Now)));
+        Assert.Equal(Shape(DefaultCategories.For(Locale.En, Now)), Shape(DefaultCategories.For(Locale.Vi, Now)));
     }
 
     [Fact]
     public void The_default_set_has_income_and_expense_categories_with_subcategories()
     {
-        var set = DefaultCategories.For(Language.Vietnamese, Now);
+        var set = DefaultCategories.For(Locale.Vi, Now);
 
         var food = Assert.Single(set, category => category.Name == "Ăn uống");
         Assert.Contains(set, category => category.Name == "Đi chợ" && category.ParentId == food.Id);
@@ -179,6 +179,6 @@ public class DefaultCategoriesTests
     [Fact]
     public void Each_call_gives_a_fresh_set()
     {
-        Assert.NotEqual(DefaultCategories.For(Language.English, Now)[0].Id, DefaultCategories.For(Language.English, Now)[0].Id);
+        Assert.NotEqual(DefaultCategories.For(Locale.En, Now)[0].Id, DefaultCategories.For(Locale.En, Now)[0].Id);
     }
 }

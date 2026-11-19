@@ -1,6 +1,4 @@
-using Pfm.Domain.Identity;
-
-namespace Pfm.Domain.UnitTests.Identity;
+namespace Pfm.Domain.UnitTests;
 
 public class LocaleTests
 {
