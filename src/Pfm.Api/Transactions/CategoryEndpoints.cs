@@ -60,7 +60,7 @@ public static class CategoryEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome == ArchiveCategoryOutcome.Archived ? TypedResults.NoContent() : TypedResults.NotFound();
+        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 }
 

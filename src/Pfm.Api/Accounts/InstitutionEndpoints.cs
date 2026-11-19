@@ -65,7 +65,7 @@ public static class InstitutionEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome == ArchiveInstitutionOutcome.Archived ? TypedResults.NoContent() : TypedResults.NotFound();
+        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 }
 

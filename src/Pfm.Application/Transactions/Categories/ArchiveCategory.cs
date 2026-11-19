@@ -12,29 +12,21 @@ public sealed class ArchiveCategoryValidator : AbstractValidator<ArchiveCategory
     public ArchiveCategoryValidator() => RuleFor(command => command.Id).Required();
 }
 
-public enum ArchiveCategoryOutcome
-{
-    /// <summary>Archived now, or already archived.</summary>
-    Archived,
-
-    /// <summary>The user has no category with that id.</summary>
-    NotFound,
-}
-
+/// <summary>Answers null when the user has no category with that id.</summary>
 public sealed class ArchiveCategoryHandler(
     IValidator<ArchiveCategoryCommand> validator, ICategoryRepository categories, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<ArchiveCategoryCommand, ArchiveCategoryOutcome>(validator)
+    : CommandHandler<ArchiveCategoryCommand, Done?>(validator)
 {
-    protected override async Task<Result<ArchiveCategoryOutcome>> ExecuteAsync(ArchiveCategoryCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<Done?>> ExecuteAsync(ArchiveCategoryCommand command, CancellationToken cancellationToken)
     {
         var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)
         {
-            return ArchiveCategoryOutcome.NotFound;
+            return (Done?)null;
         }
 
         category.Archive(await categories.ListSubcategoriesAsync(category.Id, cancellationToken), clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return ArchiveCategoryOutcome.Archived;
+        return new Done();
     }
 }

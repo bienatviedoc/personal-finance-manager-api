@@ -79,6 +79,9 @@ input, normalised in its constructor, for example a trimmed email), its FluentVa
 handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
 handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
 enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+A use case that acts on one of the user's things by id, query or command, answers null when the user has
+no such thing, and the endpoint answers 404: `EditInstitution` answers `InstitutionDetails?`,
+`ArchiveCategory` answers `Done?`. `UpdateProfile` answers null when nobody is signed in (a 401).
 `AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
 `UseCaseTests` fails when a command has no validator, or more than one.
 
