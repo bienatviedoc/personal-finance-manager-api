@@ -5,7 +5,10 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using Pfm.Application.Transactions.Categories;
+using Pfm.Domain;
 using Pfm.Infrastructure.Identity;
+using Pfm.Infrastructure.Persistence;
 
 namespace Pfm.Api.Identity;
 
@@ -45,7 +48,8 @@ public static class IdentityEndpoints
     /// out who is registered. An existing user is told by email instead, and nothing about them changes.
     /// </summary>
     private static async Task<Results<Accepted, ValidationProblem>> Register(
-        RegisterRequest request, UserManager<User> users, IdentityEmails emails, CancellationToken cancellationToken)
+        RegisterRequest request, UserManager<User> users, IdentityEmails emails, PfmDbContext db,
+        CreateDefaultCategoriesHandler defaultCategories, CancellationToken cancellationToken)
     {
         request = request with { Email = request.Email?.Trim()! };
 
@@ -63,16 +67,7 @@ public static class IdentityEndpoints
         }
 
         var user = new User { UserName = request.Email, Email = request.Email };
-        IdentityResult created;
-        try
-        {
-            created = await users.CreateAsync(user, request.Password);
-        }
-        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
-        {
-            // Another request registered this email a moment ago: answer as for any existing email.
-            created = IdentityResult.Failed(new IdentityError { Code = "DuplicateEmail" });
-        }
+        var created = await CreateWithDefaultCategoriesAsync(user, request, users, db, defaultCategories, cancellationToken);
 
         if (created.Errors.Any(error => error.Code is "DuplicateEmail" or "DuplicateUserName")
             && await users.FindByEmailAsync(request.Email) is { } registeredMeanwhile)
@@ -92,6 +87,40 @@ public static class IdentityEndpoints
         await emails.SendVerificationAsync(user, token, cancellationToken);
         return TypedResults.Accepted((string?)null);
     }
+
+    /// <summary>
+    /// Creates the user and their default categories together: either both exist afterwards or neither does.
+    /// </summary>
+    private static async Task<IdentityResult> CreateWithDefaultCategoriesAsync(
+        User user, RegisterRequest request, UserManager<User> users, PfmDbContext db,
+        CreateDefaultCategoriesHandler defaultCategories, CancellationToken cancellationToken)
+    {
+        // Disposing without committing rolls back, including after a failed statement.
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        IdentityResult created;
+        try
+        {
+            created = await users.CreateAsync(user, request.Password);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            // Another request registered this email a moment ago: answer as for any existing email.
+            return IdentityResult.Failed(new IdentityError { Code = "DuplicateEmail" });
+        }
+
+        if (created.Succeeded)
+        {
+            await defaultCategories.HandleAsync(new CreateDefaultCategories(user.Id, LanguageOf(request)), cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return created;
+    }
+
+    /// <summary>The languages a user can register in, by the code the SPA sends. English when none is sent.</summary>
+    private static readonly Dictionary<string, Language> Languages = new() { ["en"] = Language.English, ["vi"] = Language.Vietnamese };
+
+    private static Language LanguageOf(RegisterRequest request) => request.Language is null ? Language.English : Languages[request.Language];
 
     /// <summary>
     /// The answer for an email that already has a user: the same as for a new one, and as slow, since a
@@ -125,6 +154,11 @@ public static class IdentityEndpoints
         if (passwordErrors.Count > 0)
         {
             errors["password"] = [.. passwordErrors];
+        }
+
+        if (request.Language is not null && !Languages.ContainsKey(request.Language))
+        {
+            errors["language"] = ["Choose English (en) or Vietnamese (vi)."];
         }
 
         return errors;
@@ -224,7 +258,8 @@ public static class IdentityEndpoints
 
 public sealed record AntiforgeryTokenResponse(string Token);
 
-public sealed record RegisterRequest(string Email, string Password);
+/// <param name="Language">The language for the new user's default categories: <c>en</c> or <c>vi</c>. English when left out.</param>
+public sealed record RegisterRequest(string Email, string Password, string? Language = null);
 
 public sealed record VerifyEmailRequest(Guid UserId, string Token);
 

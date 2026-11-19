@@ -71,19 +71,20 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>A browser (a new one, or the given one) for a new user who has registered and confirmed their email, not yet signed in.</summary>
-    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null)
+    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null, string? language = null)
     {
         browser ??= CreateBrowser();
         var email = NewEmail();
-        (await browser.PostAsync("/api/v1/auth/register", new { email, password = Password })).EnsureSuccessStatusCode();
+        object registration = language is null ? new { email, password = Password } : new { email, password = Password, language };
+        (await browser.PostAsync("/api/v1/auth/register", registration)).EnsureSuccessStatusCode();
         (await browser.PostAsync("/api/v1/auth/verify-email", VerificationFrom(LastLinkTo(email)))).EnsureSuccessStatusCode();
         return (browser, email);
     }
 
     /// <summary>A browser signed in as a new user: a new one on this API, or the given one (perhaps on another copy of the API).</summary>
-    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? browser = null)
+    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? browser = null, string? language = null)
     {
-        (browser, var email) = await RegisteredAndVerifiedAsync(browser);
+        (browser, var email) = await RegisteredAndVerifiedAsync(browser, language);
         (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).EnsureSuccessStatusCode();
         return (browser, email);
     }

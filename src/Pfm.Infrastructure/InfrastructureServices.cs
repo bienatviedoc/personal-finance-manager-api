@@ -7,6 +7,8 @@ using Pfm.Application.Abstractions;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
+using Pfm.Infrastructure.Transactions;
+using Pfm.Application.Transactions.Categories;
 
 namespace Pfm.Infrastructure;
 
@@ -21,6 +23,8 @@ public static class InfrastructureServices
     {
         // Hosts that sign people in replace this with the signed-in user.
         services.TryAddScoped<ICurrentUser, NoCurrentUser>();
+        services.AddScoped<ActingUser>();
+        services.AddScoped<IActForUser>(provider => provider.GetRequiredService<ActingUser>());
 
         // Read lazily so a host can replace the connection string after registration (tests do).
         services.AddDbContext<PfmDbContext>((provider, options) =>
@@ -45,6 +49,9 @@ public static class InfrastructureServices
         }
         services.AddOptions<SmtpOptions>().BindConfiguration(SmtpOptions.Section);
         services.AddTransient<IEmailSender, SmtpEmailSender>();
+
+        services.AddScoped<ICategoryRepository, CategoryRepository>();
+        services.AddScoped<ICategoryUsage, NoTransactionsYet>();
 
         return services;
     }

@@ -8,7 +8,7 @@ using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Infrastructure.Persistence;
 
-public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser currentUser)
+public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser currentUser, ActingUser? actingUser = null)
     : IdentityUserContext<User, Guid>(options), IDataProtectionKeyContext
 {
     /// <summary>
@@ -17,8 +17,11 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     /// </summary>
     public DbSet<DataProtectionKey> DataProtectionKeys => Set<DataProtectionKey>();
 
-    /// <summary>Read by every user-owned entity's query filter, per context instance.</summary>
-    private Guid? CurrentUserId => currentUser.UserId;
+    /// <summary>
+    /// Read by every user-owned entity's query filter, per context instance: the user the scope acts for,
+    /// if any, otherwise the signed-in user.
+    /// </summary>
+    private Guid? CurrentUserId => actingUser?.UserId ?? currentUser.UserId;
 
     private static readonly System.Reflection.PropertyInfo CurrentUserIdProperty =
         typeof(PfmDbContext).GetProperty(nameof(CurrentUserId), System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
