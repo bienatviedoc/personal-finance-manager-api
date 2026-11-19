@@ -158,6 +158,8 @@ public class AuthTests(PfmApi api)
     [Theory]
     [InlineData("not-an-email", Password, "email")]
     [InlineData("", Password, "email")]
+    [InlineData("   ", Password, "email")]
+    [InlineData("Someone <someone@example.com>", Password, "email")]
     [InlineData("someone@example.com", "too short", "password")]
     public async Task Registering_with_invalid_details_names_the_field_to_fix(string email, string password, string field)
     {
@@ -183,8 +185,12 @@ public class AuthTests(PfmApi api)
     [InlineData("/api/v1/auth/register", "{\"email\":null,\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/login", "{}", "email,password")]
     [InlineData("/api/v1/auth/login", "{\"email\":\"someone@example.com\"}", "password")]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"   \",\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/resend-verification", "{}", "email")]
+    [InlineData("/api/v1/auth/resend-verification", "{\"email\":\"   \"}", "email")]
     [InlineData("/api/v1/auth/verify-email", "{}", "token,userId")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\"}", "token")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"00000000-0000-0000-0000-000000000000\",\"token\":\"a-token\"}", "userId")]
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
     {
         var browser = api.CreateBrowser();
