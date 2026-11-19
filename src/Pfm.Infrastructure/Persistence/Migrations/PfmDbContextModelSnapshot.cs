@@ -235,15 +235,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
-
-            modelBuilder.Entity("Pfm.Domain.Accounts.Institution", b =>
-                {
-                    b.HasOne("Pfm.Infrastructure.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
 #pragma warning restore 612, 618
         }
     }

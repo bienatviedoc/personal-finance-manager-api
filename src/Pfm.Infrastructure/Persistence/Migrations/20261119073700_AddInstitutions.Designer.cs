@@ -12,7 +12,7 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261119073025_AddInstitutions")]
+    [Migration("20261119073700_AddInstitutions")]
     partial class AddInstitutions
     {
         /// <inheritdoc />
@@ -231,15 +231,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserToken<System.Guid>", b =>
-                {
-                    b.HasOne("Pfm.Infrastructure.Identity.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
-            modelBuilder.Entity("Pfm.Domain.Accounts.Institution", b =>
                 {
                     b.HasOne("Pfm.Infrastructure.Identity.User", null)
                         .WithMany()
