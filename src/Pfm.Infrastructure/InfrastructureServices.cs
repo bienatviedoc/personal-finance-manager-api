@@ -4,6 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Accounts.Institutions;
+using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
@@ -30,6 +32,9 @@ public static class InfrastructureServices
                     $"Connection string '{ConnectionStringName}' is not configured. Set ConnectionStrings__{ConnectionStringName}.");
             options.UseNpgsql(connectionString);
         });
+
+        services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
+        services.AddScoped<IInstitutionRepository, InstitutionRepository>();
 
         services.AddHealthChecks().AddDbContextCheck<PfmDbContext>("database", tags: [ReadyTag]);
 

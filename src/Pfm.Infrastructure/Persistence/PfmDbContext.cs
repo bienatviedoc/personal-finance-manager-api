@@ -9,7 +9,7 @@ using Pfm.Infrastructure.Identity;
 namespace Pfm.Infrastructure.Persistence;
 
 public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser currentUser)
-    : IdentityUserContext<User, Guid>(options), IDataProtectionKeyContext
+    : IdentityUserContext<User, Guid>(options), IDataProtectionKeyContext, IUnitOfWork
 {
     /// <summary>
     /// Keys that sign session cookies and emailed links. Kept in the database so they survive
@@ -36,6 +36,8 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
 
         IsolateUserOwnedData(modelBuilder);
     }
+
+    Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {

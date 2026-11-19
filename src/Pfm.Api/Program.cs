@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Pfm.Api.Accounts;
 using Pfm.Api.Identity;
+using Pfm.Api.Validation;
 using Pfm.Application;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
@@ -67,7 +69,11 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains(InfrastructureServices.ReadyTag),
 }).AllowAnonymous();
 
-app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints();
+app.MapGroup("/api/v1")
+    .DocumentAntiforgeryRefusals()
+    .AnswerValidationFailures()
+    .MapIdentityEndpoints()
+    .MapInstitutionEndpoints();
 
 app.Run();
 

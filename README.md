@@ -41,7 +41,8 @@ dotnet run --project src/Pfm.Api
 dotnet test Pfm.slnx
 ```
 
-Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -67,6 +68,26 @@ name in each project, for example `Pfm.Domain.Budgets` and `Pfm.Application.Budg
 Code in one module may use another module only through that module's contracts, which live in
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
+
+### Use cases
+
+A use case is a command or query in its module's folder of `Pfm.Application`, for example
+`Pfm.Application.Accounts.Institutions.CreateInstitution`, with:
+
+- a handler (`CreateInstitutionHandler.HandleAsync`) that does the work and returns what the endpoint answers
+  with, or null when the user has no such thing (a 404);
+- for a command, one FluentValidation validator (`CreateInstitutionValidator`), which the handler runs first. A
+  failure becomes a 400 validation problem with errors keyed by request field (`AnswerValidationFailures` in
+  `Pfm.Api`). Validators reuse the domain type's rules, and the domain type still refuses what breaks them;
+- persistence behind an Application interface (`IInstitutionRepository`) implemented in `Pfm.Infrastructure`,
+  with changes saved through `IUnitOfWork`, and the time from `TimeProvider`.
+
+Endpoints only map HTTP to and from the use cases. Handlers are registered per module (`AddAccountsModule`);
+validators are found by scanning.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it leaves lists and
+pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever already uses it can
+still show it.
 
 ## Signing in
 
