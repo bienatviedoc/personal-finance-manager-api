@@ -119,9 +119,11 @@ The use cases (register, verify email, resend verification, sign in, sign out, r
 reset the password) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
-and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
-API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such as the worker, get
-`NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+and `IIdentityEmails`, and `ISessions`, all implemented in `Pfm.Infrastructure.Identity`: `ISessions` is
+`CookieSessions` over the sign-in manager, which a host that signs people in registers with `AddSignIn()` while it
+configures the cookie itself (the API's `AuthenticationSetup`). Every Identity specific, the sign-in manager and
+token providers included, sits in Infrastructure, which is why it references the ASP.NET Core shared framework.
+Hosts that sign no one in, such as the worker, get `NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
 method on a port when it needs something Identity does, such as a reset token.
 
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only

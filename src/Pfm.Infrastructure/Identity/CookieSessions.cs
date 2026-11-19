@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Identity;
 using Pfm.Application.Identity;
-using Pfm.Infrastructure.Identity;
 
-namespace Pfm.Api.Identity;
+namespace Pfm.Infrastructure.Identity;
 
-/// <summary>Sessions as the HttpOnly cookie Identity's sign-in manager issues (see <see cref="AuthenticationSetup"/>).</summary>
+/// <summary>
+/// Sessions as the cookie Identity's sign-in manager issues. The host that signs people in configures the cookie
+/// itself (the API's <c>AuthenticationSetup</c>) and registers this through <see cref="InfrastructureServices.AddSignIn"/>.
+/// </summary>
 internal sealed class CookieSessions(UserManager<User> users, SignInManager<User> signIn) : ISessions
 {
     public async Task SignInAsync(Guid userId)

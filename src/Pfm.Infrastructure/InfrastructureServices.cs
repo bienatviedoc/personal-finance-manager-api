@@ -68,8 +68,7 @@ public static class InfrastructureServices
 
     /// <summary>
     /// Registers users, their store and what the Identity module's use cases need. Hosts that sign
-    /// people in add the sign-in manager and token providers on the returned builder, and replace
-    /// <see cref="ISessions"/>.
+    /// people in add <see cref="AddSignIn"/> on the returned builder.
     /// </summary>
     public static IdentityBuilder AddUsers(this IServiceCollection services) =>
         services
@@ -90,6 +89,19 @@ public static class InfrastructureServices
             })
             .AddEntityFrameworkStores<PfmDbContext>()
             .AddSignInPorts();
+
+    /// <summary>
+    /// For a host that signs people in: Identity's sign-in manager and token providers, password reset links
+    /// that last an hour, and <see cref="ISessions"/> as its cookie. The host configures the cookie itself.
+    /// </summary>
+    public static IdentityBuilder AddSignIn(this IdentityBuilder builder)
+    {
+        builder.AddSignInManager().AddDefaultTokenProviders()
+            .AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProviderOptions.ProviderName);
+        builder.Services.Configure<IdentityOptions>(options => options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderOptions.ProviderName);
+        builder.Services.Replace(ServiceDescriptor.Scoped<ISessions, CookieSessions>());
+        return builder;
+    }
 
     private static IdentityBuilder AddSignInPorts(this IdentityBuilder builder)
     {

@@ -8,7 +8,7 @@ using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
-using Pfm.Api.Identity;
+using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Observability;
 using Serilog.Core;
 using Testcontainers.PostgreSql;
