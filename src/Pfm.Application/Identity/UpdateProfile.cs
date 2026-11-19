@@ -12,7 +12,7 @@ namespace Pfm.Application.Identity;
 /// <param name="BaseCurrency">An ISO 4217 code the app supports, such as <c>VND</c>.</param>
 /// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
 /// <param name="Locale">A language tag: <c>en</c> or <c>vi</c>.</param>
-public sealed record UpdateProfileCommand(string? BaseCurrency, string? TimeZone, string? Locale);
+public sealed record UpdateProfileCommand(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null);
 
 public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileCommand>
 {

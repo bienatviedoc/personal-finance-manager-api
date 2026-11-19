@@ -443,11 +443,6 @@
         }
       },
       "UpdateProfileCommand": {
-        "required": [
-          "baseCurrency",
-          "timeZone",
-          "locale"
-        ],
         "type": "object",
         "properties": {
           "baseCurrency": {
