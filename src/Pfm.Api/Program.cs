@@ -2,8 +2,17 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Pfm.Api.Identity;
 using Pfm.Application;
 using Pfm.Infrastructure;
+using Pfm.Infrastructure.Observability;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// A body that cannot be read is the caller's mistake, not ours (see the exception handler below).
+builder.AddPfmObservability("pfm-api", errorReports: sentry => sentry.AddExceptionFilterForType<BadHttpRequestException>())
+    .WithTracing(tracing => tracing.AddAspNetCoreInstrumentation())
+    .WithMetrics(metrics => metrics.AddAspNetCoreInstrumentation());
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -22,6 +31,9 @@ if (args is ["migrate"])
     await app.Services.MigrateDatabaseAsync();
     return;
 }
+
+// One structured event per request, carrying its method, path (never the query string), status and time.
+app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequiredService<Serilog.ILogger>());
 
 // Every error leaves as RFC 9457 Problem Details: unhandled exceptions and bare status codes alike.
 app.UseExceptionHandler(new ExceptionHandlerOptions

@@ -6,6 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
+using OpenTelemetry;
+using OpenTelemetry.Trace;
+using Serilog.Core;
 using Testcontainers.PostgreSql;
 
 namespace Pfm.Api.IntegrationTests;
@@ -40,14 +43,16 @@ public sealed class PfmApi : IAsyncLifetime
     /// <summary>Every email the API has sent, instead of delivering them.</summary>
     public CapturedEmails Emails { get; } = new();
 
+    /// <summary>Every span and log event the API exported, as well as sending them on.</summary>
+    public CapturedTelemetry Telemetry { get; } = new();
+
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("The API has not been started.");
 
     public HttpClient CreateClient() => Factory.CreateClient();
 
     /// <summary>A client that behaves like one browser: it talks HTTPS and keeps its cookies.</summary>
-    public Browser CreateBrowser() =>
-        new(Factory.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true }));
+    public Browser CreateBrowser() => CreateBrowser(Factory);
 
     /// <summary>The password every test user registers with.</summary>
     public const string Password = "correct horse battery staple";
@@ -65,19 +70,19 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>A browser for a new user who has registered and confirmed their email, not yet signed in.</summary>
-    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync()
+    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null)
     {
-        var browser = CreateBrowser();
+        browser ??= CreateBrowser();
         var email = NewEmail();
         (await browser.PostAsync("/api/v1/auth/register", new { email, password = Password })).EnsureSuccessStatusCode();
         (await browser.PostAsync("/api/v1/auth/verify-email", VerificationFrom(LastLinkTo(email)))).EnsureSuccessStatusCode();
         return (browser, email);
     }
 
-    /// <summary>A browser signed in as a new user.</summary>
-    public async Task<(Browser Browser, string Email)> SignedInAsync()
+    /// <summary>A browser signed in as a new user; by default on this API, or else on the given browser's.</summary>
+    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? on = null)
     {
-        var (browser, email) = await RegisteredAndVerifiedAsync();
+        var (browser, email) = await RegisteredAndVerifiedAsync(on);
         (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).EnsureSuccessStatusCode();
         return (browser, email);
     }
@@ -88,7 +93,7 @@ public sealed class PfmApi : IAsyncLifetime
     /// </summary>
     public Browser CreateDevelopmentBrowserOverHttp()
     {
-        var development = CreateFactory(ConnectionString, Emails, environment: "Development");
+        var development = CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), environment: "Development");
         _extraFactories.Add(development);
         return new Browser(development.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("http://localhost"), HandleCookies = true }));
     }
@@ -97,12 +102,20 @@ public sealed class PfmApi : IAsyncLifetime
 
     /// <summary>A second copy of the API whose database cannot be reached.</summary>
     public WebApplicationFactory<Program> WithUnreachableDatabase() =>
-        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2", new CapturedEmails());
+        CreateFactory("Host=127.0.0.1;Port=1;Database=pfm;Username=pfm;Password=pfm;Timeout=2", new CapturedEmails(), new CapturedTelemetry());
+
+    /// <summary>A second copy of the API that reports errors to the given error tracker.</summary>
+    public WebApplicationFactory<Program> ReportingErrorsTo(FakeErrorTracker tracker) =>
+        CreateFactory(ConnectionString, Emails, new CapturedTelemetry(), settings: new() { ["Sentry:Dsn"] = tracker.Dsn });
+
+    /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
+    public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
+        new(on.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true }));
 
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
-        _factory = CreateFactory(_database.GetConnectionString(), Emails);
+        _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry);
         await _factory.Services.MigrateDatabaseAsync();
     }
 
@@ -121,12 +134,17 @@ public sealed class PfmApi : IAsyncLifetime
         await _database.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, string environment = "Production") =>
+    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry telemetry, string environment = "Production", Dictionary<string, string>? settings = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
             builder.UseSetting($"ConnectionStrings:{InfrastructureServices.ConnectionStringName}", connectionString);
             builder.UseSetting("App:PublicUrl", PublicUrl);
+            foreach (var (key, value) in settings ?? [])
+            {
+                builder.UseSetting(key, value);
+            }
+
             builder.ConfigureServices(services =>
             {
                 services.AddTransient<IStartupFilter, ThrowingRouteFilter>();
@@ -134,6 +152,9 @@ public sealed class PfmApi : IAsyncLifetime
                 services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
+                // Added to the API's own pipelines, so only what they export is captured.
+                services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(telemetry.Spans)));
+                services.AddSingleton<ILogEventSink>(telemetry.Logs);
             });
         });
 
