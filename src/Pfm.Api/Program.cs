@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Pfm.Api;
 using Pfm.Api.Identity;
 using Pfm.Application;
 using Pfm.Infrastructure;
@@ -21,6 +22,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 var cookies = CookiePolicy.For(builder.Environment);
 builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
+builder.Services.AddPfmJson();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
 
@@ -67,7 +69,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
     Predicate = check => check.Tags.Contains(InfrastructureServices.ReadyTag),
 }).AllowAnonymous();
 
-app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints();
+app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints().MapProfileEndpoints();
 
 app.Run();
 

@@ -1,12 +1,25 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
+using Pfm.Domain.Identity;
 
 namespace Pfm.Infrastructure.Identity;
 
 internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
-    public void Configure(EntityTypeBuilder<User> builder) => builder.ToTable("Users");
+    public void Configure(EntityTypeBuilder<User> builder)
+    {
+        builder.ToTable("Users");
+        builder.Property(user => user.BaseCurrency).HasConversion<string>().HasMaxLength(3);
+        builder.Property(user => user.TimeZone).HasMaxLength(64);
+        builder.Property(user => user.Locale)
+            .HasConversion(new ValueConverter<Locale, string>(locale => locale.Tag(), tag => ParseLocale(tag)))
+            .HasMaxLength(8);
+    }
+
+    private static Locale ParseLocale(string tag) =>
+        Locales.TryParse(tag, out var locale) ? locale : throw new InvalidOperationException($"Unknown locale tag '{tag}' in the database.");
 }
 
 internal sealed class UserClaimConfiguration : IEntityTypeConfiguration<IdentityUserClaim<Guid>>
