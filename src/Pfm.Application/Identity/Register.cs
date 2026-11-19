@@ -3,21 +3,25 @@ using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
+using Pfm.Domain.Identity;
 
 namespace Pfm.Application.Identity;
 
-/// <param name="Language">The language for the new user's default categories: <c>en</c> or <c>vi</c>. English when left out.</param>
+/// <param name="Language">
+/// A locale tag (<c>en</c> or <c>vi</c>) for the new user's default categories; English when left out. It
+/// is not saved as the profile's locale: registering in a language is not choosing one.
+/// </param>
 public sealed record RegisterCommand(string Email, string Password, string? Language = null)
 {
-    /// <summary>The languages a user can register in, by the code the SPA sends.</summary>
-    public static readonly IReadOnlyDictionary<string, Language> Languages =
-        new Dictionary<string, Language> { ["en"] = Domain.Language.English, ["vi"] = Domain.Language.Vietnamese };
-
     public string Email { get; } = EmailAddress.Normalize(Email);
 
     public string Password { get; } = Password ?? "";
 
-    public Language LanguageOrEnglish => Language is null ? Domain.Language.English : Languages[Language];
+    /// <summary>The default categories' language. Call only for a valid command.</summary>
+    public Language LanguageOrEnglish =>
+        Language is null ? Domain.Language.English
+        : Locales.TryParse(Language, out var locale) && locale == Locale.Vi ? Domain.Language.Vietnamese
+        : Domain.Language.English;
 }
 
 /// <summary>Checks the email and password alone, so the answer cannot depend on whether the email already has a user.</summary>
@@ -28,8 +32,8 @@ public sealed class RegisterValidator : AbstractValidator<RegisterCommand>
         RuleFor(command => command.Email).Must(EmailAddress.IsValid).WithMessage("Enter a valid email address.");
 
         RuleFor(command => command.Language)
-            .Must(language => language is null || RegisterCommand.Languages.ContainsKey(language))
-            .WithMessage("Choose English (en) or Vietnamese (vi).");
+            .Must(language => language is null || Locales.TryParse(language, out _))
+            .WithMessage($"Choose one of: {string.Join(", ", Enum.GetValues<Locale>().Select(locale => locale.Tag()))}.");
 
         RuleFor(command => command.Password).CustomAsync(async (password, context, _) =>
         {

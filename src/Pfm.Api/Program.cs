@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
+using Pfm.Api;
 using Pfm.Api.Accounts;
 using Pfm.Api.Identity;
 using Pfm.Api.Transactions;
@@ -25,6 +26,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 var cookies = CookiePolicy.For(builder.Environment);
 builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
+builder.Services.AddPfmJson();
 builder.Services.AddProblemDetails();
 // Enums travel as camelCase names ("income"), never as numbers.
 builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
@@ -76,6 +78,7 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 app.MapGroup("/api/v1")
     .DocumentAntiforgeryRefusals()
     .MapIdentityEndpoints()
+    .MapProfileEndpoints()
     .MapInstitutionEndpoints()
     .MapCategoryEndpoints();
 

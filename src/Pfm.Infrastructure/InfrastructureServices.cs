@@ -38,6 +38,7 @@ public static class InfrastructureServices
             options.UseNpgsql(connectionString);
         });
 
+        services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
 
