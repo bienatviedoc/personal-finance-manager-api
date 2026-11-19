@@ -362,7 +362,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 
 | Route | Screen | Key elements |
 | --- | --- | --- |
-| `/login`, `/register`, `/reset` | Auth | Forms with inline validation |
+| `/login`, `/register`, `/check-email`, `/verify-email`, `/forgot-password`, `/reset-password` | Auth | Forms with inline validation |
 | `/` | Dashboard | Balance, month summary, budget status, top categories, recent and upcoming |
 | `/transactions` | Transactions | Filter bar, virtualised table, bulk actions, add and edit in a side drawer |
 | `/accounts` | Accounts | Grouped by institution, balances, add account |
