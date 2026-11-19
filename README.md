@@ -41,7 +41,8 @@ dotnet run --project src/Pfm.Api
 dotnet test Pfm.slnx
 ```
 
-Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -76,8 +77,6 @@ handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs t
 handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
 enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
 `AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
-A query, which changes nothing, is a plain handler with no command or validator (`GetProfileHandler`),
-registered by name in `AddApplication`.
 `UseCaseTests` fails when a command has no validator, or more than one.
 
 An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
@@ -87,6 +86,15 @@ the request's field names (`Email` becomes `email`).
 What a use case needs from outside, it asks for through an interface in its module (a port, such as
 `IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
 the session cookie). Application never references ASP.NET Core or EF Core.
+
+A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
+`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. A validator reuses its
+domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
+already uses it can still show it.
 
 ## Signing in
 
