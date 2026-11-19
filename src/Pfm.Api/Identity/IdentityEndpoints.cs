@@ -53,7 +53,7 @@ public static class IdentityEndpoints
     private static async Task<Results<Accepted, ValidationProblem>> Register(
         RegisterRequest request, RegisterHandler register, CancellationToken cancellationToken)
     {
-        var result = await register.HandleAsync(new RegisterCommand(request.Email, request.Password), cancellationToken);
+        var result = await register.HandleAsync(new RegisterCommand(request.Email, request.Password, request.Language), cancellationToken);
         return result.IsValid ? TypedResults.Accepted((string?)null) : ValidationProblems.For(result);
     }
 
@@ -134,7 +134,8 @@ public static class IdentityEndpoints
 
 public sealed record AntiforgeryTokenResponse(string Token);
 
-public sealed record RegisterRequest(string Email, string Password);
+/// <param name="Language">The language for the new user's default categories: <c>en</c> or <c>vi</c>. English when left out.</param>
+public sealed record RegisterRequest(string Email, string Password, string? Language = null);
 
 public sealed record VerifyEmailRequest(Guid UserId, string Token);
 

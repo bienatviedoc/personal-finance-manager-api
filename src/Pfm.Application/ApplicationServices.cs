@@ -1,6 +1,8 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Pfm.Application.Contracts.Transactions;
+using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application;
@@ -22,6 +24,9 @@ public static class ApplicationServices
         {
             services.AddScoped(handler);
         }
+
+        // Contracts other modules call, answered by a module's own use case.
+        services.AddScoped<IDefaultCategories>(provider => provider.GetRequiredService<CreateDefaultCategoriesHandler>());
 
         return services;
     }

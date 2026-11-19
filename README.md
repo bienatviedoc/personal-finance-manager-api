@@ -69,6 +69,9 @@ Code in one module may use another module only through that module's contracts, 
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
 
+Categories belong to `Transactions` (spec section 5), so `Budgets`, `Imports` and `Reports` reach them through
+its contracts.
+
 ### Use cases
 
 Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
@@ -89,7 +92,7 @@ the session cookie). Application never references ASP.NET Core or EF Core.
 
 A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
 `IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
-change data save through `IUnitOfWork` and read the time from `TimeProvider`. A validator reuses its
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
 
 **Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
@@ -100,6 +103,9 @@ already uses it can still show it.
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
+
+- **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
+  categories are created in it, in the same transaction as the user.
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password) are in
@@ -166,7 +172,9 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 `IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
-runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user.
+runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
+`IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
+if they were signed in. Registration uses it to create the new user's default categories.
 
 ## Conventions
 
