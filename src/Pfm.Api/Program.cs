@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Pfm.Api.Identity;
 using Pfm.Application;
 using Pfm.Infrastructure;
 
@@ -6,6 +7,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+var cookies = CookiePolicy.For(builder.Environment);
+builder.Services.AddPfmAuthentication(cookies);
+builder.Services.AddPfmAntiforgery(cookies);
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
 
@@ -20,17 +24,28 @@ if (args is ["migrate"])
 }
 
 // Every error leaves as RFC 9457 Problem Details: unhandled exceptions and bare status codes alike.
-app.UseExceptionHandler();
+app.UseExceptionHandler(new ExceptionHandlerOptions
+{
+    // A body that cannot be read is the caller's mistake. Development throws for it (to show the
+    // cause in the log) but the caller still gets a 400, as in production.
+    StatusCodeSelector = exception => exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError,
+});
 app.UseStatusCodePages();
 
-app.MapOpenApi("/openapi/{documentName}.json");
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseApiAntiforgery();
+
+app.MapOpenApi("/openapi/{documentName}.json").AllowAnonymous();
 
 // Live: the process is up. Ready: its dependencies (the database) are reachable.
-app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false }).AllowAnonymous();
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
     Predicate = check => check.Tags.Contains(InfrastructureServices.ReadyTag),
-});
+}).AllowAnonymous();
+
+app.MapGroup("/api/v1").DocumentAntiforgeryRefusals().MapIdentityEndpoints();
 
 app.Run();
 
