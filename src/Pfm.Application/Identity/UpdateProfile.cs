@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Identity;
 
@@ -38,18 +39,20 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
         !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) && zone.HasIanaId;
 }
 
-public sealed class UpdateProfileHandler(ICurrentUser currentUser, IUserProfiles profiles)
+/// <summary>
+/// Answers the updated profile, or null when nobody is signed in (or their user is gone).
+/// </summary>
+/// <remarks>Spec rule 12 (the base currency locks once a budget exists) belongs here once budgets exist.</remarks>
+public sealed class UpdateProfileHandler(IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles)
+    : CommandHandler<UpdateProfileCommand, UserProfile?>(validator)
 {
-    /// <summary>
-    /// Applies a validated command. Returns the updated profile, or null when nobody is signed in (or
-    /// their user is gone).
-    /// </summary>
-    /// <remarks>Spec rule 12 (the base currency locks once a budget exists) belongs here once budgets exist.</remarks>
-    public async Task<UserProfile?> HandleAsync(UpdateProfileCommand command, CancellationToken cancellationToken)
+    private static readonly UserProfile? NoUser = null;
+
+    protected override async Task<Result<UserProfile?>> ExecuteAsync(UpdateProfileCommand command, CancellationToken cancellationToken)
     {
         if (currentUser.UserId is not { } userId || await profiles.FindAsync(userId, cancellationToken) is not { } profile)
         {
-            return null;
+            return NoUser;
         }
 
         var settings = new ProfileSettings(
