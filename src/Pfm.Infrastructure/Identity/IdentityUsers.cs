@@ -51,6 +51,33 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
     public async Task<bool> ConfirmEmailAsync(Guid userId, string token) =>
         await users.FindByIdAsync(userId.ToString()) is { } user && (await users.ConfirmEmailAsync(user, token)).Succeeded;
 
+    public async Task<string> CreatePasswordResetTokenAsync(Guid userId)
+    {
+        var user = await users.FindByIdAsync(userId.ToString())
+            ?? throw new InvalidOperationException($"User {userId} does not exist.");
+        return await users.GeneratePasswordResetTokenAsync(user);
+    }
+
+    // Resetting changes the security stamp, which the token is bound to: that makes it work once, and ends every session.
+    public async Task<bool> ResetPasswordAsync(Guid userId, string token, string newPassword)
+    {
+        if (await users.FindByIdAsync(userId.ToString()) is not { } user)
+        {
+            return false;
+        }
+
+        var reset = await users.ResetPasswordAsync(user, token, newPassword);
+        if (reset.Succeeded)
+        {
+            return true;
+        }
+
+        // The use case checks the password first, so the token is the only thing left to refuse.
+        return reset.Errors.All(error => error.Code == nameof(IdentityErrorDescriber.InvalidToken))
+            ? false
+            : throw new InvalidOperationException($"Resetting the password failed: {string.Join(", ", reset.Errors.Select(error => error.Code))}");
+    }
+
     private static UserDetails? Details(User? user) => user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed);
 }
 

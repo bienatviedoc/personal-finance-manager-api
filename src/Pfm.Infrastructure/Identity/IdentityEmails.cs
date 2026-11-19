@@ -41,9 +41,29 @@ internal sealed class IdentityEmails(IEmailSender sender, IOptions<AppOptions> a
 
                 If you have forgotten your password, you can reset it:
 
-                {app.Value.PublicUrl}/reset
+                {app.Value.PublicUrl}/forgot-password
 
                 If it was not you, you can ignore this email. Nothing has changed.
                 """),
             cancellationToken);
+
+    public Task SendPasswordResetAsync(UserDetails user, string token, CancellationToken cancellationToken)
+    {
+        var link = $"{app.Value.PublicUrl}/reset-password?userId={user.Id}&token={Uri.EscapeDataString(token)}";
+
+        return sender.SendAsync(
+            new EmailMessage(
+                user.Email,
+                "Reset your password",
+                $"""
+                Someone asked to reset the password for this email address.
+
+                If it was you, set a new password here. The link works once:
+
+                {link}
+
+                If it was not you, you can ignore this email. Your password has not changed.
+                """),
+            cancellationToken);
+    }
 }

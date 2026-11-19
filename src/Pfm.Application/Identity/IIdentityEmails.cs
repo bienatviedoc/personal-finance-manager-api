@@ -8,4 +8,7 @@ public interface IIdentityEmails
 
     /// <summary>Sent when someone registers with an email that already has a user.</summary>
     Task SendAlreadyRegisteredAsync(UserDetails user, CancellationToken cancellationToken);
+
+    /// <summary>The link that lets a user who has forgotten their password set a new one.</summary>
+    Task SendPasswordResetAsync(UserDetails user, string token, CancellationToken cancellationToken);
 }

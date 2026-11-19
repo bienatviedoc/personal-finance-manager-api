@@ -8,6 +8,7 @@ using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
+using Pfm.Api.Identity;
 using Pfm.Infrastructure.Observability;
 using Serilog.Core;
 using Testcontainers.PostgreSql;
@@ -109,6 +110,15 @@ public sealed class PfmApi : IAsyncLifetime
     public WebApplicationFactory<Program> ReportingErrorsTo(FakeErrorTracker tracker) =>
         CreateFactory(ConnectionString, Emails, settings: new() { [ObservabilitySetup.ErrorTrackerDsnSetting] = tracker.Dsn });
 
+    /// <summary>A second copy of the API whose password reset links have expired by the time anyone follows them.</summary>
+    public WebApplicationFactory<Program> WhereResetLinksExpireAtOnce()
+    {
+        var factory = CreateFactory(ConnectionString, Emails, configure: services =>
+            services.Configure<PasswordResetTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.Zero));
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
     /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
     public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
         new(on.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true }));
@@ -135,7 +145,7 @@ public sealed class PfmApi : IAsyncLifetime
         await _database.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null) =>
+    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null, Action<IServiceCollection>? configure = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -159,6 +169,8 @@ public sealed class PfmApi : IAsyncLifetime
                     services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(telemetry.SpanExporter)));
                     services.AddSingleton(telemetry.LogSink);
                 }
+
+                configure?.Invoke(services);
             });
         });
 
