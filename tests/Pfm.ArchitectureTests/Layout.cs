@@ -8,7 +8,8 @@ internal static class Layout
     public static readonly Assembly Domain = typeof(Pfm.Domain.AssemblyMarker).Assembly;
     public static readonly Assembly Application = typeof(Pfm.Application.ApplicationServices).Assembly;
     public static readonly Assembly Infrastructure = typeof(Pfm.Infrastructure.InfrastructureServices).Assembly;
-    public static readonly Assembly Api = typeof(Program).Assembly;
+    // Not typeof(Program): ASP.NET Core makes every top-level Program public, the worker's too.
+    public static readonly Assembly Api = typeof(Pfm.Api.JsonSetup).Assembly;
     public static readonly Assembly Worker = Assembly.Load("Pfm.Worker");
 
     public static readonly Assembly[] AllAssemblies = [Domain, Application, Infrastructure, Api, Worker];

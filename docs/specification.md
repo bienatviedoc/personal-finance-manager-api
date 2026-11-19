@@ -125,7 +125,7 @@ Income and expenses share one transaction screen and one data model; the type to
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| CAT-1 | Default category set created on sign-up, in the user's language | Must |
+| CAT-1 | Default category set created on sign-up, in the locale the user registers in | Must |
 | CAT-2 | Create, rename, recolour, re-icon and archive categories, two levels deep | Must |
 | CAT-3 | Merge category A into B, moving all transactions and budgets. Where both have a budget in the same month, the amounts are added | Should |
 
@@ -362,7 +362,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 
 | Route | Screen | Key elements |
 | --- | --- | --- |
-| `/login`, `/register`, `/reset` | Auth | Forms with inline validation |
+| `/login`, `/register`, `/check-email`, `/verify-email`, `/forgot-password`, `/reset-password` | Auth | Forms with inline validation |
 | `/` | Dashboard | Balance, month summary, budget status, top categories, recent and upcoming |
 | `/transactions` | Transactions | Filter bar, virtualised table, bulk actions, add and edit in a side drawer |
 | `/accounts` | Accounts | Grouped by institution, balances, add account |

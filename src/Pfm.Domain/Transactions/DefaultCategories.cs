@@ -60,23 +60,23 @@ public static class DefaultCategories
     ];
 
     /// <summary>A fresh default set, top-level categories before their subcategories.</summary>
-    public static IReadOnlyList<Category> For(Language language, DateTimeOffset now)
+    public static IReadOnlyList<Category> For(Locale locale, DateTimeOffset now)
     {
         var categories = new List<Category>();
         foreach (var (entry, kind, color) in Set)
         {
-            var category = Category.Create(NameOf(entry, language), kind, entry.Icon, color, now);
+            var category = Category.Create(NameOf(entry, locale), kind, entry.Icon, Color.Parse(color), now);
             categories.Add(category);
-            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, language), kind, sub.Icon, color, now, parent: category)));
+            categories.AddRange(entry.Subcategories.Select(sub => Category.Create(NameOf(sub, locale), kind, sub.Icon, Color.Parse(color), now, parent: category)));
         }
 
         return categories;
     }
 
-    private static string NameOf(Entry entry, Language language) => language switch
+    private static string NameOf(Entry entry, Locale locale) => locale switch
     {
-        Language.English => entry.English,
-        Language.Vietnamese => entry.Vietnamese,
-        _ => throw new ArgumentOutOfRangeException(nameof(language), language, "No default categories in this language."),
+        Locale.En => entry.English,
+        Locale.Vi => entry.Vietnamese,
+        _ => throw new ArgumentOutOfRangeException(nameof(locale), locale, "No default categories in this locale."),
     };
 }

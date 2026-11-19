@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Pfm.Application.Accounts.Institutions;
+using Pfm.Application.UseCases;
 
 namespace Pfm.Api.Accounts;
 
@@ -20,11 +21,25 @@ public static class InstitutionEndpoints
         return api;
     }
 
-    private static async Task<Ok<InstitutionListResponse>> List(
-        ListInstitutionsHandler handler, CancellationToken cancellationToken, bool includeArchived = false)
+    /// <param name="limit">How many institutions a page holds: 1 to 100, 50 when left out.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    private static async Task<Results<Ok<InstitutionListResponse>, ValidationProblem>> List(
+        ListInstitutionsHandler handler, CancellationToken cancellationToken,
+        bool includeArchived = false, int limit = Paging.DefaultLimit, string? cursor = null)
     {
-        var found = await handler.HandleAsync(new ListInstitutions(includeArchived), cancellationToken);
-        return TypedResults.Ok(new InstitutionListResponse([.. found.Select(InstitutionResponse.From)]));
+        if (!Paging.IsValidLimit(limit))
+        {
+            return Paged.Invalid("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+        }
+
+        NameCursor? after = null;
+        if (cursor is not null && !NameCursor.TryParse(cursor, out after))
+        {
+            return Paged.Invalid("cursor", "Use the nextCursor of the page before.");
+        }
+
+        var page = await handler.HandleAsync(new ListInstitutions(includeArchived, limit, after), cancellationToken);
+        return TypedResults.Ok(new InstitutionListResponse([.. page.Items.Select(InstitutionResponse.From)], page.NextCursor));
     }
 
     private static async Task<Results<Ok<InstitutionResponse>, NotFound>> Get(Guid id, GetInstitutionHandler handler, CancellationToken cancellationToken) =>
@@ -65,7 +80,7 @@ public static class InstitutionEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome == ArchiveInstitutionOutcome.Archived ? TypedResults.NoContent() : TypedResults.NotFound();
+        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 }
 
@@ -78,4 +93,5 @@ public sealed record InstitutionResponse(Guid Id, string Name, string? Color, st
         new(institution.Id, institution.Name, institution.Color, institution.LogoKey, institution.IsArchived);
 }
 
-public sealed record InstitutionListResponse(IReadOnlyList<InstitutionResponse> Items);
+/// <summary>A page of institutions. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>
+public sealed record InstitutionListResponse(IReadOnlyList<InstitutionResponse> Items, string? NextCursor);

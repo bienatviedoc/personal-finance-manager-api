@@ -1,8 +1,8 @@
-namespace Pfm.Domain.Identity;
+namespace Pfm.Domain;
 
 /// <summary>
-/// The language a user sees the interface in, which also decides how numbers, amounts and dates are
-/// written. Its tag is the BCP 47 language tag: <c>en</c> or <c>vi</c>.
+/// The language a user uses the app in: the interface, how numbers, amounts and dates are written, and
+/// the names of the default categories they start with. Its tag is the BCP 47 language tag: <c>en</c> or <c>vi</c>.
 /// </summary>
 public enum Locale
 {

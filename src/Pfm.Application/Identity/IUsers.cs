@@ -1,3 +1,5 @@
+using Pfm.Domain;
+
 namespace Pfm.Application.Identity;
 
 /// <summary>
@@ -10,8 +12,8 @@ public interface IUsers
 
     Task<UserDetails?> FindByIdAsync(Guid userId);
 
-    /// <summary>Creates a user with an unconfirmed email address.</summary>
-    Task<NewUser> CreateAsync(string email, string password);
+    /// <summary>Creates a user with an unconfirmed email address and the default profile settings, but this locale.</summary>
+    Task<NewUser> CreateAsync(string email, string password, Locale? locale);
 
     Task<bool> CheckPasswordAsync(Guid userId, string password);
 

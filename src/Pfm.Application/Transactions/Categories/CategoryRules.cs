@@ -16,9 +16,6 @@ internal static class CategoryRules
     public static IRuleBuilderOptions<T, string> CategoryIcon<T>(this IRuleBuilder<T, string> rule) =>
         rule.Must(Category.IsValidIcon).WithMessage("Choose an icon.");
 
-    public static IRuleBuilderOptions<T, string> CategoryColor<T>(this IRuleBuilder<T, string> rule) =>
-        rule.Must(Category.IsValidColor).WithMessage("Enter a colour as #rrggbb.");
-
     /// <summary>A broken category rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this CategoryRuleViolation violation) =>
         new Dictionary<string, string[]> { [violation.Property] = [violation.Message] };

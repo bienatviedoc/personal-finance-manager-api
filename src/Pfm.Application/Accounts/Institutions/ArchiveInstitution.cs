@@ -12,29 +12,21 @@ public sealed class ArchiveInstitutionValidator : AbstractValidator<ArchiveInsti
     public ArchiveInstitutionValidator() => RuleFor(command => command.Id).Required();
 }
 
-public enum ArchiveInstitutionOutcome
-{
-    /// <summary>Archived now, or already archived.</summary>
-    Archived,
-
-    /// <summary>The user has no institution with that id.</summary>
-    NotFound,
-}
-
+/// <summary>Answers null when the user has no institution with that id.</summary>
 public sealed class ArchiveInstitutionHandler(
     IValidator<ArchiveInstitutionCommand> validator, IInstitutionRepository institutions, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<ArchiveInstitutionCommand, ArchiveInstitutionOutcome>(validator)
+    : CommandHandler<ArchiveInstitutionCommand, Done?>(validator)
 {
-    protected override async Task<Result<ArchiveInstitutionOutcome>> ExecuteAsync(ArchiveInstitutionCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<Done?>> ExecuteAsync(ArchiveInstitutionCommand command, CancellationToken cancellationToken)
     {
         var institution = await institutions.FindAsync(command.Id, cancellationToken);
         if (institution is null)
         {
-            return ArchiveInstitutionOutcome.NotFound;
+            return (Done?)null;
         }
 
         institution.Archive(clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return ArchiveInstitutionOutcome.Archived;
+        return new Done();
     }
 }

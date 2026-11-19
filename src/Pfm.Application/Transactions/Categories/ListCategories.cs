@@ -7,9 +7,9 @@ public sealed record ListCategories(bool IncludeArchived = false);
 
 public sealed class ListCategoriesHandler(ICategoryRepository categories) : IQueryHandler
 {
-    public async Task<IReadOnlyList<CategoryView>> HandleAsync(ListCategories query, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<CategoryDetails>> HandleAsync(ListCategories query, CancellationToken cancellationToken = default)
     {
         var all = await categories.ListAsync(cancellationToken);
-        return CategoryView.Tree(query.IncludeArchived ? all : all.Where(category => !category.IsArchived));
+        return CategoryDetails.Tree(query.IncludeArchived ? all : all.Where(category => !category.IsArchived));
     }
 }

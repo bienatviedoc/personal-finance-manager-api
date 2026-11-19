@@ -1,7 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Pfm.Domain;
-using Pfm.Domain.Identity;
 
 namespace Pfm.Api;
 

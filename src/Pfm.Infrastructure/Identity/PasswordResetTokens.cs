@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Pfm.Infrastructure.Identity;
 
-namespace Pfm.Api.Identity;
+namespace Pfm.Infrastructure.Identity;
 
 /// <summary>
 /// Password reset links last an hour, much shorter than email confirmation links: a reset link hands

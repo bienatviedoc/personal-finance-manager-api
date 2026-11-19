@@ -9,6 +9,9 @@ namespace Pfm.Application.Transactions.Categories;
 public sealed record EditCategoryCommand(Guid Id, string Name, CategoryKind Kind, string Icon, string Color)
 {
     public string Name { get; } = Name?.Trim() ?? "";
+
+    /// <summary>The colour sent, read once; null when it is not a colour.</summary>
+    public Domain.Color? ParsedColor { get; } = Domain.Color.TryParse(Color, out var color) ? color : null;
 }
 
 public sealed class EditCategoryValidator : AbstractValidator<EditCategoryCommand>
@@ -19,7 +22,7 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
         RuleFor(command => command.Name).CategoryName();
         RuleFor(command => command.Kind).CategoryKind();
         RuleFor(command => command.Icon).CategoryIcon();
-        RuleFor(command => command.Color).CategoryColor();
+        RuleFor(command => command.Color).IsColor(command => command.ParsedColor);
     }
 }
 
@@ -29,19 +32,18 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
 /// </summary>
 public sealed class EditCategoryHandler(
     IValidator<EditCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<EditCategoryCommand, CategoryView?>(validator)
+    : CommandHandler<EditCategoryCommand, CategoryDetails?>(validator)
 {
-    protected override async Task<Result<CategoryView?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<CategoryDetails?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
     {
-        var all = await categories.ListAsync(cancellationToken);
-        var category = all.SingleOrDefault(candidate => candidate.Id == command.Id);
+        var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)
         {
-            return (CategoryView?)null;
+            return (CategoryDetails?)null;
         }
 
         var now = clock.GetUtcNow();
-        var subcategories = all.Where(candidate => candidate.ParentId == category.Id).ToList();
+        var subcategories = await categories.ListSubcategoriesAsync(category.Id, cancellationToken);
         try
         {
             if (command.Kind != category.Kind)
@@ -52,11 +54,11 @@ public sealed class EditCategoryHandler(
         }
         catch (CategoryRuleViolation violation)
         {
-            return Result<CategoryView?>.Invalid(violation.AsErrors());
+            return Result<CategoryDetails?>.Invalid(violation.AsErrors());
         }
 
-        category.Edit(command.Name, command.Icon, command.Color, now);
+        category.Edit(command.Name, command.Icon, command.ParsedColor!, now);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return CategoryView.Of(category, subcategories);
+        return CategoryDetails.Of(category, subcategories);
     }
 }

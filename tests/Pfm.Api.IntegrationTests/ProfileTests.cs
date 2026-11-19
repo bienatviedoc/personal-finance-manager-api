@@ -16,6 +16,18 @@ public class ProfileTests(PfmApi api)
         Assert.Equal(new Profile(me!.Id, email, "VND", "Asia/Ho_Chi_Minh", null), me);
     }
 
+    [Theory]
+    [InlineData("vi")]
+    [InlineData("en")]
+    public async Task The_locale_a_user_registers_in_is_their_profiles_locale(string locale)
+    {
+        var (browser, _) = await api.SignedInAsync(locale: locale);
+
+        var me = await (await browser.GetAsync("/api/v1/me")).Content.ReadFromJsonAsync<Profile>();
+
+        Assert.Equal(locale, me!.Locale);
+    }
+
     [Fact]
     public async Task A_user_can_change_their_base_currency_time_zone_and_locale()
     {

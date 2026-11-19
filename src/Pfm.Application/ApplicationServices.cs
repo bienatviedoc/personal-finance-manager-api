@@ -25,8 +25,8 @@ public static class ApplicationServices
             services.AddScoped(handler);
         }
 
-        // Contracts other modules call, answered by a module's own use case.
-        services.AddScoped<IDefaultCategories>(provider => provider.GetRequiredService<CreateDefaultCategoriesHandler>());
+        // Contracts other modules call.
+        services.AddScoped<IDefaultCategories, DefaultCategorySet>();
 
         return services;
     }

@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
-using Pfm.Application.Identity;
 using Microsoft.AspNetCore.DataProtection;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Persistence;
@@ -17,10 +16,7 @@ public static class AuthenticationSetup
     /// </summary>
     public static IServiceCollection AddPfmAuthentication(this IServiceCollection services, CookiePolicy cookies)
     {
-        services.AddUsers().AddSignInManager().AddDefaultTokenProviders()
-            .AddTokenProvider<PasswordResetTokenProvider>(PasswordResetTokenProviderOptions.ProviderName);
-        services.Configure<IdentityOptions>(options => options.Tokens.PasswordResetTokenProvider = PasswordResetTokenProviderOptions.ProviderName);
-        services.Replace(ServiceDescriptor.Scoped<ISessions, CookieSessions>());
+        services.AddUsers().AddSignIn();
 
         services.AddDataProtection().SetApplicationName("pfm").PersistKeysToDbContext<PfmDbContext>();
 

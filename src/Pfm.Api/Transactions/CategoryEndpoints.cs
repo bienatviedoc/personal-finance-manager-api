@@ -23,11 +23,14 @@ public static class CategoryEndpoints
         return api;
     }
 
-    private static async Task<Ok<IReadOnlyList<CategoryView>>> List(
-        ListCategoriesHandler handler, CancellationToken cancellationToken, bool includeArchived = false) =>
-        TypedResults.Ok(await handler.HandleAsync(new ListCategories(includeArchived), cancellationToken));
+    private static async Task<Ok<CategoryListResponse>> List(
+        ListCategoriesHandler handler, CancellationToken cancellationToken, bool includeArchived = false)
+    {
+        var tree = await handler.HandleAsync(new ListCategories(includeArchived), cancellationToken);
+        return TypedResults.Ok(new CategoryListResponse([.. tree.Select(CategoryResponse.From)]));
+    }
 
-    private static async Task<Results<Created<CategoryView>, NotFound, ValidationProblem>> Create(
+    private static async Task<Results<Created<CategoryResponse>, NotFound, ValidationProblem>> Create(
         CategoryRequest request, CreateCategoryHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new CreateCategoryCommand(request.ParentId, request.Name, request.Kind, request.Icon, request.Color), cancellationToken);
@@ -36,10 +39,10 @@ public static class CategoryEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is { } created ? TypedResults.Created($"/api/v1/categories/{created.Id}", created) : TypedResults.NotFound();
+        return result.Outcome is { } created ? TypedResults.Created($"/api/v1/categories/{created.Id}", CategoryResponse.From(created)) : TypedResults.NotFound();
     }
 
-    private static async Task<Results<Ok<CategoryView>, NotFound, ValidationProblem>> Edit(
+    private static async Task<Results<Ok<CategoryResponse>, NotFound, ValidationProblem>> Edit(
         Guid id, CategoryChangeRequest request, EditCategoryHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new EditCategoryCommand(id, request.Name, request.Kind, request.Icon, request.Color), cancellationToken);
@@ -48,7 +51,7 @@ public static class CategoryEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is { } edited ? TypedResults.Ok(edited) : TypedResults.NotFound();
+        return result.Outcome is { } edited ? TypedResults.Ok(CategoryResponse.From(edited)) : TypedResults.NotFound();
     }
 
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> Archive(
@@ -60,7 +63,7 @@ public static class CategoryEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome == ArchiveCategoryOutcome.Archived ? TypedResults.NoContent() : TypedResults.NotFound();
+        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 }
 
@@ -69,3 +72,15 @@ public sealed record CategoryRequest(string Name, CategoryKind Kind, string Icon
 
 /// <summary>A category's new name, kind, icon and colour.</summary>
 public sealed record CategoryChangeRequest(string Name, CategoryKind Kind, string Icon, string Color);
+
+/// <summary>A category; a top-level one comes with its subcategories, a subcategory with none.</summary>
+public sealed record CategoryResponse(
+    Guid Id, Guid? ParentId, string Name, CategoryKind Kind, string Icon, string Color, bool IsArchived, IReadOnlyList<CategoryResponse> Subcategories)
+{
+    public static CategoryResponse From(CategoryDetails category) =>
+        new(category.Id, category.ParentId, category.Name, category.Kind, category.Icon, category.Color, category.IsArchived,
+            [.. category.Subcategories.Select(From)]);
+}
+
+/// <summary>The whole category tree, unpaged: a user has dozens of categories, and a tree cannot be cut into pages.</summary>
+public sealed record CategoryListResponse(IReadOnlyList<CategoryResponse> Items);

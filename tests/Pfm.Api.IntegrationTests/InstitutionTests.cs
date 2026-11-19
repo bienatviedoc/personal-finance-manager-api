@@ -84,6 +84,54 @@ public class InstitutionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task The_list_comes_in_pages_each_pointing_to_the_next()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await AddAsync(browser, "techcombank");
+        await AddAsync(browser, "MoMo");
+        await AddAsync(browser, "ACB");
+
+        var first = await PageAsync(browser, "?limit=2");
+        var second = await PageAsync(browser, $"?limit=2&cursor={Uri.EscapeDataString(first.NextCursor!)}");
+
+        Assert.Equal(["ACB", "MoMo"], first.Items.Select(institution => institution.Name));
+        Assert.NotNull(first.NextCursor);
+        Assert.Equal(["techcombank"], second.Items.Select(institution => institution.Name));
+        Assert.Null(second.NextCursor);
+    }
+
+    [Fact]
+    public async Task A_page_holds_50_institutions_unless_asked_for_another_size()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        for (var number = 1; number <= 51; number++)
+        {
+            await AddAsync(browser, $"Bank {number:D2}");
+        }
+
+        var first = await PageAsync(browser);
+        var rest = await PageAsync(browser, $"?cursor={Uri.EscapeDataString(first.NextCursor!)}");
+
+        Assert.Equal(50, first.Items.Length);
+        Assert.Equal(["Bank 51"], rest.Items.Select(institution => institution.Name));
+        Assert.Null(rest.NextCursor);
+    }
+
+    [Theory]
+    [InlineData("?limit=0", "limit")]
+    [InlineData("?limit=101", "limit")]
+    [InlineData("?cursor=not-a-cursor", "cursor")]
+    public async Task A_page_size_outside_1_to_100_or_a_cursor_the_list_did_not_give_is_refused(string query, string field)
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await browser.GetAsync(Institutions + query);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal([field], await ErrorFieldsAsync(response));
+    }
+
+    [Fact]
     public async Task Deleting_an_institution_archives_it_so_it_leaves_the_list_but_can_still_be_shown_where_it_is_used()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -167,14 +215,16 @@ public class InstitutionTests(PfmApi api)
         return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name).Order()];
     }
 
-    private static async Task<InstitutionBody[]> ListAsync(Browser browser, string query = "")
+    private static async Task<InstitutionBody[]> ListAsync(Browser browser, string query = "") => (await PageAsync(browser, query)).Items;
+
+    private static async Task<InstitutionList> PageAsync(Browser browser, string query = "")
     {
         var response = await browser.GetAsync(Institutions + query);
         response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<InstitutionList>())!.Items;
+        return (await response.Content.ReadFromJsonAsync<InstitutionList>())!;
     }
 
     private sealed record InstitutionBody(Guid Id, string Name, string? Color, string? LogoKey, bool IsArchived);
 
-    private sealed record InstitutionList(InstitutionBody[] Items);
+    private sealed record InstitutionList(InstitutionBody[] Items, string? NextCursor);
 }

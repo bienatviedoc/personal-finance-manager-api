@@ -79,19 +79,26 @@ input, normalised in its constructor, for example a trimmed email), its FluentVa
 handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
 handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
 enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+A use case that acts on one of the user's things by id, query or command, answers null when the user has
+no such thing, and the endpoint answers 404: `EditInstitution` answers `InstitutionDetails?`,
+`ArchiveCategory` answers `Done?`. `UpdateProfile` answers null when nobody is signed in (a 401).
 `AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
 `UseCaseTests` fails when a command has no validator, or more than one.
 
 An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
-turns the outcome into a response. `ValidationProblems.For` turns errors into Problem Details keyed by
+turns the outcome into a response. Requests and responses are the API's own types (`InstitutionRequest`,
+`CategoryResponse`), never Application ones, so the OpenAPI contract changes only when an endpoint does: a use
+case answers a `…Details` record (`InstitutionDetails`, `CategoryDetails`, `ProfileDetails`) and the endpoint
+maps it to a `…Response`. A list answers an object with its `items`. `ValidationProblems.For` turns errors into Problem Details keyed by
 the request's field names (`Email` becomes `email`).
 
 What a use case needs from outside, it asks for through an interface in its module (a port, such as
 `IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
 the session cookie). Application never references ASP.NET Core or EF Core.
 
-A query (`ListInstitutions`, `GetInstitution`) has no validator or `Result`: its handler implements
-`IQueryHandler` and answers directly, null when the user has no such thing (a 404). Handlers that
+A query is one file too, holding the query record (`ListInstitutions`, `GetProfile`, even when it carries
+nothing) and its handler. It has no validator or `Result`: the handler implements `IQueryHandler` and answers
+directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
 
@@ -104,16 +111,19 @@ already uses it can still show it.
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
 
-- **Registering** takes an optional `language` (`en` or `vi`, English when left out): the new user's default
-  categories are created in it, in the same transaction as the user.
+- **Registering** takes an optional `locale` (`en` or `vi`): it is saved as the new user's locale (see the
+  glossary), and their default categories are created in it, in the same transaction as the user. Left out, the
+  user has no locale yet (the SPA follows the browser) and the categories are in English.
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
-and `IIdentityEmails`, implemented in `Pfm.Infrastructure.Identity`, and `ISessions`, implemented by the
-API's `CookieSessions` over the sign-in manager. Hosts that sign no one in, such as the worker, get
-`NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+and `IIdentityEmails`, and `ISessions`, all implemented in `Pfm.Infrastructure.Identity`: `ISessions` is
+`CookieSessions` over the sign-in manager, which a host that signs people in registers with `AddSignIn()` while it
+configures the cookie itself (the API's `AuthenticationSetup`). Every Identity specific, the sign-in manager and
+token providers included, sits in Infrastructure, which is why it references the ASP.NET Core shared framework.
+Hosts that sign no one in, such as the worker, get `NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
 method on a port when it needs something Identity does, such as a reset token.
 
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
@@ -179,6 +189,11 @@ if they were signed in. Registration uses it to create the new user's default ca
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
+- **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
+  left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
+  or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
+  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
+  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Enums are listed in the OpenAPI
