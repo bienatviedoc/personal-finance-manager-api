@@ -188,10 +188,8 @@ public class AuthTests(PfmApi api)
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
     {
         var browser = api.CreateBrowser();
-        using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json") };
-        request.Headers.Add("X-XSRF-TOKEN", await browser.AntiforgeryTokenAsync());
 
-        var response = await browser.Http.SendAsync(request);
+        var response = await browser.PostJsonAsync(path, body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(fields.Split(','), (await ErrorFieldsAsync(response)).Order());

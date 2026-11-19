@@ -15,8 +15,10 @@ Requires Docker.
 docker compose up --build
 ```
 
-This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080, the worker, and
-[Mailpit](https://mailpit.axllent.org), which catches every email the API sends: read them at http://localhost:8025.
+This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080, the worker,
+[Mailpit](https://mailpit.axllent.org), which catches every email the API sends: read them at http://localhost:8025,
+and the [Aspire Dashboard](https://aspire.dev/dashboard/standalone/), which shows the logs, traces and metrics of
+the API and worker: http://localhost:18888.
 
 | URL | What |
 | --- | --- |
@@ -53,7 +55,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
 | `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
-| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, and the implementations of those interfaces | Application |
+| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
 
@@ -86,6 +88,27 @@ the browser never holds a token a script could read.
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
 
+## Observability
+
+- **Logs** are structured, through Serilog: one JSON object per event on the console (readable text in
+  Development), with levels set in the `Serilog` section of `appsettings.json`. Every event carries the trace
+  and span it was written in. Each request is logged once, with its method, path (never the query string),
+  status and time. Health probes are not traced, and are logged only when they fail.
+- **Traces and metrics** go through OpenTelemetry: incoming requests, outgoing HTTP calls and database calls
+  (Npgsql), plus runtime metrics. A request joins the trace in its `traceparent` header, which the SPA sends
+  with every request, so one trace id runs from the browser through to the database.
+- **Where they go:** logs, traces and metrics are sent over OTLP to `OTEL_EXPORTER_OTLP_ENDPOINT` when it is set;
+  Compose points it at the Aspire Dashboard. The API run from source can send to the Compose dashboard with
+  `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317`.
+- **Error reports:** an error logged with an exception (an unhandled request error, or a failed background job)
+  is reported to the error tracker (Sentry) when `Sentry__Dsn` is set; without it nothing is sent. The tracker is
+  a third party, so a report carries only the exception (type, message, stack), the message template and the
+  trace id. It leaves out the request, the user, breadcrumbs, and the values of log properties. The trace id
+  finds the rest in our own logs and traces. Keep user data out of exception messages. `ErrorReports` holds these
+  rules, and `ObservabilityTests` checks them.
+
+The worker shares all of this through `AddPfmObservability` in `Pfm.Infrastructure`.
+
 ## User-owned data
 
 An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmDbContext` enforces it:
@@ -116,7 +139,8 @@ runs for no user, such as background jobs, sees no user-owned data until it acts
   caused it; CI fails when the committed file is out of date.
 - **Configuration**: the database connection string is `ConnectionStrings__Pfm`. `App__PublicUrl` is the SPA's
   address, which emailed links point to; the API refuses to start without it. Email goes out through
-  `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password` and `Smtp__From`. STARTTLS is required
+  `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password` and `Smtp__From`. Telemetry and error
+  reports are configured as described under [Observability](#observability). STARTTLS is required
   (`Smtp__UseStartTls`, on by default); turn it off only for a local catcher such as Mailpit, never with
   credentials. No secrets in the
   repository; the credentials in `compose.yaml` and `appsettings.Development.json` are for the local

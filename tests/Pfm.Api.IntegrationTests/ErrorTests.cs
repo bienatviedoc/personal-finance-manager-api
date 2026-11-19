@@ -50,13 +50,8 @@ public class ErrorTests(PfmApi api)
     public async Task A_request_whose_body_cannot_be_read_is_a_bad_request_not_a_server_error(string body, bool development)
     {
         var browser = development ? api.CreateDevelopmentBrowserOverHttp() : api.CreateBrowser();
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
-        {
-            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Add("X-XSRF-TOKEN", await browser.AntiforgeryTokenAsync());
 
-        var response = await browser.Http.SendAsync(request);
+        var response = await browser.PostJsonAsync("/api/v1/auth/login", body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(400, (await ReadProblem(response)).GetProperty("status").GetInt32());
