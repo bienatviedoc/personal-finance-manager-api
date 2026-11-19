@@ -11,7 +11,7 @@ public sealed class Institution : IUserOwned
     /// <summary>
     /// The logos a user can pick from: generic marks the SPA draws, not brand artwork or uploads.
     /// </summary>
-    public static readonly IReadOnlyList<string> LogoKeys = ["bank", "landmark", "wallet", "card", "piggy-bank", "coins", "smartphone"];
+    public static readonly IReadOnlyList<string> LogoKeys = ["bank", "building", "wallet", "card", "piggy-bank", "coins", "smartphone"];
 
     /// <summary>For persistence, which sets every property itself.</summary>
     private Institution()

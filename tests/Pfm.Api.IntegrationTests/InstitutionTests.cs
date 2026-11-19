@@ -28,10 +28,10 @@ public class InstitutionTests(PfmApi api)
         var (browser, _) = await api.SignedInAsync();
         var institution = await AddAsync(browser, "Vietcombank");
 
-        var response = await browser.PutAsync($"{Institutions}/{institution.Id}", new { name = "  VCB  ", color = "#FFAA00", logoKey = "landmark" });
+        var response = await browser.PutAsync($"{Institutions}/{institution.Id}", new { name = "  VCB  ", color = "#FFAA00", logoKey = "building" });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var edited = new InstitutionBody(institution.Id, "VCB", "#ffaa00", "landmark", false);
+        var edited = new InstitutionBody(institution.Id, "VCB", "#ffaa00", "building", false);
         Assert.Equal(edited, await response.Content.ReadFromJsonAsync<InstitutionBody>());
         Assert.Equal(edited, await GetAsync(browser, institution.Id));
     }
