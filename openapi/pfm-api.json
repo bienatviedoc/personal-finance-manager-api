@@ -368,6 +368,26 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32",
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -387,6 +407,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/InstitutionListResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
                 }
               }
             }
@@ -988,7 +1018,8 @@
       },
       "InstitutionListResponse": {
         "required": [
-          "items"
+          "items",
+          "nextCursor"
         ],
         "type": "object",
         "properties": {
@@ -997,6 +1028,12 @@
             "items": {
               "$ref": "#/components/schemas/InstitutionResponse"
             }
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },

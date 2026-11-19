@@ -187,6 +187,11 @@ if they were signed in. Registration uses it to create the new user's default ca
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
+- **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
+  left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
+  or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
+  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
+  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Enums are listed in the OpenAPI
