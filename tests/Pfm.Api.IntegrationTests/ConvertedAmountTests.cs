@@ -262,6 +262,25 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Changing_the_base_currency_converts_each_of_several_transactions_of_one_currency_and_date_by_its_own_amount()
+    {
+        await RatesAreAsync((Today.AddDays(-1), 25000m, 0.5m), (Today, 26000m, 0.8m));
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "USD");
+        var first = await AddAsync(browser, dollars, "100", Today);
+        var second = await AddAsync(browser, dollars, "7.50", Today);
+        var earlier = await AddAsync(browser, dollars, "7.50", Today.AddDays(-1));
+        var inDong = await AddAsync(browser, await AddAccountAsync(browser, "VND"), "65000", Today);
+
+        (await browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(new Converted(Currency.EUR, 80m, 0.8m, Today), await ConvertedAsync(first.Id));
+        Assert.Equal(new Converted(Currency.EUR, 6m, 0.8m, Today), await ConvertedAsync(second.Id));
+        Assert.Equal(new Converted(Currency.EUR, 3.75m, 0.5m, Today.AddDays(-1)), await ConvertedAsync(earlier.Id));
+        Assert.Equal(2m, (await ConvertedAsync(inDong.Id)).Amount);
+    }
+
+    [Fact]
     public async Task A_transaction_edited_while_the_base_currency_changes_keeps_the_edit_and_is_converted_into_the_new_one()
     {
         await RatesAreAsync((Today, 25000m, 0.5m));

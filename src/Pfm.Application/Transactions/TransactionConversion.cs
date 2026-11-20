@@ -57,11 +57,18 @@ public sealed class TransactionConversion(
         return false;
     }
 
+    /// <summary>The rate is looked up once for the transactions of one currency on one date, not once for each of them.</summary>
     public async Task ConvertEveryAmountIntoAsync(Currency baseCurrency, CancellationToken cancellationToken)
     {
-        foreach (var transaction in await transactions.ListEveryAsync(cancellationToken))
+        var toConvert = (await transactions.ListEveryAsync(cancellationToken)).Where(transaction => !transaction.IsConvertedInto(baseCurrency));
+        foreach (var sameRate in toConvert.GroupBy(transaction => (transaction.Currency, transaction.Date)))
         {
-            await ConvertAsync(transaction, baseCurrency, cancellationToken);
+            var (currency, date) = sameRate.Key;
+            var converted = await conversion.ConvertAsync([.. sameRate.Select(transaction => transaction.Amount)], currency, baseCurrency, date, cancellationToken);
+            foreach (var (transaction, amount) in sameRate.Zip(converted))
+            {
+                Keep(transaction, baseCurrency, amount);
+            }
         }
     }
 
@@ -76,8 +83,13 @@ public sealed class TransactionConversion(
             return;
         }
 
-        var converted = await conversion.ConvertAsync(transaction.Amount, transaction.Currency, baseCurrency, transaction.Date, cancellationToken);
+        Keep(
+            transaction, baseCurrency,
+            await conversion.ConvertAsync(transaction.Amount, transaction.Currency, baseCurrency, transaction.Date, cancellationToken));
+    }
 
+    private static void Keep(Transaction transaction, Currency baseCurrency, Conversion converted)
+    {
         // An amount too large for the base currency to hold has no converted amount either.
         if (converted is { Amount: { } amount, Rate: { } rate, RateDate: { } rateDate } && Transaction.CanHoldInBaseCurrency(amount, baseCurrency))
         {
