@@ -217,6 +217,28 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Institutions", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.ExchangeRates.ExchangeRate", b =>
+                {
+                    b.Property<string>("BaseCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<string>("QuoteCurrency")
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<decimal>("Rate")
+                        .HasPrecision(28, 18)
+                        .HasColumnType("numeric(28,18)");
+
+                    b.HasKey("BaseCurrency", "QuoteCurrency", "Date");
+
+                    b.ToTable("ExchangeRates", (string)null);
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.Category", b =>
                 {
                     b.Property<Guid>("Id")

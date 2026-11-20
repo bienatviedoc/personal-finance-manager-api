@@ -16,7 +16,7 @@ public static class AccountEndpoints
         var accounts = api.MapGroup("/accounts").WithTags("Accounts").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         accounts.MapGet("/", List).WithName("ListAccounts")
-            .WithDescription("The user's accounts by name, each with its balance, and the total balance of each institution in each currency. The totals cover the whole list, whichever page is asked for. Archived accounts, which pickers never offer, only with includeArchived=true.");
+            .WithDescription("The user's accounts by name, each with its balance, the total balance of each institution in each currency, and the totals of each institution and of everything in the user's base currency, at today's exchange rates. A balance with no rate to convert it is left out of those and listed as not converted. The totals cover the whole list, whichever page is asked for. Archived accounts, which pickers never offer, only with includeArchived=true.");
         accounts.MapGet("/{id:guid}", Get).WithName("GetAccount")
             .WithDescription("One account, archived or not, with its balance. The ETag header carries its row version.");
         accounts.MapPost("/", Create).WithName("CreateAccount")
@@ -50,7 +50,8 @@ public static class AccountEndpoints
 
         var list = await handler.HandleAsync(new ListAccounts(includeArchived, limit, after), cancellationToken);
         return TypedResults.Ok(new AccountListResponse(
-            [.. list.Page.Items.Select(AccountResponse.From)], list.Page.NextCursor, [.. list.Totals.Select(InstitutionTotalResponse.From)]));
+            [.. list.Page.Items.Select(AccountResponse.From)], list.Page.NextCursor, [.. list.Totals.Select(InstitutionTotalResponse.From)],
+            BaseCurrencyTotalResponse.From(list.BaseCurrencyTotal)));
     }
 
     private static async Task<Results<Ok<AccountResponse>, NotFound>> Get(
@@ -186,9 +187,10 @@ public sealed record AccountResponse(
 
 /// <summary>
 /// A page of accounts. <c>nextCursor</c> asks for the next page; it is null on the last. <c>totals</c> are
-/// of every account the list holds, on every page.
+/// of every account the list holds, on every page, and so is <c>baseCurrencyTotal</c>.
 /// </summary>
-public sealed record AccountListResponse(IReadOnlyList<AccountResponse> Items, string? NextCursor, IReadOnlyList<InstitutionTotalResponse> Totals);
+public sealed record AccountListResponse(
+    IReadOnlyList<AccountResponse> Items, string? NextCursor, IReadOnlyList<InstitutionTotalResponse> Totals, BaseCurrencyTotalResponse BaseCurrencyTotal);
 
 /// <summary>The total balance of the listed accounts at one institution in one currency.</summary>
 /// <param name="InstitutionId">Null for the accounts held with no institution.</param>
@@ -196,4 +198,36 @@ public sealed record AccountListResponse(IReadOnlyList<AccountResponse> Items, s
 public sealed record InstitutionTotalResponse(Guid? InstitutionId, Currency Currency, string Balance)
 {
     public static InstitutionTotalResponse From(InstitutionTotal total) => new(total.InstitutionId, total.Currency, AmountJson.Text(total.Balance));
+}
+
+/// <summary>
+/// The balances of the listed accounts in the user's base currency, at today's exchange rates (or the nearest
+/// earlier ones): all of them, and those of each institution.
+/// </summary>
+/// <param name="Currency">The user's base currency.</param>
+/// <param name="Balance">A decimal string in <paramref name="Currency"/>: what the institutions' balances come to.</param>
+/// <param name="NotConverted">Balances left out of <paramref name="Balance"/> because no exchange rate exists for them, added up by currency. Empty when the total is complete.</param>
+public sealed record BaseCurrencyTotalResponse(
+    Currency Currency, string Balance, IReadOnlyList<NotConvertedAmountResponse> NotConverted, IReadOnlyList<InstitutionBaseCurrencyTotalResponse> Institutions)
+{
+    public static BaseCurrencyTotalResponse From(BaseCurrencyTotal total) =>
+        new(total.Currency, AmountJson.Text(total.Balance), [.. total.NotConverted.Select(NotConvertedAmountResponse.From)],
+            [.. total.Institutions.Select(InstitutionBaseCurrencyTotalResponse.From)]);
+}
+
+/// <summary>The total balance of the listed accounts at one institution, in the user's base currency.</summary>
+/// <param name="InstitutionId">Null for the accounts held with no institution.</param>
+/// <param name="Balance">A decimal string in the base currency.</param>
+/// <param name="NotConverted">Balances left out of <paramref name="Balance"/> because no exchange rate exists for them. Empty when the total is complete.</param>
+public sealed record InstitutionBaseCurrencyTotalResponse(Guid? InstitutionId, string Balance, IReadOnlyList<NotConvertedAmountResponse> NotConverted)
+{
+    public static InstitutionBaseCurrencyTotalResponse From(InstitutionBaseCurrencyTotal total) =>
+        new(total.InstitutionId, AmountJson.Text(total.Balance), [.. total.NotConverted.Select(NotConvertedAmountResponse.From)]);
+}
+
+/// <summary>A balance that is not converted: it stays in its own currency and out of the base-currency total.</summary>
+/// <param name="Balance">A decimal string in <paramref name="Currency"/>.</param>
+public sealed record NotConvertedAmountResponse(Currency Currency, string Balance)
+{
+    public static NotConvertedAmountResponse From(NotConvertedAmount amount) => new(amount.Currency, AmountJson.Text(amount.Balance));
 }

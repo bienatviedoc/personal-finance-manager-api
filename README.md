@@ -127,6 +127,28 @@ already uses it can still show it. An account can be archived at any balance.
   a credit card field left out is removed.
 - **`GET /accounts`** is paged like every list, and also answers `totals`: the balance of each institution in
   each currency, over the whole list whichever page is asked for. Currencies are never added together.
+- **`baseCurrencyTotal`**, on the same answer, is those totals converted into the user's base currency at today's
+  exchange rates and added up: one balance for everything, and one for each of its `institutions` (spec ACC-4). A
+  balance that is not converted (see below) is left out and listed under `notConverted`, on the institution and
+  on the whole.
+
+### Exchange rates
+
+- **Nobody enters a rate.** The worker's `ExchangeRateFetchJob` runs `FetchExchangeRates` when it starts and every
+  six hours: it asks the source for every day since the latest one stored (a year back the first time) and stores
+  the rate of every pair of currencies, in both directions, per day. A stored day is never fetched again. Rates
+  belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
+  ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the
+  network.
+- **Convert through `ICurrencyConversion`** (`Pfm.Application.ExchangeRates`), from any module: it answers the
+  amount at the rate of the date asked for, or of the nearest earlier day that has one, with the rate and the day
+  it is of. With no rate on or before the date it answers `Conversion.NotConverted`: keep the amount, flag it as
+  not converted and leave it out of totals (spec section 3, rule 7). A module reads the user's base currency
+  through `IBaseCurrency` (`Pfm.Application.Contracts.Identity`).
+- **Exchange rates are not a module.** Like `Currency`, they are shared by all six: `Pfm.Domain.ExchangeRates` and
+  `Pfm.Application.ExchangeRates` reach into no module, and any module may use them.
+- **Configuration** (all optional): `ExchangeRates__SourceUrl` (a self-hosted Frankfurter),
+  `ExchangeRates__DaysBackWhenEmpty` (365) and `ExchangeRates__FetchEvery` (`06:00:00`).
 
 ## Signing in
 
