@@ -14,6 +14,9 @@ public sealed class ExchangeRate
     /// <summary>How many decimals a rate keeps: enough that the largest amount converts to the cent.</summary>
     public const int Decimals = 18;
 
+    /// <summary>How many rates a day has once every pair of currencies is quoted, in both directions.</summary>
+    public static readonly int PairsADay = Enum.GetValues<Currency>().Length * (Enum.GetValues<Currency>().Length - 1);
+
     /// <summary>What <c>numeric(28,18)</c> holds before the decimal point.</summary>
     private const decimal Limit = 10_000_000_000m;
 

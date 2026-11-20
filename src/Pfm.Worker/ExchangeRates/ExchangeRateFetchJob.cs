@@ -34,6 +34,10 @@ public sealed partial class ExchangeRateFetchJob(
             if (result.IsValid)
             {
                 LogFetched(result.Outcome.Days);
+                if (result.Outcome.UsersNotSaved > 0)
+                {
+                    LogUsersNotSaved(result.Outcome.UsersNotSaved);
+                }
             }
             else
             {
@@ -48,6 +52,9 @@ public sealed partial class ExchangeRateFetchJob(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Fetched exchange rates for {Days} day(s)")]
     private partial void LogFetched(int days);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The not-converted transactions of {Users} user(s) kept changing and were not converted; the next fetch tries again")]
+    private partial void LogUsersNotSaved(int users);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Exchange rates were not fetched: the {Section} configuration is wrong ({Fields})")]
     private partial void LogMisconfigured(string section, string fields);

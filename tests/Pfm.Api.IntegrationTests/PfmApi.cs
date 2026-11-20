@@ -50,6 +50,9 @@ public sealed class PfmApi : IAsyncLifetime
     /// <summary>Every span and log event the API exported, as well as sending them on.</summary>
     public CapturedTelemetry Telemetry { get; } = new();
 
+    /// <summary>Has something happen between a use case reading a row and saving it; see <see cref="InterleavedSaves"/>.</summary>
+    public InterleavedSaves Saves { get; } = new();
+
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("The API has not been started.");
 
@@ -178,7 +181,12 @@ public sealed class PfmApi : IAsyncLifetime
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
-        _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry);
+        _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry, configure: services =>
+        {
+            services.AddSingleton(Saves);
+            services.RemoveAll<IUnitOfWork>();
+            services.AddScoped<IUnitOfWork, InterleavedSaves.UnitOfWork>();
+        });
         await _factory.Services.MigrateDatabaseAsync();
     }
 

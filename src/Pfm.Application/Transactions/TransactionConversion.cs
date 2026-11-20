@@ -15,18 +15,54 @@ public sealed class TransactionConversion(
     ICurrencyConversion conversion, ITransactionRepository transactions, IActForUser actFor, IUnitOfWork unitOfWork)
     : ITransactionConversion
 {
+    /// <summary>A user's transactions that changed between being read and saved are read again and converted as saved, this many times at most.</summary>
+    private const int Attempts = 3;
+
     /// <summary>Runs for no user, in the worker, so it acts for each user in turn and saves what it converted of theirs.</summary>
-    public async Task ConvertNotConvertedAsync(CancellationToken cancellationToken)
+    public async Task<int> ConvertNotConvertedAsync(CancellationToken cancellationToken)
     {
+        var usersNotSaved = 0;
         foreach (var userId in await transactions.UsersWithNotConvertedAsync(cancellationToken))
         {
             using var _ = actFor.ActFor(userId);
-            foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
+            if (!await ConvertNotConvertedOfUserAsync(cancellationToken))
+            {
+                usersNotSaved++;
+            }
+        }
+
+        return usersNotSaved;
+    }
+
+    /// <summary>False when the user's transactions kept changing: nothing of theirs is saved, and nothing is left half done for the next user's save.</summary>
+    private async Task<bool> ConvertNotConvertedOfUserAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var waiting = await transactions.ListNotConvertedAsync(cancellationToken);
+            foreach (var transaction in waiting)
             {
                 await ConvertAsync(transaction, transaction.BaseCurrency!.Value, cancellationToken);
             }
 
-            await unitOfWork.SaveChangesAsync(cancellationToken);
+            try
+            {
+                await unitOfWork.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+            catch (ConcurrentChangeException)
+            {
+                // Edited or deleted by its user meanwhile, perhaps converted by that edit. Start again from what was saved.
+                foreach (var transaction in waiting)
+                {
+                    await transactions.RefreshAsync(transaction, cancellationToken);
+                }
+
+                if (attempt == Attempts)
+                {
+                    return false;
+                }
+            }
         }
     }
 

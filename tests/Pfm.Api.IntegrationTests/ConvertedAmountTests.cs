@@ -22,7 +22,11 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
 
     public Task InitializeAsync() => api.ForgetExchangeRatesAsync();
 
-    public Task DisposeAsync() => Task.CompletedTask;
+    public Task DisposeAsync()
+    {
+        api.Saves.Stop();
+        return Task.CompletedTask;
+    }
 
     [Fact]
     public async Task A_transaction_in_another_currency_is_converted_into_the_base_currency_at_the_rate_of_its_date_or_the_nearest_earlier_one()
@@ -170,6 +174,66 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Every_fetch_converts_what_is_flagged_not_converted_also_one_that_stores_no_new_rates()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var expense = await AddAsync(browser, await AddAccountAsync(browser, "USD"), "100", Today);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        await StoreRatesWithoutConvertingAsync();
+
+        var fetched = await api.FetchExchangeRatesAsync();
+
+        Assert.Equal(0, fetched.Outcome.Days);
+        Assert.Equal(new Converted(Currency.VND, 2_600_000m, 26000m, Today), await ConvertedAsync(expense.Id));
+    }
+
+    [Fact]
+    public async Task Transactions_edited_while_new_rates_convert_them_keep_the_edit_and_every_user_ends_up_converted()
+    {
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        var alices = await AddAsync(alice, await AddAccountAsync(alice, "USD"), "100", Today);
+        var bobs = await AddAsync(bob, await AddAccountAsync(bob, "USD"), "2", Today);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        api.Saves.BeforeNextSaveOf<Transaction>(async () =>
+        {
+            await EditAsync(alice, alices, new() { ["payee"] = "Edited meanwhile" });
+            await EditAsync(bob, bobs, new() { ["payee"] = "Edited meanwhile" });
+        });
+
+        var fetched = await api.FetchExchangeRatesAsync();
+
+        Assert.Equal(0, fetched.Outcome.UsersNotSaved);
+        Assert.Equal(new Converted(Currency.VND, 2_600_000m, 26000m, Today), await ConvertedAsync(alices.Id));
+        Assert.Equal(new Converted(Currency.VND, 52_000m, 26000m, Today), await ConvertedAsync(bobs.Id));
+        Assert.Equal("Edited meanwhile", (await GetAsync(alice, alices.Id)).Payee);
+        Assert.Equal("Edited meanwhile", (await GetAsync(bob, bobs.Id)).Payee);
+    }
+
+    [Fact]
+    public async Task A_user_whose_transactions_keep_changing_under_the_fetch_waits_for_the_next_one_and_the_other_users_are_converted()
+    {
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        var alices = await AddAsync(alice, await AddAccountAsync(alice, "USD"), "100", Today);
+        var bobs = await AddAsync(bob, await AddAccountAsync(bob, "USD"), "2", Today);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        api.Saves.BeforeEverySaveOf<Transaction>(() => SaveAgainAsItIsAsync(alices.Id));
+
+        var fetched = await api.FetchExchangeRatesAsync();
+        api.Saves.Stop();
+
+        Assert.Equal(1, fetched.Outcome.UsersNotSaved);
+        Assert.Equal(new Converted(Currency.VND, 52_000m, 26000m, Today), await ConvertedAsync(bobs.Id));
+        Assert.Equal(new Converted(Currency.VND, null, null, null), await ConvertedAsync(alices.Id));
+
+        var next = await api.FetchExchangeRatesAsync();
+
+        Assert.Equal(0, next.Outcome.UsersNotSaved);
+        Assert.Equal(new Converted(Currency.VND, 2_600_000m, 26000m, Today), await ConvertedAsync(alices.Id));
+    }
+
+    [Fact]
     public async Task Changing_the_base_currency_converts_every_transaction_into_the_new_one_at_the_rate_of_its_own_date()
     {
         await RatesAreAsync((Today.AddDays(-2), 24000m, 0.8m), (Today.AddDays(-1), 25000m, 0.5m));
@@ -258,6 +322,14 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
         }
 
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>Saves the transaction with nothing changed, which still gives it a new row version: what any other save does to one read earlier.</summary>
+    private async Task SaveAgainAsItIsAsync(Guid transactionId)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<PfmDbContext>().Database
+            .ExecuteSqlAsync($"""UPDATE "Transactions" SET "Note" = "Note" WHERE "Id" = {transactionId}""");
     }
 
     /// <summary>What the saved transaction holds of its amount in the base currency, deleted or not.</summary>

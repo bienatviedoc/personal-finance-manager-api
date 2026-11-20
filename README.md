@@ -139,7 +139,11 @@ already uses it can still show it. An account can be archived at any balance.
 
 - **Nobody enters a rate.** The worker's `ExchangeRateFetchJob` runs `FetchExchangeRates` when it starts and every
   six hours: it asks the source for every day since the latest one stored (a year back the first time) and stores
-  the rate of every pair of currencies, in both directions, per day. A stored day is never fetched again. Rates
+  the rate of every pair of currencies, in both directions, per day. A stored rate never changes. A day stored
+  without every pair (the source had not quoted a currency yet) is asked for again for a week, and only the
+  pairs it lacks are filled in. Rates are stored with `INSERT … ON CONFLICT DO NOTHING`, so two workers fetching
+  at once store each rate once and neither fails. The job is a plain `BackgroundService` on a timer: the
+  specification names Hangfire for background jobs (section 9), which is not in the repository yet. Rates
   belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
   ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the
   network.
@@ -172,9 +176,11 @@ already uses it can still show it. An account can be archived at any balance.
   converts again only when it changes the amount, the date or the account. A transaction in the base currency
   itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
 - **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
-  `BaseCurrencyAmount`. When a fetch stores new rates it asks Transactions, through `ITransactionConversion`
-  (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted transactions, deleted ones
-  included; any edit of one tries again too.
+  `BaseCurrencyAmount`. Every fetch, whether it stored new rates or not, asks Transactions, through
+  `ITransactionConversion` (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted
+  transactions, deleted ones included; any edit of one tries again too. Each user's are saved on their own: when
+  a user changes theirs at that moment the conversion reads them again and retries, and if they keep changing
+  only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
   only happen until the base currency locks (rule 12).

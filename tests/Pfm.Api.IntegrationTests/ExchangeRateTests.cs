@@ -89,11 +89,11 @@ public class ExchangeRateTests(PfmApi api) : IAsyncLifetime
     [Fact]
     public async Task The_first_fetch_goes_back_as_far_as_it_is_told_and_later_ones_only_ask_for_the_days_since_the_latest_stored()
     {
-        api.ExchangeRateSource.Quote(Today.AddDays(-2), dong: 25000m);
+        api.ExchangeRateSource.Quote(Today.AddDays(-2), dong: 25000m, euros: 0.8m);
 
         var first = await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
-        api.ExchangeRateSource.Quote(Today.AddDays(-1), dong: 25500m);
-        api.ExchangeRateSource.Quote(Today, dong: 26000m);
+        api.ExchangeRateSource.Quote(Today.AddDays(-1), dong: 25500m, euros: 0.8m);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
         var second = await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
 
         Assert.Equal((1, 2), (first.Outcome.Days, second.Outcome.Days));
@@ -104,15 +104,63 @@ public class ExchangeRateTests(PfmApi api) : IAsyncLifetime
     [Fact]
     public async Task Once_today_is_stored_a_fetch_asks_the_source_for_nothing_and_a_stored_rate_never_changes()
     {
-        api.ExchangeRateSource.Quote(Today, dong: 26000m);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
         await api.FetchExchangeRatesAsync();
-        api.ExchangeRateSource.Quote(Today, dong: 27000m);
+        api.ExchangeRateSource.Quote(Today, dong: 27000m, euros: 0.9m);
 
         var again = await api.FetchExchangeRatesAsync();
 
         Assert.Equal(0, again.Outcome.Days);
         Assert.Single(api.ExchangeRateSource.Asked);
         Assert.Equal(26000m, (await ConvertAsync(1m, Currency.USD, Currency.VND, Today)).Rate);
+    }
+
+    [Fact]
+    public async Task A_day_stored_without_one_currency_is_asked_for_again_and_filled_in_while_what_it_had_stays_as_stored()
+    {
+        api.ExchangeRateSource.Quote(Today.AddDays(-1), dong: 25000m);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
+        Assert.False((await ConvertAsync(100m, Currency.EUR, Currency.USD, Today.AddDays(-1))).IsConverted);
+        api.ExchangeRateSource.Quote(Today.AddDays(-1), dong: 25500m, euros: 0.8m);
+
+        var filled = await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
+
+        Assert.Equal(1, filled.Outcome.Days);
+        Assert.Equal((Today.AddDays(-1), Today), api.ExchangeRateSource.Asked[^1]);
+        Assert.Equal(new Conversion(125m, 1.25m, Today.AddDays(-1)), await ConvertAsync(100m, Currency.EUR, Currency.USD, Today.AddDays(-1)));
+        Assert.Equal(25000m, (await ConvertAsync(1m, Currency.USD, Currency.VND, Today.AddDays(-1))).Rate);
+
+        // Every pair of both days is stored now, so there is nothing left to ask for.
+        await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
+        Assert.Equal(2, api.ExchangeRateSource.Asked.Count);
+    }
+
+    [Fact]
+    public async Task A_day_still_missing_a_currency_after_a_week_is_no_longer_asked_for()
+    {
+        api.ExchangeRateSource.Quote(Today.AddDays(-8), dong: 25000m);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
+
+        var again = await api.FetchExchangeRatesAsync(daysBackWhenEmpty: 30);
+
+        Assert.Equal(0, again.Outcome.Days);
+        Assert.Single(api.ExchangeRateSource.Asked);
+    }
+
+    [Fact]
+    public async Task Two_fetches_at_once_store_each_rate_once_and_neither_fails()
+    {
+        api.ExchangeRateSource.Quote(Today.AddDays(-1), dong: 25000m, euros: 0.8m);
+        api.ExchangeRateSource.Quote(Today, dong: 26000m, euros: 0.8m);
+        api.ExchangeRateSource.AnswerOnlyOnceAskedBy(fetches: 2);
+
+        var fetched = await Task.WhenAll(api.FetchExchangeRatesAsync(), api.FetchExchangeRatesAsync());
+
+        Assert.All(fetched, fetch => Assert.True(fetch.IsValid));
+        Assert.Equal(2, fetched.Max(fetch => fetch.Outcome.Days));
+        Assert.Equal(new Conversion(2_600_000m, 26000m, Today), await ConvertAsync(100m, Currency.USD, Currency.VND, Today));
     }
 
     [Fact]

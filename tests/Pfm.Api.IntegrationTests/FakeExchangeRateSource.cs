@@ -34,21 +34,43 @@ public sealed class FakeExchangeRateSource : IExchangeRateSource
         _days[date] = new DailyQuotes(date, Currency.USD, quotes);
     }
 
+    private TaskCompletionSource? _everyoneAsked;
+    private int _stillToAsk;
+
+    /// <summary>Answers nobody until this many fetches have asked: they all then store what they were told at once.</summary>
+    public void AnswerOnlyOnceAskedBy(int fetches) =>
+        (_everyoneAsked, _stillToAsk) = (new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), fetches);
+
     public void Reset()
     {
         _days.Clear();
         Asked.Clear();
         Failure = null;
+        _everyoneAsked = null;
     }
 
-    public Task<IReadOnlyList<DailyQuotes>> FetchAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<DailyQuotes>> FetchAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken)
     {
-        Asked.Add((from, to));
+        lock (Asked)
+        {
+            Asked.Add((from, to));
+        }
+
         if (Failure is not null)
         {
             throw Failure;
         }
 
-        return Task.FromResult<IReadOnlyList<DailyQuotes>>([.. _days.Values.Where(day => day.Date >= from && day.Date <= to).OrderBy(day => day.Date)]);
+        if (_everyoneAsked is { } everyoneAsked)
+        {
+            if (Interlocked.Decrement(ref _stillToAsk) <= 0)
+            {
+                everyoneAsked.TrySetResult();
+            }
+
+            await everyoneAsked.Task.WaitAsync(cancellationToken);
+        }
+
+        return [.. _days.Values.Where(day => day.Date >= from && day.Date <= to).OrderBy(day => day.Date)];
     }
 }
