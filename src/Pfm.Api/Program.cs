@@ -24,6 +24,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 var cookies = CookiePolicy.For(builder.Environment);
 builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
+builder.Services.AddAuthRateLimit();
 builder.Services.AddPfmJson();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
@@ -37,6 +38,8 @@ if (args is ["migrate"])
     await app.Services.MigrateDatabaseAsync();
     return;
 }
+
+app.UseSecurityHeaders(app.Environment);
 
 // One structured event per request, carrying its method, path (never the query string), status and time.
 // A health probe is logged only when it fails.
@@ -58,6 +61,9 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
 });
 app.UseStatusCodePages();
 
+// Before signing anyone in: a client over its limit costs no password hash or database call.
+app.UseRateLimiter();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseApiAntiforgery();
@@ -75,6 +81,7 @@ app.MapGroup("/api/v1")
     .DocumentAntiforgeryRefusals()
     .MapIdentityEndpoints()
     .MapProfileEndpoints()
+    .MapSecurityEndpoints()
     .MapInstitutionEndpoints()
     .MapAccountEndpoints()
     .MapCategoryEndpoints()

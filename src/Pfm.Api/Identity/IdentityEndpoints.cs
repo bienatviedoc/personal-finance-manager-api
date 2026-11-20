@@ -12,8 +12,10 @@ public static class IdentityEndpoints
         // Every endpoint here can also answer 401 (not signed in) and, for POSTs, 400 (anti-forgery).
         api.MapPost("/auth/logout", SignOut).WithName("SignOut").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
 
-        var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous();
-        auth.MapGet("/antiforgery", GetAntiforgeryToken).WithName("GetAntiforgeryToken");
+        api.MapGet("/auth/antiforgery", GetAntiforgeryToken).WithName("GetAntiforgeryToken").WithTags("Identity").AllowAnonymous();
+
+        // What a visitor can do without signing in, each a place to guess at: all of them are rate limited.
+        var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous().LimitAuthAttempts();
         auth.MapPost("/register", Register).WithName("Register");
         auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail").ProducesProblem(StatusCodes.Status400BadRequest);
         auth.MapPost("/resend-verification", ResendVerification).WithName("ResendVerification");
@@ -35,6 +37,15 @@ public static class IdentityEndpoints
     /// screen can tell it apart from a password to fix.
     /// </summary>
     public const string ResetLinkInvalid = "urn:pfm:problem:reset-link-invalid";
+
+    /// <summary>
+    /// Problem type returned when the password is right and the user signs in with two factors: send the request
+    /// again with <c>twoFactorCode</c> or <c>recoveryCode</c>.
+    /// </summary>
+    public const string TwoFactorRequired = "urn:pfm:problem:two-factor-required";
+
+    /// <summary>Problem type returned when the password is right but the authenticator or recovery code is not.</summary>
+    public const string TwoFactorCodeIncorrect = "urn:pfm:problem:two-factor-code-incorrect";
 
     /// <summary>A fresh request token, tied to whoever is signed in. Fetch it again after signing in or out.</summary>
     private static Ok<AntiforgeryTokenResponse> GetAntiforgeryToken(HttpContext context, IAntiforgery antiforgery)
@@ -108,7 +119,7 @@ public static class IdentityEndpoints
     private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> SignIn(
         SignInRequest request, SignInHandler signIn, CancellationToken cancellationToken)
     {
-        var result = await signIn.HandleAsync(new SignInCommand(request.Email, request.Password), cancellationToken);
+        var result = await signIn.HandleAsync(new SignInCommand(request.Email, request.Password, request.TwoFactorCode, request.RecoveryCode), cancellationToken);
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
@@ -121,6 +132,14 @@ public static class IdentityEndpoints
                 statusCode: StatusCodes.Status403Forbidden,
                 type: EmailNotVerified,
                 title: "Confirm your email address before signing in."),
+            SignInOutcome.TwoFactorRequired => TypedResults.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                type: TwoFactorRequired,
+                title: "Enter the code from your authenticator app."),
+            SignInOutcome.TwoFactorCodeIncorrect => TypedResults.Problem(
+                statusCode: StatusCodes.Status401Unauthorized,
+                type: TwoFactorCodeIncorrect,
+                title: "The code is incorrect."),
             _ => TypedResults.Problem(statusCode: StatusCodes.Status401Unauthorized, title: "The email or password is incorrect."),
         };
     }
@@ -148,5 +167,10 @@ public sealed record RequestPasswordResetRequest(string Email);
 
 public sealed record ResetPasswordRequest(Guid UserId, string Token, string Password);
 
-public sealed record SignInRequest(string Email, string Password);
+/// <param name="TwoFactorCode">
+/// The code from the user's authenticator app. A user who signs in with two factors is first answered a 401 of
+/// type <c>urn:pfm:problem:two-factor-required</c>; the same request with this code (or <paramref name="RecoveryCode"/>) signs them in.
+/// </param>
+/// <param name="RecoveryCode">One of the user's recovery codes, in place of <paramref name="TwoFactorCode"/>. It works once.</param>
+public sealed record SignInRequest(string Email, string Password, string? TwoFactorCode = null, string? RecoveryCode = null);
 

@@ -3,11 +3,17 @@ using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Identity;
 
-public sealed record SignInCommand(string Email, string Password)
+/// <param name="TwoFactorCode">The code from the user's authenticator app, when they sign in with two factors.</param>
+/// <param name="RecoveryCode">One of the user's recovery codes, in place of a code from the authenticator.</param>
+public sealed record SignInCommand(string Email, string Password, string? TwoFactorCode = null, string? RecoveryCode = null)
 {
     public string Email { get; } = EmailAddress.Normalize(Email);
 
     public string Password { get; } = Password ?? "";
+
+    public string TwoFactorCode { get; } = TwoFactorCodes.NormalizeCode(TwoFactorCode);
+
+    public string RecoveryCode { get; } = TwoFactorCodes.NormalizeRecoveryCode(RecoveryCode);
 }
 
 public sealed class SignInValidator : AbstractValidator<SignInCommand>
@@ -23,18 +29,29 @@ public enum SignInOutcome
 {
     SignedIn,
 
-    /// <summary>No user has the email, or the password is wrong. Which one is not said.</summary>
+    /// <summary>
+    /// No user has the email, the password is wrong, or signing in is locked for now after too many wrong
+    /// attempts. Which one is not said.
+    /// </summary>
     WrongEmailOrPassword,
 
     /// <summary>The password is right, but the user has not confirmed their email address yet.</summary>
     EmailNotConfirmed,
+
+    /// <summary>The password is right; the user signs in with two factors and sent no code yet.</summary>
+    TwoFactorRequired,
+
+    /// <summary>The password is right, but the authenticator or recovery code is not.</summary>
+    TwoFactorCodeIncorrect,
 }
 
 /// <summary>
-/// Checks the password before anything else, so only someone who knows it learns whether the
-/// email address is confirmed. Unknown emails cost a password hash too, so timing reveals nothing.
+/// Checks the password before anything else, so only someone who knows it learns whether the email address is
+/// confirmed or a second factor is asked for. Unknown emails cost a password hash too, so timing reveals nothing.
+/// A wrong password or code counts towards locking sign-in for the user (<see cref="IUsers.RecordFailedSignInAsync"/>);
+/// while locked even the right password is refused, the same way a wrong one is.
 /// </summary>
-public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers users, ISessions sessions)
+public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers users, ITwoFactor twoFactor, ISessions sessions)
     : CommandHandler<SignInCommand, SignInOutcome>(validator)
 {
     protected override async Task<Result<SignInOutcome>> ExecuteAsync(SignInCommand command, CancellationToken cancellationToken)
@@ -46,8 +63,16 @@ public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers us
             return SignInOutcome.WrongEmailOrPassword;
         }
 
-        if (!await users.CheckPasswordAsync(user.Id, command.Password))
+        // Checked even when locked, so a locked user's answer takes as long as any other.
+        var passwordIsRight = await users.CheckPasswordAsync(user.Id, command.Password);
+        if (await users.IsLockedOutAsync(user.Id))
         {
+            return SignInOutcome.WrongEmailOrPassword;
+        }
+
+        if (!passwordIsRight)
+        {
+            await users.RecordFailedSignInAsync(user.Id);
             return SignInOutcome.WrongEmailOrPassword;
         }
 
@@ -56,6 +81,25 @@ public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers us
             return SignInOutcome.EmailNotConfirmed;
         }
 
+        if (user.TwoFactorEnabled)
+        {
+            if (command.TwoFactorCode.Length == 0 && command.RecoveryCode.Length == 0)
+            {
+                return SignInOutcome.TwoFactorRequired;
+            }
+
+            var codeIsRight = command.TwoFactorCode.Length > 0
+                ? await twoFactor.CheckCodeAsync(user.Id, command.TwoFactorCode)
+                : await twoFactor.RedeemRecoveryCodeAsync(user.Id, command.RecoveryCode);
+            if (!codeIsRight)
+            {
+                // Six digits can be guessed; counting these too stops someone who has the password from trying them all.
+                await users.RecordFailedSignInAsync(user.Id);
+                return SignInOutcome.TwoFactorCodeIncorrect;
+            }
+        }
+
+        await users.ClearFailedSignInsAsync(user.Id);
         await sessions.SignInAsync(user.Id);
         return SignInOutcome.SignedIn;
     }

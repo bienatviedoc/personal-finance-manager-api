@@ -6,5 +6,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+
+    <!--
+      Dependency scanning (spec section 13): restore checks every package, direct or transitive, against the
+      known vulnerabilities NuGet publishes. Warnings are errors here, so one of high or critical severity
+      (NU1903, NU1904) fails the restore, locally and in CI. Low and moderate ones (NU1901, NU1902) stay warnings.
+    -->
+    <NuGetAudit>true</NuGetAudit>
+    <NuGetAuditMode>all</NuGetAuditMode>
+    <NuGetAuditLevel>low</NuGetAuditLevel>
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902</WarningsNotAsErrors>
   </PropertyGroup>
 </Project>
