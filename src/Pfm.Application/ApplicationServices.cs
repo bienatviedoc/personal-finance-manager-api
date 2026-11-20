@@ -1,10 +1,13 @@
 using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Pfm.Application.Accounts;
+using Pfm.Application.Contracts.Accounts;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
 using Pfm.Application.Identity;
+using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
 
@@ -30,6 +33,9 @@ public static class ApplicationServices
 
         // Contracts other modules call.
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
+        services.AddScoped<IAccountLookup, AccountLookup>();
+        services.AddScoped<IUserCalendar, UserCalendar>();
+        services.AddScoped<TransactionContext>();
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
 
         // Every module converts between currencies through this.

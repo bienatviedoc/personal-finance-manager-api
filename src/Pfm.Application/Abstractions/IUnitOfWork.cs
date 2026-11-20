@@ -4,6 +4,7 @@ namespace Pfm.Application.Abstractions;
 public interface IUnitOfWork
 {
     /// <exception cref="ConcurrentChangeException">A row being saved changed since it was read.</exception>
+    /// <exception cref="AlreadyExistsException">A row being saved repeats a value only one row may have.</exception>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
