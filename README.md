@@ -259,8 +259,11 @@ method on a port when it needs something Identity does, such as a reset token.
   `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
   `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
   share one budget: when the API is reachable only through a proxy that sets `X-Forwarded-For` (the SPA's nginx
-  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` so the API counts the real client. Never set it
-  when clients can reach the API directly: they could then name any address.
+  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` on the API in that deployment, so it counts the
+  real client. Set this way the API believes the header from whoever connects, so the network must let only that
+  proxy reach it. Never set it when clients can reach the API directly: they could then name any address. It is
+  off by default and nothing in the code turns it on; `compose.yaml` publishes the API directly, so it is not set
+  there, and neither repository has a deployment file that puts the API behind the nginx image yet.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.

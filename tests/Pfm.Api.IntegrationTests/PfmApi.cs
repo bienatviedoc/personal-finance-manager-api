@@ -152,13 +152,21 @@ public sealed class PfmApi : IAsyncLifetime
     /// A second copy of the API where a client gets only this many attempts at the auth endpoints in each window.
     /// The copy the tests share allows so many that no test meets the limit by accident.
     /// </summary>
-    public WebApplicationFactory<Program> WithAuthRateLimit(int attempts, TimeSpan window)
+    /// <param name="behindProxy">Whether the copy is told it is reachable only through a proxy (<c>ASPNETCORE_FORWARDEDHEADERS_ENABLED=true</c>).</param>
+    public WebApplicationFactory<Program> WithAuthRateLimit(int attempts, TimeSpan window, bool behindProxy = false)
     {
-        var factory = CreateFactory(ConnectionString, Emails, settings: new()
+        var settings = new Dictionary<string, string>
         {
             ["RateLimiting:Auth:PermitLimit"] = attempts.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["RateLimiting:Auth:WindowSeconds"] = ((int)window.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture),
-        });
+        };
+        if (behindProxy)
+        {
+            // What the environment variable becomes in configuration.
+            settings["ForwardedHeaders_Enabled"] = "true";
+        }
+
+        var factory = CreateFactory(ConnectionString, Emails, settings: settings);
         _extraFactories.Add(factory);
         return factory;
     }

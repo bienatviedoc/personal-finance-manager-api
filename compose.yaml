@@ -60,6 +60,9 @@ services:
       db:
         condition: service_healthy
 
+  # Published directly: nothing here puts it behind a proxy, so ASPNETCORE_FORWARDEDHEADERS_ENABLED stays unset
+  # and X-Forwarded-For is not believed. A deployment that serves it only through the SPA's nginx image sets it
+  # on the API there, with the API reachable from that proxy alone (see "Rate limiting" in the README).
   api:
     build: .
     image: pfm-api
