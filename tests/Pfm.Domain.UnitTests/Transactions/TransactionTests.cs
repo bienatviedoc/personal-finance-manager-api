@@ -159,8 +159,8 @@ public class TransactionTests
             Transaction.Record(TransactionType.Expense, account.Id, Currency.VND, 2_500_000m, Today, Groceries, null, null, Today, Monday),
         ];
 
-        Assert.Equal(13_375_000m, account.BalanceWith(Transaction.NetOf(transactions)));
-        Assert.Equal(1_000_000m, account.BalanceWith(Transaction.NetOf([])));
+        Assert.Equal(13_375_000m, account.BalanceWith(transactions.Sum(transaction => transaction.SignedAmount)));
+        Assert.Equal(1_000_000m, account.BalanceWith(0m));
     }
 
     [Fact]
@@ -173,7 +173,7 @@ public class TransactionTests
             Transaction.Record(TransactionType.Income, card.Id, Currency.USD, 10.25m, Today, Salary, null, null, Today, Monday),
         ];
 
-        Assert.Equal(-129.25m, card.BalanceWith(Transaction.NetOf(transactions)));
+        Assert.Equal(-129.25m, card.BalanceWith(transactions.Sum(transaction => transaction.SignedAmount)));
     }
 
     [Fact]
@@ -188,7 +188,7 @@ public class TransactionTests
 
         Assert.True(deleted.IsDeleted);
         Assert.Equal((Monday, Monday), (deleted.DeletedAt, deleted.UpdatedAt));
-        Assert.Equal(900_000m, account.BalanceWith(Transaction.NetOf([kept, deleted])));
+        Assert.Equal(900_000m, account.BalanceWith(kept.SignedAmount + deleted.SignedAmount));
         Assert.Throws<InvalidOperationException>(() => deleted.Edit(TransactionType.Expense, Everyday, Currency.VND, 10m, Today, Groceries, null, null, Today, Tuesday));
     }
 

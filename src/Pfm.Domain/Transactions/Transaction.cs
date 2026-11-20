@@ -81,14 +81,11 @@ public sealed class Transaction : IUserOwned
     /// <summary>Whether the amount has been converted into the base currency. Once it has, it stays as converted.</summary>
     public bool IsConverted => BaseCurrencyAmount is not null;
 
-    /// <summary>What the transaction does to its account's balance: nothing once deleted.</summary>
-    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
-
     /// <summary>
-    /// What transactions come to on their account: income − expenses (spec section 3, rule 2), leaving out
-    /// the deleted ones. An account's balance is its opening balance plus this.
+    /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
+    /// opening balance plus this of each of its transactions: income − expenses (spec section 3, rule 2).
     /// </summary>
-    public static decimal NetOf(IEnumerable<Transaction> transactions) => transactions.Sum(transaction => transaction.SignedAmount);
+    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
 
     public static bool IsValidPayee(string? payee) => payee is null || payee.Trim().Length <= MaxPayeeLength;
 
