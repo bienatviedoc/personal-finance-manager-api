@@ -36,6 +36,7 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         // Trigram indexes back free-text search on payee and note.
         modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PfmDbContext).Assembly);
+        ModuleReferences.Configure(modelBuilder);
 
         IsolateUserOwnedData(modelBuilder);
     }
@@ -49,6 +50,10 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         catch (DbUpdateConcurrencyException exception)
         {
             throw new ConcurrentChangeException(exception);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        {
+            throw new AlreadyExistsException(exception);
         }
     }
 

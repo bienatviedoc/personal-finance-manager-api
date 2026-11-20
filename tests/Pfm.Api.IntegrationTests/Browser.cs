@@ -21,6 +21,10 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PostAsync(string path, object? body = null) =>
         PostAsync(path, JsonContent.Create(body ?? new { }), traceparent: null);
 
+    /// <summary>Posts with an <c>Idempotency-Key</c>, the way a client marks a request it may send again.</summary>
+    public Task<HttpResponseMessage> PostAsync(string path, object body, string idempotencyKey) =>
+        ChangeAsync(HttpMethod.Post, path, JsonContent.Create(body), traceparent: null, idempotencyKey: idempotencyKey);
+
     /// <summary>Posts a body exactly as written: JSON a serializer would not produce, or not JSON at all.</summary>
     public Task<HttpResponseMessage> PostJsonAsync(string path, string body, Traceparent? traceparent = null) =>
         PostAsync(path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent);
@@ -42,9 +46,14 @@ public sealed class Browser(HttpClient http)
     private Task<HttpResponseMessage> PostAsync(string path, HttpContent body, Traceparent? traceparent) =>
         ChangeAsync(HttpMethod.Post, path, body, traceparent);
 
-    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent, string? ifMatch = null)
+    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent, string? ifMatch = null, string? idempotencyKey = null)
     {
         using var request = new HttpRequestMessage(method, path) { Content = body };
+        if (idempotencyKey is not null)
+        {
+            request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        }
+
         if (ifMatch is not null)
         {
             request.Headers.TryAddWithoutValidation("If-Match", ifMatch);

@@ -110,14 +110,35 @@ already uses it can still show it. An account can be archived at any balance.
 
 - **A balance is never stored.** `Account.BalanceWith` adds what the account's transactions come to onto its
   opening balance, each time it is asked. Accounts asks the Transactions module for that sum through
-  `IAccountTransactions` (in `Pfm.Application.Contracts.Transactions`), which answers nothing until transactions
-  exist (#9, `NoTransactionsYet`). The same contract says whether an account has transactions, which fixes its
+  `IAccountTransactions` (in `Pfm.Application.Contracts.Transactions`), answered by a `SUM` over the account's
+  transactions (`TransactionTotals`). The same contract says whether an account has transactions, which fixes its
   currency. A test fails if the `Accounts` table grows a column.
 - **Amount owed.** A credit card or loan sends `amountOwed`, a positive number, instead of `openingBalance`; the
   domain holds it as a negative opening balance, so the account shows a negative balance (spec section 3, rule 9).
   The response carries both.
 - **`GET /accounts`** is paged like every list, and also answers `totals`: the balance of each institution in
   each currency, over the whole list whichever page is asked for. Currencies are never added together.
+
+### Transactions
+
+- **Income or an expense** on one account, with an amount above zero whose sign is its type (spec section 3,
+  rule 2), a category of the kind its type takes, and optionally a payee and a note. Its currency is never sent:
+  it is the account's, and follows the transaction to another account.
+- **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
+  say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
+  while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
+- **Today is the user's.** A date cannot be in the future in the user's time zone (rule 8). Transactions asks
+  Identity what today is through `IUserCalendar`, and Accounts for the account's currency through
+  `IAccountLookup` (both in `Pfm.Application.Contracts`).
+- **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
+  balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
+  currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
+- **`GET /transactions`** is the newest date first and, within a date, the last recorded first, paged like every
+  list. Filters, search and totals are still to come (#10).
+- **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
+  and keeps it.
+- **A foreign key to another module's table** (a transaction's account) is configured in
+  `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
 
 ## Signing in
 
@@ -210,11 +231,17 @@ if they were signed in. Registration uses it to create the new user's default ca
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
   `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
   all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
-- **Optimistic concurrency** (spec section 11): an account's `rowVersion` is PostgreSQL's `xmin`, also sent as
-  the `ETag` of every response that answers one account. `PUT /accounts/{id}` must name it in `If-Match`
-  (`If-Match: "1234"`): a version that is no longer the account's answers 412 and saves nothing, and leaving
-  the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws `ConcurrentChangeException` when the row
-  changed between reading and saving, which the use case answers as stale too.
+- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
+  `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
+  `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
+  `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
+  stale too.
+- **Idempotency** (spec section 11): `POST /transactions` takes an `Idempotency-Key` header, a key of up to 200
+  characters the client makes up for the transaction it is recording. Sending the request again with the same
+  key records nothing and answers the first transaction, with the same 201. The key is kept with the
+  transaction under a unique index per user, so two copies of the request arriving together still record one:
+  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
