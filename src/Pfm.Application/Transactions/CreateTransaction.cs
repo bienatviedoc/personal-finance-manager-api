@@ -65,26 +65,27 @@ public sealed class CreateTransactionHandler(
             return AlreadyRecorded(recorded, request);
         }
 
-        var (found, errors) = await context.ReadAsync(command, currentAccountId: null, cancellationToken);
-        if (found is null)
+        var read = await context.ReadAsync(command, currentAccountId: null, cancellationToken);
+        if (!read.IsValid)
         {
-            return Result<CreateTransactionOutcome>.Invalid(errors!);
+            return Result<CreateTransactionOutcome>.Invalid(read.Errors);
         }
 
+        var against = read.Outcome;
         var fields = command.Parsed;
         Transaction transaction;
         try
         {
             transaction = Transaction.Record(
-                fields.Type!.Value, found.Account.Id, found.Account.Currency, fields.Amount!.Value, fields.Date!.Value, found.Category, command.Payee,
-                command.Note, found.Today, clock.GetUtcNow());
+                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                command.Note, against.Today, clock.GetUtcNow());
         }
         catch (TransactionRuleViolation violation)
         {
             return Result<CreateTransactionOutcome>.Invalid(violation.AsErrors());
         }
 
-        await conversion.ConvertAsync(transaction, found.BaseCurrency, cancellationToken);
+        await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
         transactions.Add(transaction, request);
         try
         {
