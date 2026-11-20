@@ -54,6 +54,21 @@ public sealed class EditAccountHandler(
 {
     protected override async Task<Result<EditAccountOutcome?>> ExecuteAsync(EditAccountCommand command, CancellationToken cancellationToken)
     {
+        try
+        {
+            // Made again when the account took its first transaction before a new currency was saved: the
+            // currency is then fixed. When it was the account that changed, the row version is no longer its
+            // own and the edit is stale.
+            return await unitOfWork.RetryOnConcurrentChangeAsync(() => EditAsync(command, cancellationToken));
+        }
+        catch (ConcurrentChangeException)
+        {
+            return EditAccountOutcome.Stale;
+        }
+    }
+
+    private async Task<Result<EditAccountOutcome?>> EditAsync(EditAccountCommand command, CancellationToken cancellationToken)
+    {
         var account = await accounts.FindAsync(command.Id, cancellationToken);
         if (account is null)
         {
@@ -83,16 +98,7 @@ public sealed class EditAccountHandler(
             return Result<EditAccountOutcome?>.Invalid(violation.AsErrors());
         }
 
-        try
-        {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (ConcurrentChangeException)
-        {
-            // Someone else saved the account between reading it here and saving it.
-            return EditAccountOutcome.Stale;
-        }
-
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         var net = await transactions.NetByAccountAsync([account.Id], cancellationToken);
         return new EditAccountOutcome(AccountDetails.Of(account, net.GetValueOrDefault(account.Id)));
     }

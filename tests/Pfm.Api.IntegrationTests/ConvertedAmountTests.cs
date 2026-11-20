@@ -297,6 +297,58 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_transaction_recorded_while_the_base_currency_changes_is_converted_into_the_new_one()
+    {
+        await RatesAreAsync((Today, 25000m, 0.5m));
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        api.Saves.BeforeNextSaveOf<Transaction>(async () =>
+            (await browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" })).EnsureSuccessStatusCode());
+
+        var expense = await AddAsync(browser, dollars, "100", Today);
+
+        Assert.Equal(new Converted(Currency.EUR, 50m, 0.5m, Today), await ConvertedAsync(expense.Id));
+    }
+
+    [Fact]
+    public async Task A_transaction_recorded_while_a_change_of_base_currency_is_being_saved_is_converted_into_the_new_one_too()
+    {
+        await RatesAreAsync((Today, 25000m, 0.5m));
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var before = await AddAsync(browser, dollars, "10", Today);
+        TransactionBody? meanwhile = null;
+        api.Saves.BeforeNextSaveOf<Pfm.Infrastructure.Identity.User>(async () => meanwhile = await AddAsync(browser, dollars, "100", Today));
+
+        var response = await browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new Converted(Currency.EUR, 5m, 0.5m, Today), await ConvertedAsync(before.Id));
+        Assert.Equal(new Converted(Currency.EUR, 50m, 0.5m, Today), await ConvertedAsync(meanwhile!.Id));
+    }
+
+    [Fact]
+    public async Task Transactions_recorded_at_the_same_time_as_a_change_of_base_currency_all_end_up_converted_into_the_new_one()
+    {
+        await RatesAreAsync((Today, 25000m, 0.5m));
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var before = await AddAsync(browser, dollars, "10", Today);
+
+        // Two at most: the change is made again for each one that gets in before it, up to ConcurrentChanges.Attempts times.
+        var recording = new[] { AddAsync(browser, dollars, "100", Today), AddAsync(browser, dollars, "100", Today) };
+        var change = browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" });
+        var recorded = await Task.WhenAll(recording);
+
+        Assert.Equal(HttpStatusCode.OK, (await change).StatusCode);
+        Assert.Equal(new Converted(Currency.EUR, 5m, 0.5m, Today), await ConvertedAsync(before.Id));
+        foreach (var expense in recorded)
+        {
+            Assert.Equal(new Converted(Currency.EUR, 50m, 0.5m, Today), await ConvertedAsync(expense.Id));
+        }
+    }
+
+    [Fact]
     public async Task Changing_another_profile_setting_or_sending_the_same_base_currency_leaves_converted_amounts_as_they_are()
     {
         await RatesAreAsync((Today.AddDays(-1), 25000m));

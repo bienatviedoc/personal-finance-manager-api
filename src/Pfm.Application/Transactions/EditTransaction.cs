@@ -45,6 +45,20 @@ public sealed class EditTransactionHandler(
 {
     protected override async Task<Result<EditTransactionOutcome?>> ExecuteAsync(EditTransactionCommand command, CancellationToken cancellationToken)
     {
+        try
+        {
+            // Made again when the account's currency or the user's base currency changed before it was saved.
+            // When it was the transaction that changed, the row version is no longer its own and the edit is stale.
+            return await unitOfWork.RetryOnConcurrentChangeAsync(() => EditAsync(command, cancellationToken));
+        }
+        catch (ConcurrentChangeException)
+        {
+            return EditTransactionOutcome.Stale;
+        }
+    }
+
+    private async Task<Result<EditTransactionOutcome?>> EditAsync(EditTransactionCommand command, CancellationToken cancellationToken)
+    {
         var transaction = await transactions.FindAsync(command.Id, cancellationToken);
         if (transaction is null)
         {
@@ -77,16 +91,7 @@ public sealed class EditTransactionHandler(
 
         // Converts again only what an edit of the amount, the date or the account left without a converted amount.
         await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
-        try
-        {
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-        }
-        catch (ConcurrentChangeException)
-        {
-            // Someone else saved the transaction between reading it here and saving it.
-            return EditTransactionOutcome.Stale;
-        }
-
+        await unitOfWork.SaveChangesAsync(cancellationToken);
         return new EditTransactionOutcome(TransactionDetails.Of(transaction));
     }
 }

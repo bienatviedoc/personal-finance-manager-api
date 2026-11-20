@@ -185,6 +185,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId");
 
+                    b.HasIndex("Id", "Currency")
+                        .IsUnique();
+
                     b.ToTable("Accounts", (string)null);
                 });
 
@@ -489,6 +492,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("NormalizedUserName")
                         .IsUnique()
                         .HasDatabaseName("UserNameIndex");
+
+                    b.HasIndex("Id", "BaseCurrency")
+                        .IsUnique();
 
                     b.ToTable("Users", (string)null);
                 });

@@ -55,7 +55,21 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         {
             throw new AlreadyExistsException(exception);
         }
+        catch (Exception exception) when (RefusedAfterAConcurrentSave(exception))
+        {
+            throw new ConcurrentChangeException(exception);
+        }
     }
+
+    /// <summary>
+    /// Whether the database refused the save because a transaction no longer has its account's currency or its
+    /// user's base currency: another request changed one of them since this one read it. The second is checked
+    /// at commit, where the error arrives as it is, not inside a <see cref="DbUpdateException"/>.
+    /// </summary>
+    private static bool RefusedAfterAConcurrentSave(Exception exception) =>
+        (exception as Npgsql.PostgresException ?? exception.InnerException as Npgsql.PostgresException)
+            is { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation, ConstraintName: var constraint }
+        && ModuleReferences.IsBrokenByAConcurrentSave(constraint);
 
     void IUnitOfWork.DiscardChanges() => ChangeTracker.Clear();
 

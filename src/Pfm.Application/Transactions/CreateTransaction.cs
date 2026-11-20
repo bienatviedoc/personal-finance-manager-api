@@ -50,14 +50,18 @@ public sealed record CreateTransactionOutcome(TransactionDetails? Recorded)
 /// Answers the new transaction, or the one the same request already recorded under its idempotency key, as
 /// it is now: edited since, or deleted. A deleted transaction's key stays used, so a late retry cannot bring
 /// back what the user deleted. An account or category that is not one of the user's, or is archived, is an
-/// error on its id.
+/// error on its id. When the account's currency or the user's base currency changes before it is saved, it is
+/// recorded again in the new one.
 /// </summary>
 public sealed class CreateTransactionHandler(
     IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
     TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CreateTransactionCommand, CreateTransactionOutcome>(validator)
 {
-    protected override async Task<Result<CreateTransactionOutcome>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken)
+    protected override Task<Result<CreateTransactionOutcome>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync(() => RecordAsync(command, cancellationToken));
+
+    private async Task<Result<CreateTransactionOutcome>> RecordAsync(CreateTransactionCommand command, CancellationToken cancellationToken)
     {
         var request = IdempotentRequest.Of(command);
         if (request is not null && await transactions.FindByIdempotencyKeyAsync(request.Key, cancellationToken) is { } recorded)

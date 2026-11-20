@@ -582,6 +582,78 @@ public class TransactionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task An_accounts_currency_cannot_change_while_its_first_transaction_is_being_recorded()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        TransactionBody? recorded = null;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Accounts.Account>(async () => recorded = await AddAsync(browser, "expense", everyday, "100"));
+
+        var changed = await ChangeCurrencyAsync(browser, everyday, "USD");
+
+        Assert.Equal(HttpStatusCode.BadRequest, changed.StatusCode);
+        Assert.Equal(["currency"], await changed.ErrorFieldsAsync());
+        Assert.Equal("VND", (await GetAsync(browser, recorded!.Id)).Currency);
+        Assert.Equal("VND", await CurrencyAsync(browser, everyday));
+    }
+
+    [Fact]
+    public async Task A_transaction_recorded_while_its_accounts_currency_changes_takes_the_new_currency()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var changed = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Transaction>(async () => changed = (await ChangeCurrencyAsync(browser, everyday, "USD")).StatusCode);
+
+        var recorded = await AddAsync(browser, "expense", everyday, "100");
+
+        Assert.Equal(HttpStatusCode.OK, changed);
+        Assert.Equal("USD", recorded.Currency);
+        Assert.Equal("USD", (await GetAsync(browser, recorded.Id)).Currency);
+        Assert.Equal("USD", await CurrencyAsync(browser, everyday));
+    }
+
+    [Fact]
+    public async Task A_transaction_moved_to_an_account_whose_currency_changes_meanwhile_takes_the_new_currency()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var savings = await AddAccountAsync(browser, "Savings");
+        var transaction = await AddAsync(browser, "expense", everyday, "100");
+        var changed = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Transaction>(async () => changed = (await ChangeCurrencyAsync(browser, savings, "USD")).StatusCode);
+
+        var moved = await browser.PutAsync(
+            $"{Transactions}/{transaction.Id}", await ANewAsync(browser, "expense", savings, "100"), ifMatch: Quoted(transaction.RowVersion));
+
+        Assert.Equal(HttpStatusCode.OK, changed);
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        var read = await GetAsync(browser, transaction.Id);
+        Assert.Equal((savings, "USD"), (read.AccountId, read.Currency));
+        Assert.Equal("USD", await CurrencyAsync(browser, savings));
+    }
+
+    [Fact]
+    public async Task Transactions_recorded_at_the_same_time_as_a_change_of_their_accounts_currency_all_end_up_in_the_accounts_currency()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var expense = await ANewAsync(browser, "expense", everyday, "100");
+
+        var answers = await Task.WhenAll(Enumerable.Range(1, 6).Select(request =>
+            request == 3 ? ChangeCurrencyAsync(browser, everyday, "USD") : browser.PostAsync(Transactions, expense)));
+
+        // The change is refused when a transaction got in first; otherwise the ones recorded after it follow it.
+        Assert.Contains(answers[2].StatusCode, new[] { HttpStatusCode.OK, HttpStatusCode.BadRequest });
+        Assert.All(answers.Where((_, index) => index != 2), answer => Assert.Equal(HttpStatusCode.Created, answer.StatusCode));
+        var currency = await CurrencyAsync(browser, everyday);
+        Assert.Equal(answers[2].StatusCode == HttpStatusCode.OK ? "USD" : "VND", currency);
+        var recorded = (await PageAsync(browser)).Items;
+        Assert.Equal(5, recorded.Length);
+        Assert.All(recorded, transaction => Assert.Equal(currency, transaction.Currency));
+    }
+
+    [Fact]
     public async Task A_categorys_kind_is_fixed_once_it_or_a_subcategory_has_transactions()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -644,6 +716,9 @@ public class TransactionTests(PfmApi api)
             $"/api/v1/accounts/{accountId}", new { name = "Everyday", type = "current", currency, openingBalance = "0", openingDate = "2026-11-01" },
             ifMatch: Quoted(account.RowVersion));
     }
+
+    private static async Task<string> CurrencyAsync(Browser browser, Guid accountId) =>
+        (await browser.Http.GetFromJsonAsync<AccountBody>($"/api/v1/accounts/{accountId}"))!.Currency;
 
     private static string Quoted(string rowVersion) => $"\"{rowVersion}\"";
 

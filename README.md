@@ -201,6 +201,10 @@ already uses it can still show it. An account can be archived at any balance.
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
   `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
+  Two more are named there and added by their migration alone, because the model cannot hold a foreign key to
+  columns that change: a transaction's account and currency point at an account and its currency, and its
+  user and base currency at a user and their base currency. They are what keeps an account's currency fixed once it has transactions, and
+  spec rule 7, when two requests save at once (see "Optimistic concurrency" below).
 
 ## Signing in
 
@@ -363,7 +367,12 @@ if they were signed in. Registration uses it to create the new user's default ca
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has
-  nothing to call stale: it reads again and is made on what was saved (`RetryOnConcurrentChangeAsync`). In
+  nothing to call stale: it reads again and is made on what was saved (`RetryOnConcurrentChangeAsync`). The
+  same exception is thrown when the database refuses a transaction whose account has changed currency or whose
+  user has changed base currency since they were read, or a change of either that a transaction recorded
+  meanwhile no longer fits. The use case is made again: the transaction takes the new currency, the base
+  currency change converts the new transaction too, and the account's currency change is refused, as it has
+  a transaction now. In
   tests, `api.Saves` (`InterleavedSaves`) has another request get in between a use case's read and its save.
 - **Idempotency** (spec section 11): `POST /transactions` takes an `Idempotency-Key` header, a key of up to 200
   characters the client makes up for the transaction it is recording. Sending the request again with the same
