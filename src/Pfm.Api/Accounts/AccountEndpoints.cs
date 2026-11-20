@@ -20,9 +20,9 @@ public static class AccountEndpoints
         accounts.MapGet("/{id:guid}", Get).WithName("GetAccount")
             .WithDescription("One account, archived or not, with its balance. The ETag header carries its row version.");
         accounts.MapPost("/", Create).WithName("CreateAccount")
-            .WithDescription("Adds an account. A credit card or loan sends amountOwed, a positive number, and shows a negative balance; any other type sends openingBalance.");
+            .WithDescription("Adds an account. A credit card or loan sends amountOwed, a positive number, and shows a negative balance; any other type sends openingBalance. Any account can be labelled with the last 4 digits of its number, never more of it. Only a credit card takes creditLimit, statementDay and paymentDueDay.");
         accounts.MapPut("/{id:guid}", Edit).WithName("EditAccount")
-            .WithDescription("Changes an account; its balance follows a new opening balance at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
+            .WithDescription("Changes an account; its balance follows a new opening balance at once, and a credit card's available credit a new credit limit. Every field is replaced: last4 or a credit card field left out is removed. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         accounts.MapDelete("/{id:guid}", Archive).WithName("ArchiveAccount")
@@ -68,7 +68,9 @@ public static class AccountEndpoints
         AccountRequest request, CreateAccountHandler handler, HttpContext http, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
-            new CreateAccountCommand(request.Name, request.Type, request.InstitutionId, request.Currency, request.OpeningBalance, request.AmountOwed, request.OpeningDate),
+            new CreateAccountCommand(
+                request.Name, request.Type, request.InstitutionId, request.Currency, request.OpeningBalance, request.AmountOwed, request.OpeningDate,
+                request.Last4, request.CreditLimit, request.StatementDay, request.PaymentDueDay),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -97,7 +99,7 @@ public static class AccountEndpoints
         var result = await handler.HandleAsync(
             new EditAccountCommand(
                 id, rowVersion, request.Name, request.Type, request.InstitutionId, request.Currency, request.OpeningBalance, request.AmountOwed,
-                request.OpeningDate),
+                request.OpeningDate, request.Last4, request.CreditLimit, request.StatementDay, request.PaymentDueDay),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -151,22 +153,35 @@ public static class AccountEndpoints
 /// <param name="InstitutionId">One of the user's institutions; left out for an account held with none, such as cash.</param>
 /// <param name="OpeningBalance">A decimal string such as <c>"125000.00"</c>. For every type but a credit card or loan.</param>
 /// <param name="AmountOwed">A decimal string, positive. For a credit card or loan, instead of an opening balance.</param>
+/// <param name="Last4">The last 4 digits of the account or card number, as a label: exactly 4 digits. A full number is refused and never stored.</param>
+/// <param name="CreditLimit">A decimal string, not negative. For a credit card only.</param>
+/// <param name="StatementDay">The day of the month the statement closes, 1 to 31. For a credit card only.</param>
+/// <param name="PaymentDueDay">The day of the month the payment is due, 1 to 31. For a credit card only.</param>
 public sealed record AccountRequest(
-    string Name, string Type, string Currency, string OpeningDate, Guid? InstitutionId = null, string? OpeningBalance = null, string? AmountOwed = null);
+    string Name, string Type, string Currency, string OpeningDate, Guid? InstitutionId = null, string? OpeningBalance = null, string? AmountOwed = null,
+    string? Last4 = null, string? CreditLimit = null, int? StatementDay = null, int? PaymentDueDay = null);
 
 /// <summary>An account with its balance. Amounts are decimal strings in the account's currency.</summary>
 /// <param name="OpeningBalance">Negative for an amount owed.</param>
 /// <param name="AmountOwed">The amount owed the account opened with, positive; null unless it is a credit card or loan.</param>
 /// <param name="Balance">The opening balance plus what the account's transactions come to. Computed, never stored.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the account.</param>
+/// <param name="Last4">The last 4 digits of the account or card number, or null.</param>
+/// <param name="CreditLimit">A credit card's limit; null when it has none, and for every other type.</param>
+/// <param name="StatementDay">The day of the month a credit card's statement closes, or null.</param>
+/// <param name="PaymentDueDay">The day of the month a credit card's payment is due, or null.</param>
+/// <param name="AvailableCredit">The credit limit minus the amount owed now: negative over the limit. Computed, never stored; null for an account with no credit limit.</param>
 public sealed record AccountResponse(
     Guid Id, Guid? InstitutionId, string Name, AccountType Type, Currency Currency, string OpeningBalance, string? AmountOwed,
-    DateOnly OpeningDate, string Balance, bool IsArchived, string RowVersion)
+    DateOnly OpeningDate, string Balance, bool IsArchived, string RowVersion, string? Last4, string? CreditLimit, int? StatementDay,
+    int? PaymentDueDay, string? AvailableCredit)
 {
     public static AccountResponse From(AccountDetails account) =>
         new(account.Id, account.InstitutionId, account.Name, account.Type, account.Currency, AmountJson.Text(account.OpeningBalance),
             account.AmountOwed is { } owed ? AmountJson.Text(owed) : null, account.OpeningDate, AmountJson.Text(account.Balance),
-            account.IsArchived, account.RowVersion.ToString(CultureInfo.InvariantCulture));
+            account.IsArchived, account.RowVersion.ToString(CultureInfo.InvariantCulture), account.Last4,
+            account.CreditLimit is { } limit ? AmountJson.Text(limit) : null, account.StatementDay, account.PaymentDueDay,
+            account.AvailableCredit is { } available ? AmountJson.Text(available) : null);
 }
 
 /// <summary>

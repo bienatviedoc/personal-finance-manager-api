@@ -112,10 +112,19 @@ already uses it can still show it. An account can be archived at any balance.
   opening balance, each time it is asked. Accounts asks the Transactions module for that sum through
   `IAccountTransactions` (in `Pfm.Application.Contracts.Transactions`), which answers nothing until transactions
   exist (#9, `NoTransactionsYet`). The same contract says whether an account has transactions, which fixes its
-  currency. A test fails if the `Accounts` table grows a column.
+  currency. A test pins the columns of the `Accounts` table, so a stored balance cannot slip in.
 - **Amount owed.** A credit card or loan sends `amountOwed`, a positive number, instead of `openingBalance`; the
   domain holds it as a negative opening balance, so the account shows a negative balance (spec section 3, rule 9).
   The response carries both.
+- **Last 4 digits.** Any account can send `last4`, the last 4 digits of its number, as a label. It is exactly 4
+  digits (`Last4Digits`) in a `character(4)` column: a full account or card number is refused by name and has
+  nowhere to be stored (spec ACC-8).
+- **Credit card fields.** Only a credit card takes `creditLimit` (a decimal string, not negative), `statementDay`
+  and `paymentDueDay` (days of the month, 1 to 31), each optional (`CreditCardTerms`); any other type that sends
+  one is refused. The response adds `availableCredit`: the credit limit minus the amount owed now, so it is the
+  limit plus the (negative) balance, negative over the limit, and null without a limit. Like the balance it is
+  computed each time (`Account.AvailableCreditWith`) and never stored. `PUT` replaces every field, so `last4` or
+  a credit card field left out is removed.
 - **`GET /accounts`** is paged like every list, and also answers `totals`: the balance of each institution in
   each currency, over the whole list whichever page is asked for. Currencies are never added together.
 
