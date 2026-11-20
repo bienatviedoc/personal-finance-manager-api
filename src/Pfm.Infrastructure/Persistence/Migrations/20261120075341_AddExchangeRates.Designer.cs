@@ -12,7 +12,7 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261120074509_AddExchangeRates")]
+    [Migration("20261120075341_AddExchangeRates")]
     partial class AddExchangeRates
     {
         /// <inheritdoc />
@@ -117,6 +117,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal?>("CreditLimit")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .HasMaxLength(3)
@@ -127,6 +131,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("Last4")
+                        .HasMaxLength(4)
+                        .HasColumnType("character(4)")
+                        .IsFixedLength();
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -140,11 +149,17 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly>("OpeningDate")
                         .HasColumnType("date");
 
+                    b.Property<int?>("PaymentDueDay")
+                        .HasColumnType("integer");
+
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<int?>("StatementDay")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Type")
                         .IsRequired()
