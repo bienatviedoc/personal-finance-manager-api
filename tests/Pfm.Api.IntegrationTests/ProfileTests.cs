@@ -7,7 +7,7 @@ namespace Pfm.Api.IntegrationTests;
 public class ProfileTests(PfmApi api)
 {
     [Fact]
-    public async Task A_new_user_starts_in_Vietnamese_dong_and_Vietnam_time_with_no_language_chosen()
+    public async Task A_new_user_starts_in_Vietnamese_dong_and_Vietnam_time_with_no_locale_chosen()
     {
         var (browser, email) = await api.SignedInAsync();
 

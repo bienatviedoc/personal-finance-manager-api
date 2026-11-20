@@ -6,8 +6,6 @@ namespace Pfm.Domain.Accounts;
 /// </summary>
 public sealed class Institution : IUserOwned
 {
-    public const int MaxNameLength = 100;
-
     /// <summary>
     /// The logos a user can pick from: generic marks the SPA draws, not brand artwork or uploads.
     /// </summary>
@@ -60,16 +58,13 @@ public sealed class Institution : IUserOwned
         UpdatedAt = now;
     }
 
-    public static bool IsValidName(string? name) =>
-        !string.IsNullOrWhiteSpace(name) && name.Trim().Length <= MaxNameLength;
-
     public static bool IsValidLogoKey(string? logoKey) => logoKey is not null && LogoKeys.Contains(logoKey);
 
     private void Set(string name, Color? color, string? logoKey, DateTimeOffset now)
     {
-        if (!IsValidName(name))
+        if (!Names.IsValid(name))
         {
-            throw new ArgumentException($"An institution's name is required and at most {MaxNameLength} characters.", nameof(name));
+            throw new ArgumentException($"An institution's name is required and at most {Names.MaxLength} characters.", nameof(name));
         }
 
         if (logoKey is not null && !IsValidLogoKey(logoKey))

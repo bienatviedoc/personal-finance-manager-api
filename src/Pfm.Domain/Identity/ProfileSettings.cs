@@ -8,6 +8,14 @@ namespace Pfm.Domain.Identity;
 /// <param name="Locale">Null until the user picks one; until then the interface follows their browser.</param>
 public sealed record ProfileSettings(Currency BaseCurrency, string TimeZone, Locale? Locale)
 {
+    public string TimeZone { get; } = IsValidTimeZone(TimeZone)
+        ? TimeZone
+        : throw new ArgumentException("A time zone is an IANA time zone id, such as Asia/Ho_Chi_Minh.", nameof(TimeZone));
+
+    /// <summary>An IANA time zone id this server knows. Windows ids and UTC offsets are not.</summary>
+    public static bool IsValidTimeZone(string? id) =>
+        !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) && zone.HasIanaId;
+
     /// <summary>What a new user starts with. Vietnam first: the product is built around Vietnamese banks and wallets.</summary>
     public static readonly ProfileSettings Default = new(Currency.VND, "Asia/Ho_Chi_Minh", null);
 }

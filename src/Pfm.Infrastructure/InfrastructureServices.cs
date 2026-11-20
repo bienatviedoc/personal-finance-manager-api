@@ -105,7 +105,7 @@ public static class InfrastructureServices
 
     private static IdentityBuilder AddSignInPorts(this IdentityBuilder builder)
     {
-        // The session belongs to the host: only one that signs people in replaces this.
+        // Only a host that signs people in replaces this, with AddSignIn().
         builder.Services.TryAddScoped<ISessions, NoSessions>();
         builder.Services.AddScoped<IUsers, IdentityUsers>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();

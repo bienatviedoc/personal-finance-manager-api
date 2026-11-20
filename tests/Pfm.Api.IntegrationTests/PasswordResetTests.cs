@@ -18,6 +18,19 @@ public class PasswordResetTests(PfmApi api)
         Assert.Equal($"{PfmApi.PublicUrl}/reset-password", api.LastLinkTo(email).GetLeftPart(UriPartial.Path));
     }
 
+    [Theory]
+    [InlineData(null, "Reset your password")]
+    [InlineData("en", "Reset your password")]
+    [InlineData("vi", "Đặt lại mật khẩu của bạn")]
+    public async Task The_reset_email_is_in_the_users_locale_and_in_English_when_they_have_none(string? locale, string subject)
+    {
+        var (browser, email) = await api.RegisteredAndVerifiedAsync(locale: locale);
+
+        await browser.PostAsync("/api/v1/auth/forgot-password", new { email });
+
+        Assert.Equal(subject, api.Emails.To(email)[^1].Subject);
+    }
+
     [Fact]
     public async Task After_a_reset_the_user_signs_in_with_the_new_password_and_not_the_old_one()
     {
@@ -65,7 +78,7 @@ public class PasswordResetTests(PfmApi api)
     }
 
     [Fact]
-    public async Task Requesting_a_reset_gives_the_same_answer_for_an_email_with_no_user_and_sends_nothing()
+    public async Task Requesting_a_reset_gives_the_same_answer_for_an_email_with_no_user_and_emails_it_no_reset_link()
     {
         var (browser, registered) = await api.RegisteredAndVerifiedAsync();
         var unknown = PfmApi.NewEmail();
@@ -76,7 +89,9 @@ public class PasswordResetTests(PfmApi api)
         Assert.Equal(HttpStatusCode.Accepted, forRegistered.StatusCode);
         Assert.Equal(HttpStatusCode.Accepted, forUnknown.StatusCode);
         Assert.Equal(await forRegistered.Content.ReadAsStringAsync(), await forUnknown.Content.ReadAsStringAsync());
-        Assert.Empty(api.Emails.To(unknown));
+        // Emailed too, so that answer takes as long as the other; the email offers registering, not a reset.
+        var notice = Assert.Single(api.Emails.To(unknown));
+        Assert.Equal([new Uri($"{PfmApi.PublicUrl}/register")], CapturedEmails.Links(notice));
     }
 
     [Fact]
@@ -101,7 +116,7 @@ public class PasswordResetTests(PfmApi api)
         var retried = await browser.PostAsync("/api/v1/auth/reset-password", ResetFrom(link, NewPassword));
 
         Assert.Equal(HttpStatusCode.BadRequest, tooShort.StatusCode);
-        Assert.Equal(["password"], await ErrorFieldsAsync(tooShort));
+        Assert.Equal(["password"], await tooShort.ErrorFieldsAsync());
         Assert.Equal(HttpStatusCode.NoContent, retried.StatusCode);
     }
 
@@ -118,12 +133,6 @@ public class PasswordResetTests(PfmApi api)
         Assert.Equal(ResetLinkInvalid, await ProblemTypeAsync(reset));
         var withOld = await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
         Assert.Equal(HttpStatusCode.NoContent, withOld.StatusCode);
-    }
-
-    private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
-    {
-        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name)];
     }
 
     private const string ResetLinkInvalid = "urn:pfm:problem:reset-link-invalid";

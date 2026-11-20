@@ -24,7 +24,7 @@ public static class Paging
     public static Page<TResult> PageByName<T, TResult>(
         this IOrderedEnumerable<T> items, Func<T, string> name, Func<T, Guid> id, int limit, NameCursor? after, Func<T, TResult> select)
     {
-        var rest = after is null ? items : items.Where(item => after.IsBefore(name(item), id(item)));
+        var rest = after is null ? items : items.Where(item => after.Precedes(name(item), id(item)));
         var page = rest.Take(limit + 1).ToList();
         var next = page.Count > limit ? new NameCursor(name(page[limit - 1]), id(page[limit - 1])).ToString() : null;
         return new Page<TResult>([.. page.Take(limit).Select(select)], next);
@@ -34,8 +34,8 @@ public static class Paging
 /// <summary>Where a page of a list in <see cref="NameOrder"/> ends: the name and id of its last item, opaque to clients.</summary>
 public sealed record NameCursor(string Name, Guid Id)
 {
-    /// <summary>Whether an item with this name and id comes after the cursor.</summary>
-    public bool IsBefore(string name, Guid id)
+    /// <summary>Whether the cursor comes before an item with this name and id, which is then on a later page.</summary>
+    public bool Precedes(string name, Guid id)
     {
         var byName = NameOrder.Comparer.Compare(Name, name);
         return byName < 0 || (byName == 0 && Id.CompareTo(id) < 0);

@@ -29,13 +29,13 @@ public static class InstitutionEndpoints
     {
         if (!Paging.IsValidLimit(limit))
         {
-            return Paged.Invalid("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+            return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
         }
 
         NameCursor? after = null;
         if (cursor is not null && !NameCursor.TryParse(cursor, out after))
         {
-            return Paged.Invalid("cursor", "Use the nextCursor of the page before.");
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
         }
 
         var page = await handler.HandleAsync(new ListInstitutions(includeArchived, limit, after), cancellationToken);

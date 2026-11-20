@@ -12,7 +12,7 @@ internal sealed class InstitutionConfiguration : IEntityTypeConfiguration<Instit
         institution.ToTable("Institutions");
         institution.HasKey(row => row.Id);
         institution.Property(row => row.Id).ValueGeneratedNever();
-        institution.Property(row => row.Name).HasMaxLength(Institution.MaxNameLength);
+        institution.Property(row => row.Name).HasMaxLength(Names.MaxLength);
         institution.Property(row => row.Color).HasConversion(color => color!.Hex, hex => Color.Parse(hex)).HasMaxLength(7);
         institution.Property(row => row.LogoKey).HasMaxLength(32);
         institution.HasIndex(row => row.UserId);

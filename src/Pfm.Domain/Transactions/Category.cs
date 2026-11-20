@@ -6,8 +6,6 @@ namespace Pfm.Domain.Transactions;
 /// </summary>
 public sealed class Category : IUserOwned
 {
-    public const int MaxNameLength = 100;
-
     /// <summary>For persistence, which sets every property itself.</summary>
     private Category()
     {
@@ -20,7 +18,7 @@ public sealed class Category : IUserOwned
         Id = Guid.CreateVersion7(now);
         CreatedAt = now;
         UpdatedAt = now;
-        Name = name;
+        Name = name.Trim();
         Kind = kind;
         Icon = icon;
         Color = color;
@@ -50,8 +48,6 @@ public sealed class Category : IUserOwned
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
-
-    public static bool IsValidName(string? name) => !string.IsNullOrWhiteSpace(name) && name.Trim().Length <= MaxNameLength;
 
     /// <summary>An icon key: lower-case letters, digits and hyphens, as the SPA names its icons.</summary>
     public static bool IsValidIcon(string? icon) =>
@@ -91,7 +87,7 @@ public sealed class Category : IUserOwned
     public void Edit(string name, string icon, Color color, DateTimeOffset now)
     {
         EnsureValid(name, icon, color);
-        Name = name;
+        Name = name.Trim();
         Icon = icon;
         Color = color;
         UpdatedAt = now;
@@ -144,9 +140,9 @@ public sealed class Category : IUserOwned
     {
         ArgumentNullException.ThrowIfNull(color);
 
-        if (!IsValidName(name))
+        if (!Names.IsValid(name))
         {
-            throw new ArgumentException($"A category's name is required and at most {MaxNameLength} characters.", nameof(name));
+            throw new ArgumentException($"A category's name is required and at most {Names.MaxLength} characters.", nameof(name));
         }
 
         if (!IsValidIcon(icon))

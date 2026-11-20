@@ -39,7 +39,8 @@ public interface IUsers
 }
 
 /// <summary>What the sign-in use cases need to know about a user.</summary>
-public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed);
+/// <param name="Locale">The locale emails to the user are written in; null when they have not chosen one.</param>
+public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed, Locale? Locale);
 
 /// <summary>
 /// The result of creating a user: the user, or why not. <see cref="EmailTaken"/> is set when another

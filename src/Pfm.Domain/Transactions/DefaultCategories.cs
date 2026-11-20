@@ -1,6 +1,6 @@
 namespace Pfm.Domain.Transactions;
 
-/// <summary>The categories a new user starts with, in their language. They can reshape them freely afterwards.</summary>
+/// <summary>The categories a new user starts with, in the locale they registered in. They can reshape them freely afterwards.</summary>
 public static class DefaultCategories
 {
     private sealed record Entry(string English, string Vietnamese, string Icon, params Entry[] Subcategories);

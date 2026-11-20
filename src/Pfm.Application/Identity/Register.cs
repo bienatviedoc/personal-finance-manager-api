@@ -27,9 +27,7 @@ public sealed class RegisterValidator : AbstractValidator<RegisterCommand>
     {
         RuleFor(command => command.Email).Must(EmailAddress.IsValid).WithMessage("Enter a valid email address.");
 
-        RuleFor(command => command.Locale)
-            .Must((command, tag) => tag is null || command.ParsedLocale is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", Enum.GetValues<Locale>().Select(locale => locale.Tag()))}.");
+        RuleFor(command => command.Locale).IsLocale(command => command.ParsedLocale);
 
         RuleFor(command => command.Password).CustomAsync(async (password, context, _) =>
         {

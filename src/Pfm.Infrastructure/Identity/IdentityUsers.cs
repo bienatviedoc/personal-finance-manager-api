@@ -79,7 +79,7 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
             : throw new InvalidOperationException($"Resetting the password failed: {string.Join(", ", reset.Errors.Select(error => error.Code))}");
     }
 
-    private static UserDetails? Details(User? user) => user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed);
+    private static UserDetails? Details(User? user) => user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed, user.Locale);
 }
 
 /// <summary>Identity's password validators, configured in <see cref="InfrastructureServices.AddUsers"/>.</summary>

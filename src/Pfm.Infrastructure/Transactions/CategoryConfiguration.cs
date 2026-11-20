@@ -11,7 +11,7 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
     {
         builder.ToTable("Categories");
         builder.Property(category => category.Id).ValueGeneratedNever();
-        builder.Property(category => category.Name).HasMaxLength(Category.MaxNameLength);
+        builder.Property(category => category.Name).HasMaxLength(Names.MaxLength);
         builder.Property(category => category.Kind).HasConversion<string>().HasMaxLength(10);
         builder.Property(category => category.Icon).HasMaxLength(50);
         builder.Property(category => category.Color).HasConversion(color => color.Hex, hex => Color.Parse(hex)).HasMaxLength(7);

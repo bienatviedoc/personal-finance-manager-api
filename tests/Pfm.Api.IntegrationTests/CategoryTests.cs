@@ -49,7 +49,7 @@ public class CategoryTests(PfmApi api)
         var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password = PfmApi.Password, locale = "fr" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("locale", await ErrorFieldsAsync(response));
+        Assert.Contains("locale", await response.ErrorFieldsAsync());
         Assert.Empty(api.Emails.To(email));
     }
 
@@ -76,7 +76,7 @@ public class CategoryTests(PfmApi api)
         var response = await browser.PostAsync("/api/v1/categories", new { parentId = salary.Id, name = "Groceries", kind = "expense", icon = "shopping-cart", color = "#ef4444" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("kind", await ErrorFieldsAsync(response));
+        Assert.Contains("kind", await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -88,7 +88,7 @@ public class CategoryTests(PfmApi api)
         var response = await browser.PostAsync("/api/v1/categories", new { parentId = groceries.Id, name = "Vegetables", kind = "expense", icon = "carrot", color = "#ef4444" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("parentId", await ErrorFieldsAsync(response));
+        Assert.Contains("parentId", await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public class CategoryTests(PfmApi api)
         var response = await browser.PostAsync("/api/v1/categories", new { name = " ", icon = "", color = "red" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["color", "icon", "kind", "name"], (await ErrorFieldsAsync(response)).Order());
+        Assert.Equal(["color", "icon", "kind", "name"], await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -138,7 +138,7 @@ public class CategoryTests(PfmApi api)
         var response = await browser.PutAsync($"/api/v1/categories/{groceries.Id}", new { name = "Groceries", kind = "income", icon = groceries.Icon, color = groceries.Color });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Contains("kind", await ErrorFieldsAsync(response));
+        Assert.Contains("kind", await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -170,7 +170,9 @@ public class CategoryTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.NotFound, renamed.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, archived.StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, subcategory.StatusCode);
+        // The same answer as for a parent that does not exist.
+        Assert.Equal(HttpStatusCode.BadRequest, subcategory.StatusCode);
+        Assert.Equal(["parentId"], await subcategory.ErrorFieldsAsync());
         Assert.DoesNotContain(await CategoriesAsync(alice, includeArchived: true), category => category.Id == bobsFood.Id);
         var unchanged = (await CategoriesAsync(bob)).Single(category => category.Id == bobsFood.Id);
         Assert.Equal(("Food & drink", false), (unchanged.Name, unchanged.IsArchived));
@@ -189,12 +191,6 @@ public class CategoryTests(PfmApi api)
         var response = await browser.GetAsync($"/api/v1/categories?includeArchived={includeArchived}");
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<CategoryList>())!.Items;
-    }
-
-    private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
-    {
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(field => field.Name)];
     }
 
     private sealed record CategoryBody(Guid Id, Guid? ParentId, string Name, string Kind, string Icon, string Color, bool IsArchived, List<CategoryBody> Subcategories);

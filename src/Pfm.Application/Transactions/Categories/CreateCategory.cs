@@ -18,19 +18,19 @@ public sealed class CreateCategoryValidator : AbstractValidator<CreateCategoryCo
 {
     public CreateCategoryValidator()
     {
-        RuleFor(command => command.Name).CategoryName();
+        RuleFor(command => command.Name).IsName();
         RuleFor(command => command.Kind).CategoryKind();
         RuleFor(command => command.Icon).CategoryIcon();
         RuleFor(command => command.Color).IsColor(command => command.ParsedColor);
     }
 }
 
-/// <summary>Answers the new category, or null when the parent is not one of the user's categories.</summary>
+/// <summary>Answers the new category. A parent that is not one of the user's categories is an error on <c>ParentId</c>.</summary>
 public sealed class CreateCategoryHandler(
     IValidator<CreateCategoryCommand> validator, ICategoryRepository categories, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<CreateCategoryCommand, CategoryDetails?>(validator)
+    : CommandHandler<CreateCategoryCommand, CategoryDetails>(validator)
 {
-    protected override async Task<Result<CategoryDetails?>> ExecuteAsync(CreateCategoryCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<CategoryDetails>> ExecuteAsync(CreateCategoryCommand command, CancellationToken cancellationToken)
     {
         Category? parent = null;
         if (command.ParentId is { } parentId)
@@ -38,7 +38,7 @@ public sealed class CreateCategoryHandler(
             parent = await categories.FindAsync(parentId, cancellationToken);
             if (parent is null)
             {
-                return (CategoryDetails?)null;
+                return Result<CategoryDetails>.Invalid(new Dictionary<string, string[]> { [nameof(command.ParentId)] = ["Choose one of your categories."] });
             }
         }
 
@@ -49,7 +49,7 @@ public sealed class CreateCategoryHandler(
         }
         catch (CategoryRuleViolation violation)
         {
-            return Result<CategoryDetails?>.Invalid(violation.AsErrors());
+            return Result<CategoryDetails>.Invalid(violation.AsErrors());
         }
 
         categories.Add(category);

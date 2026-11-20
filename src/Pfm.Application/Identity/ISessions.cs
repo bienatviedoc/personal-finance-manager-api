@@ -1,8 +1,8 @@
 namespace Pfm.Application.Identity;
 
 /// <summary>
-/// The signed-in session of whoever made the current request. Implemented by the host that signs
-/// people in (the API, with a cookie); hosts that do not get <see cref="NoSessions"/>.
+/// The signed-in session of whoever made the current request. Implemented in Infrastructure as a
+/// cookie, for a host that signs people in (the API); hosts that do not get <see cref="NoSessions"/>.
 /// </summary>
 public interface ISessions
 {

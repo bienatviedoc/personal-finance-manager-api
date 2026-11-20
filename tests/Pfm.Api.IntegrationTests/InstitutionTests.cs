@@ -55,7 +55,7 @@ public class InstitutionTests(PfmApi api)
         var response = await browser.PostAsync(Institutions, new { name = " ", color = "green", logoKey = "vietcombank" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["color", "logoKey", "name"], await ErrorFieldsAsync(response));
+        Assert.Equal(["color", "logoKey", "name"], await response.ErrorFieldsAsync());
         Assert.Empty(await ListAsync(browser));
     }
 
@@ -68,7 +68,7 @@ public class InstitutionTests(PfmApi api)
         var response = await browser.PutAsync($"{Institutions}/{institution.Id}", new { name = new string('x', 101) });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["name"], await ErrorFieldsAsync(response));
+        Assert.Equal(["name"], await response.ErrorFieldsAsync());
         Assert.Equal("Techcombank", (await GetAsync(browser, institution.Id)).Name);
     }
 
@@ -128,7 +128,7 @@ public class InstitutionTests(PfmApi api)
         var response = await browser.GetAsync(Institutions + query);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal([field], await ErrorFieldsAsync(response));
+        Assert.Equal([field], await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -206,13 +206,6 @@ public class InstitutionTests(PfmApi api)
         var response = await browser.GetAsync($"{Institutions}/{id}");
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<InstitutionBody>())!;
-    }
-
-    private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
-    {
-        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
-        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name).Order()];
     }
 
     private static async Task<InstitutionBody[]> ListAsync(Browser browser, string query = "") => (await PageAsync(browser, query)).Items;

@@ -19,7 +19,7 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
     public EditCategoryValidator()
     {
         RuleFor(command => command.Id).Required();
-        RuleFor(command => command.Name).CategoryName();
+        RuleFor(command => command.Name).IsName();
         RuleFor(command => command.Kind).CategoryKind();
         RuleFor(command => command.Icon).CategoryIcon();
         RuleFor(command => command.Color).IsColor(command => command.ParsedColor);

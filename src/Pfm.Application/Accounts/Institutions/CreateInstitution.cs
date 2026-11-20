@@ -17,7 +17,7 @@ public sealed class CreateInstitutionValidator : AbstractValidator<CreateInstitu
 {
     public CreateInstitutionValidator()
     {
-        RuleFor(command => command.Name).InstitutionName();
+        RuleFor(command => command.Name).IsName();
         RuleFor(command => command.Color).IsColor(command => command.ParsedColor, optional: true);
         RuleFor(command => command.LogoKey).InstitutionLogoKey();
     }

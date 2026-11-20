@@ -9,6 +9,16 @@ public class CategoryTests
     private static readonly DateTimeOffset Later = Now.AddHours(1);
 
     [Fact]
+    public void The_name_is_kept_without_surrounding_spaces_when_created_and_when_edited()
+    {
+        var food = Category.Create("  Food ", CategoryKind.Expense, "utensils", Color.Parse("#ef4444"), Now);
+        Assert.Equal("Food", food.Name);
+
+        food.Edit(" Eating out  ", "utensils", Color.Parse("#ef4444"), Now);
+        Assert.Equal("Eating out", food.Name);
+    }
+
+    [Fact]
     public void A_subcategory_has_its_parents_kind()
     {
         var food = Category.Create("Food", CategoryKind.Expense, "utensils", Color.Parse("#ef4444"), Now);
@@ -158,7 +168,7 @@ public class DefaultCategoriesTests
     private static readonly DateTimeOffset Now = new(2026, 11, 19, 8, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void The_default_set_has_the_same_shape_in_every_language()
+    public void The_default_set_has_the_same_shape_in_every_locale()
     {
         static object[] Shape(IReadOnlyList<Category> set) =>
             [.. set.Select(category => (category.Kind, category.Icon, category.Color, IsSubcategory: category.ParentId is not null))];

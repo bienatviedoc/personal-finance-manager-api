@@ -33,18 +33,12 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
             .WithMessage($"Choose one of: {string.Join(", ", Enum.GetNames<Currency>())}.");
 
         RuleFor(command => command.TimeZone)
-            .Must(IsIanaTimeZone)
+            .Must(ProfileSettings.IsValidTimeZone)
             .When(command => command.TimeZone is not null)
             .WithMessage("Choose a time zone such as Asia/Ho_Chi_Minh.");
 
-        RuleFor(command => command.Locale)
-            .Must((command, _) => command.ParsedLocale is not null)
-            .When(command => command.Locale is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", Enum.GetValues<Locale>().Select(locale => locale.Tag()))}.");
+        RuleFor(command => command.Locale).IsLocale(command => command.ParsedLocale);
     }
-
-    private static bool IsIanaTimeZone(string? id) =>
-        !string.IsNullOrWhiteSpace(id) && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone) && zone.HasIanaId;
 }
 
 /// <summary>

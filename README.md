@@ -93,14 +93,14 @@ maps it to a `…Response`. A list answers an object with its `items`. `Validati
 the request's field names (`Email` becomes `email`).
 
 What a use case needs from outside, it asks for through an interface in its module (a port, such as
-`IUsers`), implemented in `Pfm.Infrastructure`, or by the host when only the host can do it (`ISessions`,
-the session cookie). Application never references ASP.NET Core or EF Core.
+`IUsers`), implemented in `Pfm.Infrastructure`. Application never references ASP.NET Core or EF Core.
 
 A query is one file too, holding the query record (`ListInstitutions`, `GetProfile`, even when it carries
 nothing) and its handler. It has no validator or `Result`: the handler implements `IQueryHandler` and answers
 directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
-domain type's rules (`Institution.IsValidName`), and the domain type still refuses what breaks them.
+domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
+breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
 
 **Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
@@ -114,6 +114,8 @@ the browser never holds a token a script could read.
 - **Registering** takes an optional `locale` (`en` or `vi`): it is saved as the new user's locale (see the
   glossary), and their default categories are created in it, in the same transaction as the user. Left out, the
   user has no locale yet (the SPA follows the browser) and the categories are in English.
+- **Emails** about signing in (verification, already registered, password reset) are written in the user's
+  locale, and in English for a user who has none (`IdentityEmails`).
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password) are in
@@ -131,7 +133,8 @@ method on a port when it needs something Identity does, such as a reset token.
   resetting the password, the anti-forgery token, health and OpenAPI are open; a test fails when that list
   changes.
 - **Password reset:** `POST /api/v1/auth/forgot-password` answers 202 whatever the email, and emails a
-  registered user a link to `/reset-password` in the SPA. `POST /api/v1/auth/reset-password` sets the new
+  registered user a link to `/reset-password` in the SPA. An address with no user is emailed as well, to say so:
+  both answers then do the same work, so their timing does not reveal who is registered. `POST /api/v1/auth/reset-password` sets the new
   password from the link's user id and token. A link works once (resetting changes the security stamp it is
   bound to, which also ends every session) and lasts an hour (`PasswordResetTokenProvider`, separate from the
   day that email confirmation links last). A used, expired or tampered link answers 400 with the problem type
@@ -196,8 +199,9 @@ if they were signed in. Registration uses it to create the new user's default ca
   all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
-  (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Enums are listed in the OpenAPI
-  document (see `JsonSetup`), so the SPA's generated types know their values.
+  (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
+  name in camelCase (`"income"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:
 

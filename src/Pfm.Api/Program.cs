@@ -1,5 +1,3 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -28,8 +26,6 @@ builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
 builder.Services.AddPfmJson();
 builder.Services.AddProblemDetails();
-// Enums travel as camelCase names ("income"), never as numbers.
-builder.Services.ConfigureHttpJsonOptions(json => json.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 builder.Services.AddOpenApi("v1");
 
 var app = builder.Build();

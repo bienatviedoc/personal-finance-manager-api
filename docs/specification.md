@@ -324,7 +324,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`.
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. The category tree is the exception: `GET /categories` returns all of its `items` at once, because a tree cannot be cut into pages and a user has dozens of categories.
 - Updates send `If-Match` with the row version; a stale version returns `412`.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate.
 - All endpoints require authentication except register, login and password reset.

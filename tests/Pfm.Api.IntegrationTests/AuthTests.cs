@@ -187,7 +187,7 @@ public class AuthTests(PfmApi api)
         var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal([field], await ErrorFieldsAsync(response));
+        Assert.Equal([field], await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public class AuthTests(PfmApi api)
         var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password = "too short" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["password"], await ErrorFieldsAsync(response));
+        Assert.Equal(["password"], await response.ErrorFieldsAsync());
     }
 
     [Theory]
@@ -214,6 +214,7 @@ public class AuthTests(PfmApi api)
     [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"00000000-0000-0000-0000-000000000000\",\"token\":\"a-token\"}", "userId")]
     [InlineData("/api/v1/auth/forgot-password", "{}", "email")]
     [InlineData("/api/v1/auth/forgot-password", "{\"email\":\"   \"}", "email")]
+    [InlineData("/api/v1/auth/forgot-password", "{\"email\":\"not an email\"}", "email")]
     [InlineData("/api/v1/auth/reset-password", "{}", "password,token,userId")]
     [InlineData("/api/v1/auth/reset-password", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\",\"password\":\"correct horse battery staple\"}", "token")]
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
@@ -223,13 +224,7 @@ public class AuthTests(PfmApi api)
         var response = await browser.PostJsonAsync(path, body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(fields.Split(','), (await ErrorFieldsAsync(response)).Order());
-    }
-
-    private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
-    {
-        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name)];
+        Assert.Equal(fields.Split(','), await response.ErrorFieldsAsync());
     }
 
     [Fact]

@@ -30,7 +30,7 @@ public static class CategoryEndpoints
         return TypedResults.Ok(new CategoryListResponse([.. tree.Select(CategoryResponse.From)]));
     }
 
-    private static async Task<Results<Created<CategoryResponse>, NotFound, ValidationProblem>> Create(
+    private static async Task<Results<Created<CategoryResponse>, ValidationProblem>> Create(
         CategoryRequest request, CreateCategoryHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new CreateCategoryCommand(request.ParentId, request.Name, request.Kind, request.Icon, request.Color), cancellationToken);
@@ -39,7 +39,7 @@ public static class CategoryEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is { } created ? TypedResults.Created($"/api/v1/categories/{created.Id}", CategoryResponse.From(created)) : TypedResults.NotFound();
+        return TypedResults.Created($"/api/v1/categories/{result.Outcome.Id}", CategoryResponse.From(result.Outcome));
     }
 
     private static async Task<Results<Ok<CategoryResponse>, NotFound, ValidationProblem>> Edit(
