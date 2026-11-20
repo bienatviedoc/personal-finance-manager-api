@@ -51,7 +51,8 @@ public static class SecurityEndpoints
         {
             SetUpTwoFactorOutcome.Ready ready => TypedResults.Ok(new TwoFactorSetupResponse(ready.Key, ready.AuthenticatorUri)),
             SetUpTwoFactorOutcome.AlreadyOn => TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Two-factor sign-in is already on."),
-            _ => TypedResults.Unauthorized(),
+            null => TypedResults.Unauthorized(),
+            var other => throw new InvalidOperationException($"No answer for {other.GetType().Name}."),
         };
     }
 
@@ -94,7 +95,8 @@ public static class SecurityEndpoints
         {
             NewRecoveryCodesOutcome.Replaced replaced => TypedResults.Ok(new RecoveryCodesResponse(replaced.Codes.RecoveryCodes)),
             NewRecoveryCodesOutcome.TwoFactorOff => TypedResults.Problem(statusCode: StatusCodes.Status409Conflict, title: "Two-factor sign-in is off."),
-            _ => TypedResults.Unauthorized(),
+            null => TypedResults.Unauthorized(),
+            var other => throw new InvalidOperationException($"No answer for {other.GetType().Name}."),
         };
     }
 }

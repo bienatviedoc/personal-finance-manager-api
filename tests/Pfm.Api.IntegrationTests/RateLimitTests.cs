@@ -94,6 +94,40 @@ public class RateLimitTests(PfmApi api)
         Assert.Equal(HttpStatusCode.NoContent, other.StatusCode);
     }
 
+    [Fact]
+    public async Task A_client_cannot_get_more_attempts_by_naming_another_address_in_X_Forwarded_For()
+    {
+        var limited = api.WithAuthRateLimit(Limit, TimeSpan.FromMinutes(1));
+        var (_, email) = await api.RegisteredAndVerifiedAsync();
+        await AttemptsAsync(Forwarding(PfmApi.CreateBrowser(limited, clientAddress: "203.0.113.7"), "198.51.100.1"), email, Limit);
+
+        var refused = await Forwarding(PfmApi.CreateBrowser(limited, clientAddress: "203.0.113.7"), "198.51.100.2")
+            .PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
+
+        Assert.Equal(HttpStatusCode.TooManyRequests, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task Told_it_is_reachable_only_through_a_proxy_the_API_counts_each_client_the_proxy_names()
+    {
+        var behindProxy = api.WithAuthRateLimit(Limit, TimeSpan.FromMinutes(1), behindProxy: true);
+        var (_, email) = await api.RegisteredAndVerifiedAsync();
+        await AttemptsAsync(Forwarding(PfmApi.CreateBrowser(behindProxy), "198.51.100.1"), email, Limit + 1);
+
+        var other = await Forwarding(PfmApi.CreateBrowser(behindProxy), "198.51.100.2").PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
+        var same = await Forwarding(PfmApi.CreateBrowser(behindProxy), "198.51.100.1").PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
+
+        Assert.Equal(HttpStatusCode.NoContent, other.StatusCode);
+        Assert.Equal(HttpStatusCode.TooManyRequests, same.StatusCode);
+    }
+
+    /// <summary>The browser's requests as a proxy passes them on: naming the client it took them from.</summary>
+    private static Browser Forwarding(Browser browser, string clientAddress)
+    {
+        browser.Http.DefaultRequestHeaders.Add("X-Forwarded-For", clientAddress);
+        return browser;
+    }
+
     private static async Task<List<HttpResponseMessage>> AttemptsAsync(Browser browser, string email, int times)
     {
         var responses = new List<HttpResponseMessage>();

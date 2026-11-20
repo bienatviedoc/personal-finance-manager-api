@@ -11,6 +11,9 @@ namespace Pfm.Api.Accounts;
 /// <summary>Accounts over HTTP. The use cases decide everything; these only map requests and answers.</summary>
 public static class AccountEndpoints
 {
+    /// <summary>What these endpoints edit, as a problem about its row version names it.</summary>
+    private const string What = "account";
+
     public static IEndpointRouteBuilder MapAccountEndpoints(this IEndpointRouteBuilder api)
     {
         var accounts = api.MapGroup("/accounts").WithTags("Accounts").ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -86,15 +89,9 @@ public static class AccountEndpoints
         Guid id, AccountRequest request, [FromHeader(Name = "If-Match")] string? ifMatch, EditAccountHandler handler, HttpContext http,
         CancellationToken cancellationToken)
     {
-        if (ifMatch is null)
+        if (!RowVersions.TryRead(ifMatch, What, out var rowVersion, out var refused))
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status428PreconditionRequired, title: "Send the account's row version as If-Match.");
-        }
-
-        if (!TryReadRowVersion(ifMatch, out var rowVersion))
-        {
-            return Stale();
+            return refused;
         }
 
         var result = await handler.HandleAsync(
@@ -111,7 +108,7 @@ public static class AccountEndpoints
         {
             null => TypedResults.NotFound(),
             { Edited: { } edited } => TypedResults.Ok(Versioned(http, AccountResponse.From(edited))),
-            _ => Stale(),
+            _ => RowVersions.Stale(What),
         };
     }
 
@@ -127,22 +124,10 @@ public static class AccountEndpoints
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 
-    private static ProblemHttpResult Stale() =>
-        TypedResults.Problem(
-            statusCode: StatusCodes.Status412PreconditionFailed, title: "The account has changed since it was read. Read it again, then edit it.");
-
-    /// <summary>A row version as its ETag: the number in double quotes. Anything else is not one the API gave out.</summary>
-    private static bool TryReadRowVersion(string ifMatch, out uint rowVersion)
-    {
-        rowVersion = default;
-        return ifMatch is ['"', .. var number, '"']
-            && uint.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion);
-    }
-
     /// <summary>Sends the account's row version as the response's ETag, for the next edit's <c>If-Match</c>.</summary>
     private static AccountResponse Versioned(HttpContext http, AccountResponse account)
     {
-        http.Response.Headers.ETag = $"\"{account.RowVersion}\"";
+        http.SendAsETag(account.RowVersion);
         return account;
     }
 }

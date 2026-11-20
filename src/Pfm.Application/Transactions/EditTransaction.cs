@@ -56,18 +56,19 @@ public sealed class EditTransactionHandler(
             return EditTransactionOutcome.Stale;
         }
 
-        var (found, errors) = await context.ReadAsync(command, currentAccountId: transaction.AccountId, cancellationToken);
-        if (found is null)
+        var read = await context.ReadAsync(command, currentAccountId: transaction.AccountId, cancellationToken);
+        if (!read.IsValid)
         {
-            return Result<EditTransactionOutcome?>.Invalid(errors!);
+            return Result<EditTransactionOutcome?>.Invalid(read.Errors);
         }
 
+        var against = read.Outcome;
         var fields = command.Parsed;
         try
         {
             transaction.Edit(
-                fields.Type!.Value, found.Account.Id, found.Account.Currency, fields.Amount!.Value, fields.Date!.Value, found.Category, command.Payee,
-                command.Note, found.Today, clock.GetUtcNow());
+                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                command.Note, against.Today, clock.GetUtcNow());
         }
         catch (TransactionRuleViolation violation)
         {
@@ -75,7 +76,7 @@ public sealed class EditTransactionHandler(
         }
 
         // Converts again only what an edit of the amount, the date or the account left without a converted amount.
-        await conversion.ConvertAsync(transaction, found.BaseCurrency, cancellationToken);
+        await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);

@@ -16,7 +16,7 @@ namespace Pfm.Application.Transactions;
 /// <param name="CategoryId">A category of the kind the type takes.</param>
 /// <param name="IdempotencyKey">
 /// A key the caller made up for this transaction. Sending the command again with it answers the transaction
-/// the first one recorded and records nothing.
+/// the first one recorded and records nothing; sending another transaction with it is refused.
 /// </param>
 public sealed record CreateTransactionCommand(
     string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null)
@@ -38,53 +38,71 @@ public sealed class CreateTransactionValidator : AbstractValidator<CreateTransac
     }
 }
 
+/// <summary>What recording a transaction came to: the transaction, or nothing recorded because its idempotency key was already used.</summary>
+/// <param name="Recorded">Null when the key was used before, for another transaction.</param>
+public sealed record CreateTransactionOutcome(TransactionDetails? Recorded)
+{
+    /// <summary>The idempotency key already recorded a transaction that is not this one; nothing was recorded.</summary>
+    public static readonly CreateTransactionOutcome KeyReused = new((TransactionDetails?)null);
+}
+
 /// <summary>
-/// Answers the new transaction, or the one a request with the same idempotency key already recorded. An
-/// account or category that is not one of the user's, or is archived, is an error on its id.
+/// Answers the new transaction, or the one the same request already recorded under its idempotency key, as
+/// it is now: edited since, or deleted. A deleted transaction's key stays used, so a late retry cannot bring
+/// back what the user deleted. An account or category that is not one of the user's, or is archived, is an
+/// error on its id.
 /// </summary>
 public sealed class CreateTransactionHandler(
     IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
     TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
-    : CommandHandler<CreateTransactionCommand, TransactionDetails>(validator)
+    : CommandHandler<CreateTransactionCommand, CreateTransactionOutcome>(validator)
 {
-    protected override async Task<Result<TransactionDetails>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<CreateTransactionOutcome>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken)
     {
-        if (command.IdempotencyKey is { } key && await transactions.FindByIdempotencyKeyAsync(key, cancellationToken) is { } recorded)
+        var request = IdempotentRequest.Of(command);
+        if (request is not null && await transactions.FindByIdempotencyKeyAsync(request.Key, cancellationToken) is { } recorded)
         {
-            return TransactionDetails.Of(recorded);
+            return AlreadyRecorded(recorded, request);
         }
 
-        var (found, errors) = await context.ReadAsync(command, currentAccountId: null, cancellationToken);
-        if (found is null)
+        var read = await context.ReadAsync(command, currentAccountId: null, cancellationToken);
+        if (!read.IsValid)
         {
-            return Result<TransactionDetails>.Invalid(errors!);
+            return Result<CreateTransactionOutcome>.Invalid(read.Errors);
         }
 
+        var against = read.Outcome;
         var fields = command.Parsed;
         Transaction transaction;
         try
         {
             transaction = Transaction.Record(
-                fields.Type!.Value, found.Account.Id, found.Account.Currency, fields.Amount!.Value, fields.Date!.Value, found.Category, command.Payee,
-                command.Note, found.Today, clock.GetUtcNow());
+                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                command.Note, against.Today, clock.GetUtcNow());
         }
         catch (TransactionRuleViolation violation)
         {
-            return Result<TransactionDetails>.Invalid(violation.AsErrors());
+            return Result<CreateTransactionOutcome>.Invalid(violation.AsErrors());
         }
 
-        await conversion.ConvertAsync(transaction, found.BaseCurrency, cancellationToken);
-        transactions.Add(transaction, command.IdempotencyKey);
+        await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
+        transactions.Add(transaction, request);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);
         }
-        catch (AlreadyExistsException) when (command.IdempotencyKey is not null)
+        catch (AlreadyExistsException) when (request is not null)
         {
-            // The same request, sent twice at once: the other one recorded the transaction first.
-            return TransactionDetails.Of((await transactions.FindByIdempotencyKeyAsync(command.IdempotencyKey, cancellationToken))!);
+            // Two requests with the key, sent at once: the other one recorded its transaction first.
+            return AlreadyRecorded((await transactions.FindByIdempotencyKeyAsync(request.Key, cancellationToken))!, request);
         }
 
-        return TransactionDetails.Of(transaction);
+        return new CreateTransactionOutcome(TransactionDetails.Of(transaction));
     }
+
+    /// <summary>The same request again answers what it recorded; another one with its key records nothing.</summary>
+    private static CreateTransactionOutcome AlreadyRecorded(RecordedRequest recorded, IdempotentRequest request) =>
+        recorded.Fingerprint == request.Fingerprint
+            ? new CreateTransactionOutcome(TransactionDetails.Of(recorded.Transaction))
+            : CreateTransactionOutcome.KeyReused;
 }

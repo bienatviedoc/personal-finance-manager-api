@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Pfm.Infrastructure.Persistence;
+using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -512,6 +513,20 @@ public class AccountTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
         Assert.Equal(archived, await GetAsync(browser, account.Id));
+    }
+
+    [Fact]
+    public async Task An_account_edited_while_it_is_being_archived_is_archived_all_the_same_and_keeps_the_edit()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAsync(browser, Current("Everyday"));
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Accounts.Account>(() => EditAsync(browser, account, Current("Daily spending")));
+
+        var response = await browser.DeleteAsync($"{Accounts}/{account.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var read = await GetAsync(browser, account.Id);
+        Assert.Equal((true, "Daily spending"), (read.IsArchived, read.Name));
     }
 
     [Fact]

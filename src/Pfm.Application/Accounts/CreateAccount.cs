@@ -21,7 +21,9 @@ public sealed record CreateAccountCommand(
 {
     public string Name { get; } = Name?.Trim() ?? "";
 
-    public string? Last4 { get; } = AccountFields.ReadLast4(Last4);
+    public string? Last4 { get; } = AccountFields.TrimLast4(Last4);
+
+    public Last4Digits? ParsedLast4 { get; } = AccountFields.ReadLast4(Last4);
 
     public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate, CreditLimit);
 }
@@ -47,7 +49,7 @@ public sealed class CreateAccountHandler(
         var fields = command.Parsed;
         var account = Account.Create(
             command.Name, fields.Type!.Value, command.InstitutionId, fields.Currency!.Value, fields.OpeningAmount!.Value, fields.OpeningDate!.Value,
-            clock.GetUtcNow(), command.Last4, fields.CreditCardTerms(command.StatementDay, command.PaymentDueDay));
+            clock.GetUtcNow(), command.ParsedLast4, fields.CreditCardTerms(command.StatementDay, command.PaymentDueDay));
         accounts.Add(account);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

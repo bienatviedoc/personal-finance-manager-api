@@ -25,20 +25,18 @@ public abstract record NewRecoveryCodesOutcome
 
     /// <summary>Two-factor sign-in is off, so there is nothing for recovery codes to stand in for.</summary>
     public sealed record TwoFactorOff : NewRecoveryCodesOutcome;
-
-    /// <summary>Nobody is signed in (or their user is gone).</summary>
-    public sealed record NotSignedIn : NewRecoveryCodesOutcome;
 }
 
+/// <summary>Answers null when nobody is signed in (or their user is gone).</summary>
 public sealed class NewRecoveryCodesHandler(
     IValidator<NewRecoveryCodesCommand> validator, ICurrentUser currentUser, IUsers users, ITwoFactor twoFactor)
-    : CommandHandler<NewRecoveryCodesCommand, NewRecoveryCodesOutcome>(validator)
+    : CommandHandler<NewRecoveryCodesCommand, NewRecoveryCodesOutcome?>(validator)
 {
-    protected override async Task<Result<NewRecoveryCodesOutcome>> ExecuteAsync(NewRecoveryCodesCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<NewRecoveryCodesOutcome?>> ExecuteAsync(NewRecoveryCodesCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is not { } user)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
-            return new NewRecoveryCodesOutcome.NotSignedIn();
+            return (NewRecoveryCodesOutcome?)null;
         }
 
         if (!user.TwoFactorEnabled)
@@ -46,11 +44,11 @@ public sealed class NewRecoveryCodesHandler(
             return new NewRecoveryCodesOutcome.TwoFactorOff();
         }
 
-        if (!await users.CheckPasswordAsync(userId, command.Password))
+        if (!await users.CheckPasswordAsync(user.Id, command.Password))
         {
-            return Result<NewRecoveryCodesOutcome>.Invalid(PasswordErrors.Incorrect(nameof(command.Password)));
+            return Result<NewRecoveryCodesOutcome?>.Invalid(PasswordErrors.Incorrect(nameof(command.Password)));
         }
 
-        return new NewRecoveryCodesOutcome.Replaced(new RecoveryCodesDetails(await twoFactor.NewRecoveryCodesAsync(userId)));
+        return new NewRecoveryCodesOutcome.Replaced(new RecoveryCodesDetails(await twoFactor.NewRecoveryCodesAsync(user.Id)));
     }
 }

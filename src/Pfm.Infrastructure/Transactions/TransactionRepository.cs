@@ -27,28 +27,35 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     public Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt == null, cancellationToken);
 
-    public Task<Transaction?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken) =>
+    public Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken) =>
         db.Set<Transaction>()
             .AsNoTracking()
-            .SingleOrDefaultAsync(transaction => EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyKey) == idempotencyKey, cancellationToken);
+            .Where(transaction => EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyKey) == idempotencyKey)
+            .Select(transaction => new RecordedRequest(transaction, EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyFingerprint)))
+            .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().ToListAsync(cancellationToken);
 
     public async Task<IReadOnlyList<Transaction>> ListNotConvertedAsync(CancellationToken cancellationToken) =>
-        await db.Set<Transaction>().Where(transaction => transaction.BaseCurrencyAmount == null).ToListAsync(cancellationToken);
+        await db.Set<Transaction>().Where(transaction => transaction.Conversion!.Amount == null).ToListAsync(cancellationToken);
 
-    /// <summary>The one query that looks past the user filter: it answers who has such transactions, and none of them.</summary>
+    /// <summary>
+    /// The one query that looks past the user filter, the exception the README names under "User-owned data":
+    /// it runs for no user, and answers who has such transactions and none of them. <c>UserOwnedDataTests</c>
+    /// fails when a second one appears.
+    /// </summary>
     public async Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().IgnoreQueryFilters()
-            .Where(transaction => transaction.BaseCurrencyAmount == null)
+            .Where(transaction => transaction.Conversion!.Amount == null)
             .Select(transaction => transaction.UserId)
             .Distinct()
             .ToListAsync(cancellationToken);
 
-    public void Add(Transaction transaction, string? idempotencyKey) =>
-        db.Set<Transaction>().Add(transaction).Property(TransactionConfiguration.IdempotencyKey).CurrentValue = idempotencyKey;
-
-    public Task RefreshAsync(Transaction transaction, CancellationToken cancellationToken) =>
-        db.Entry(transaction).ReloadAsync(cancellationToken);
+    public void Add(Transaction transaction, IdempotentRequest? request)
+    {
+        var added = db.Set<Transaction>().Add(transaction);
+        added.Property(TransactionConfiguration.IdempotencyKey).CurrentValue = request?.Key;
+        added.Property(TransactionConfiguration.IdempotencyFingerprint).CurrentValue = request?.Fingerprint;
+    }
 }

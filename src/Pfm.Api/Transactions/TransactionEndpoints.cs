@@ -11,6 +11,9 @@ namespace Pfm.Api.Transactions;
 /// <summary>Transactions over HTTP. The use cases decide everything; these only map requests and answers.</summary>
 public static class TransactionEndpoints
 {
+    /// <summary>What these endpoints edit, as a problem about its row version names it.</summary>
+    private const string What = "transaction";
+
     public static IEndpointRouteBuilder MapTransactionEndpoints(this IEndpointRouteBuilder api)
     {
         var transactions = api.MapGroup("/transactions").WithTags("Transactions").ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -20,7 +23,8 @@ public static class TransactionEndpoints
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
-            .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing.");
+            .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing, and a different transaction sent with a key already used answers 422.")
+            .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         transactions.MapPut("/{id:guid}", Edit).WithName("EditTransaction")
             .WithDescription("Changes a transaction; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
@@ -30,6 +34,12 @@ public static class TransactionEndpoints
 
         return api;
     }
+
+    /// <summary>
+    /// Problem type returned when an <c>Idempotency-Key</c> that already recorded a transaction is sent with a
+    /// different one: nothing is recorded. Send a new transaction under a new key.
+    /// </summary>
+    public const string IdempotencyKeyReused = "urn:pfm:problem:idempotency-key-reused";
 
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
     /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
@@ -63,7 +73,7 @@ public static class TransactionEndpoints
     }
 
     /// <param name="idempotencyKey">A key the client made up for this transaction, at most 200 characters. A retry sends the same one.</param>
-    private static async Task<Results<Created<TransactionResponse>, ValidationProblem>> Create(
+    private static async Task<Results<Created<TransactionResponse>, ValidationProblem, ProblemHttpResult>> Create(
         TransactionRequest request, [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, CreateTransactionHandler handler, HttpContext http,
         CancellationToken cancellationToken)
     {
@@ -76,7 +86,14 @@ public static class TransactionEndpoints
             return ValidationProblems.For(result);
         }
 
-        return TypedResults.Created($"/api/v1/transactions/{result.Outcome.Id}", Versioned(http, TransactionResponse.From(result.Outcome)));
+        if (result.Outcome.Recorded is not { } recorded)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status422UnprocessableEntity, type: IdempotencyKeyReused,
+                title: "This Idempotency-Key already recorded a different transaction. Send a new transaction with a new key.");
+        }
+
+        return TypedResults.Created($"/api/v1/transactions/{recorded.Id}", Versioned(http, TransactionResponse.From(recorded)));
     }
 
     /// <param name="ifMatch">The transaction's row version as last read, in double quotes: its ETag.</param>
@@ -84,15 +101,9 @@ public static class TransactionEndpoints
         Guid id, TransactionRequest request, [FromHeader(Name = "If-Match")] string? ifMatch, EditTransactionHandler handler, HttpContext http,
         CancellationToken cancellationToken)
     {
-        if (ifMatch is null)
+        if (!RowVersions.TryRead(ifMatch, What, out var rowVersion, out var refused))
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status428PreconditionRequired, title: "Send the transaction's row version as If-Match.");
-        }
-
-        if (!RowVersions.TryRead(ifMatch, out var rowVersion))
-        {
-            return Stale();
+            return refused;
         }
 
         var result = await handler.HandleAsync(
@@ -108,7 +119,7 @@ public static class TransactionEndpoints
         {
             null => TypedResults.NotFound(),
             { Edited: { } edited } => TypedResults.Ok(Versioned(http, TransactionResponse.From(edited))),
-            _ => Stale(),
+            _ => RowVersions.Stale(What),
         };
     }
 
@@ -123,10 +134,6 @@ public static class TransactionEndpoints
 
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
-
-    private static ProblemHttpResult Stale() =>
-        TypedResults.Problem(
-            statusCode: StatusCodes.Status412PreconditionFailed, title: "The transaction has changed since it was read. Read it again, then edit it.");
 
     private static TransactionResponse Versioned(HttpContext http, TransactionResponse transaction)
     {

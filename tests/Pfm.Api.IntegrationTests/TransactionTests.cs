@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -354,6 +355,25 @@ public class TransactionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_transaction_edited_while_it_is_being_deleted_is_deleted_all_the_same()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var transaction = await AddAsync(browser, "expense", everyday, "250");
+        var path = $"{Transactions}/{transaction.Id}";
+        var edited = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Transaction>(async () =>
+            edited = (await browser.PutAsync(path, await ANewAsync(browser, "expense", everyday, "300"), ifMatch: Quoted(transaction.RowVersion))).StatusCode);
+
+        var response = await browser.DeleteAsync(path);
+
+        Assert.Equal(HttpStatusCode.OK, edited);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty((await PageAsync(browser)).Items);
+        Assert.Equal("1000.00", await BalanceAsync(browser, everyday));
+    }
+
+    [Fact]
     public async Task The_list_is_newest_date_first_and_within_a_date_last_recorded_first()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -424,6 +444,77 @@ public class TransactionTests(PfmApi api)
         Assert.NotEqual(recorded.Id, (await another.Content.ReadFromJsonAsync<TransactionBody>())!.Id);
         Assert.Equal(2, (await PageAsync(browser)).Items.Length);
         Assert.Equal("500.00", await BalanceAsync(browser, everyday));
+    }
+
+    [Fact]
+    public async Task An_idempotency_key_sent_again_with_a_different_transaction_is_refused_with_422_and_records_nothing()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var key = Guid.NewGuid().ToString();
+        var first = await browser.PostAsync(Transactions, await ANewAsync(browser, "expense", everyday, "250"), idempotencyKey: key);
+
+        var corrected = await browser.PostAsync(Transactions, await ANewAsync(browser, "expense", everyday, "205"), idempotencyKey: key);
+
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, corrected.StatusCode);
+        Assert.Equal("urn:pfm:problem:idempotency-key-reused", await corrected.ProblemTypeAsync());
+        Assert.Equal(["250.00"], (await PageAsync(browser)).Items.Select(transaction => transaction.Amount));
+        Assert.Equal("750.00", await BalanceAsync(browser, everyday));
+    }
+
+    [Fact]
+    public async Task The_same_transaction_written_another_way_is_still_the_same_request()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var expense = await ANewAsync(browser, "expense", everyday, "250");
+        var key = Guid.NewGuid().ToString();
+        var first = await browser.PostAsync(Transactions, new Dictionary<string, object?>(expense) { ["payee"] = "Co.opmart" }, idempotencyKey: key);
+
+        var retry = await browser.PostAsync(
+            Transactions, new Dictionary<string, object?>(expense) { ["amount"] = "250.00", ["payee"] = " Co.opmart ", ["note"] = " " }, idempotencyKey: key);
+
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(await first.Content.ReadFromJsonAsync<TransactionBody>(), await retry.Content.ReadFromJsonAsync<TransactionBody>());
+    }
+
+    [Fact]
+    public async Task A_retry_is_judged_by_what_the_first_request_sent_so_it_answers_a_transaction_edited_since_as_it_is_now()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var expense = await ANewAsync(browser, "expense", everyday, "250");
+        var key = Guid.NewGuid().ToString();
+        var recorded = (await (await browser.PostAsync(Transactions, expense, idempotencyKey: key)).Content.ReadFromJsonAsync<TransactionBody>())!;
+        (await browser.PutAsync(
+            $"{Transactions}/{recorded.Id}", await ANewAsync(browser, "expense", everyday, "300"), ifMatch: Quoted(recorded.RowVersion))).EnsureSuccessStatusCode();
+
+        var retry = await browser.PostAsync(Transactions, expense, idempotencyKey: key);
+
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(await GetAsync(browser, recorded.Id), await retry.Content.ReadFromJsonAsync<TransactionBody>());
+        Assert.Single((await PageAsync(browser)).Items);
+    }
+
+    [Fact]
+    public async Task The_key_of_a_transaction_deleted_since_stays_used_a_retry_answers_it_and_does_not_record_it_again()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var expense = await ANewAsync(browser, "expense", everyday, "250");
+        var key = Guid.NewGuid().ToString();
+        var recorded = (await (await browser.PostAsync(Transactions, expense, idempotencyKey: key)).Content.ReadFromJsonAsync<TransactionBody>())!;
+        (await browser.DeleteAsync($"{Transactions}/{recorded.Id}")).EnsureSuccessStatusCode();
+
+        var retry = await browser.PostAsync(Transactions, expense, idempotencyKey: key);
+        var another = await browser.PostAsync(Transactions, await ANewAsync(browser, "expense", everyday, "205"), idempotencyKey: key);
+
+        Assert.Equal(HttpStatusCode.Created, retry.StatusCode);
+        Assert.Equal(recorded.Id, (await retry.Content.ReadFromJsonAsync<TransactionBody>())!.Id);
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, another.StatusCode);
+        Assert.Empty((await PageAsync(browser)).Items);
+        Assert.Equal("1000.00", await BalanceAsync(browser, everyday));
     }
 
     [Fact]
@@ -586,23 +677,6 @@ public class TransactionTests(PfmApi api)
         return (await response.Content.ReadFromJsonAsync<TransactionList>())!;
     }
 
-    private static async Task<Guid> AddAccountAsync(Browser browser, string name, string currency = "VND", string openingBalance = "0")
-    {
-        var response = await browser.PostAsync("/api/v1/accounts", new { name, type = "current", currency, openingBalance, openingDate = "2026-11-01" });
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;
-    }
-
-    private static async Task<string> BalanceAsync(Browser browser, Guid accountId) =>
-        (await browser.Http.GetFromJsonAsync<AccountBody>($"/api/v1/accounts/{accountId}"))!.Balance;
-
-    /// <summary>One of the default categories (or one added since), top-level or a subcategory, by name.</summary>
-    private static async Task<Guid> CategoryAsync(Browser browser, string name)
-    {
-        var tree = (await browser.Http.GetFromJsonAsync<CategoryList>("/api/v1/categories?includeArchived=true"))!.Items;
-        return tree.Concat(tree.SelectMany(category => category.Subcategories)).Single(category => category.Name == name).Id;
-    }
-
     private sealed record Identified(Guid Id);
 
     private sealed record AccountBody(Guid Id, string Balance, string Currency, string RowVersion);
@@ -610,10 +684,6 @@ public class TransactionTests(PfmApi api)
     private sealed record AccountList(AccountBody[] Items, TotalBody[] Totals);
 
     private sealed record TotalBody(string Balance);
-
-    private sealed record CategoryBody(Guid Id, string Name, string Kind, List<CategoryBody> Subcategories);
-
-    private sealed record CategoryList(List<CategoryBody> Items);
 
     private sealed record TransactionList(TransactionBody[] Items, string? NextCursor);
 

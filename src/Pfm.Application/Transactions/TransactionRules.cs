@@ -1,11 +1,5 @@
-using System.Globalization;
-using System.Text.Json;
 using FluentValidation;
-using Pfm.Application.Contracts.Accounts;
-using Pfm.Application.Contracts.Identity;
-using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
-using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
@@ -37,17 +31,8 @@ internal interface ITransactionCommand
 /// <summary>A transaction command's values, read: null where one was left out or is not what it should be.</summary>
 public sealed record TransactionFields(TransactionType? Type, decimal? Amount, DateOnly? Date)
 {
-    /// <summary>Transaction types as they travel: their names in camelCase, like every enum in JSON.</summary>
-    private static readonly IReadOnlyDictionary<string, TransactionType> Types =
-        Enum.GetValues<TransactionType>().ToDictionary(type => JsonNamingPolicy.CamelCase.ConvertName(type.ToString()));
-
-    public static readonly IReadOnlyCollection<string> TypeNames = [.. Types.Keys];
-
     public static TransactionFields Read(string? type, string? amount, string? date) =>
-        new(
-            type is not null && Types.TryGetValue(type, out var known) ? known : null,
-            AmountText.TryParse(amount, out var parsed) ? parsed : null,
-            DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day) ? day : null);
+        new(EnumText<TransactionType>.Read(type), AmountText.TryParse(amount, out var parsed) ? parsed : null, DateText.Read(date));
 }
 
 /// <summary>
@@ -62,14 +47,14 @@ internal static class TransactionRules
     {
         validator.RuleFor(command => command.Type)
             .Must((command, _) => command.Parsed.Type is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", TransactionFields.TypeNames)}.");
+            .WithMessage($"Choose one of: {string.Join(", ", EnumText<TransactionType>.Names)}.");
         validator.RuleFor(command => command.AccountId).Required();
         validator.RuleFor(command => command.Amount)
             .Must((command, _) => command.Parsed.Amount is > 0)
             .WithMessage("Enter an amount greater than zero as a decimal string such as \"125000.00\".");
         validator.RuleFor(command => command.Date)
             .Must((command, _) => command.Parsed.Date is not null)
-            .WithMessage("Enter a date as YYYY-MM-DD.");
+            .WithMessage(DateText.Message);
         validator.RuleFor(command => command.CategoryId).Required();
         validator.RuleFor(command => command.Payee).Must(Transaction.IsValidPayee)
             .WithMessage($"Enter a payee of at most {Transaction.MaxPayeeLength} characters.");
@@ -77,44 +62,7 @@ internal static class TransactionRules
             .WithMessage($"Enter a note of at most {Transaction.MaxNoteLength} characters.");
     }
 
-    public static IReadOnlyDictionary<string, string[]> Error(string property, string message) =>
-        new Dictionary<string, string[]> { [property] = [message] };
-
     /// <summary>A broken transaction rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this TransactionRuleViolation violation) =>
-        Error(violation.Property, violation.Message);
-}
-
-/// <summary>
-/// Reads what a transaction is recorded against: the account and category the command names, today's date
-/// for the user and their base currency. Shared by recording and editing.
-/// </summary>
-public sealed class TransactionContext(IAccountLookup accounts, ICategoryRepository categories, IUserCalendar calendar, IBaseCurrency baseCurrency)
-{
-    /// <summary>
-    /// The account, category, today's date and base currency, or the errors keyed by command property when the account or
-    /// category is not one the transaction can be on.
-    /// </summary>
-    /// <param name="currentAccountId">The account the transaction is already on, which it may stay on after the account is archived.</param>
-    internal async Task<(Found? Found, IReadOnlyDictionary<string, string[]>? Errors)> ReadAsync(
-        ITransactionCommand command, Guid? currentAccountId, CancellationToken cancellationToken)
-    {
-        var account = await accounts.FindAsync(command.AccountId, cancellationToken);
-        if (account is null || (account.IsArchived && account.Id != currentAccountId))
-        {
-            return (null, TransactionRules.Error(nameof(ITransactionCommand.AccountId), "Choose one of your accounts that is not archived."));
-        }
-
-        var category = await categories.FindAsync(command.CategoryId, cancellationToken);
-        if (category is null)
-        {
-            return (null, TransactionRules.Error(nameof(ITransactionCommand.CategoryId), "Choose one of your categories that is not archived."));
-        }
-
-        return (
-            new Found(account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken)),
-            null);
-    }
-
-    internal sealed record Found(AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency);
+        FieldError.On(violation.Property, violation.Message);
 }

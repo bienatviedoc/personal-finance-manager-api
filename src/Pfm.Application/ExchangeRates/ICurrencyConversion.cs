@@ -15,6 +15,13 @@ public interface ICurrencyConversion
     /// in <paramref name="to"/> is answered as it is, at a rate of one.
     /// </summary>
     Task<Conversion> ConvertAsync(decimal amount, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Several amounts of one currency on one date, each converted as <see cref="ConvertAsync(decimal, Currency, Currency, DateOnly, CancellationToken)"/>
+    /// would and answered in the order given, with the rate looked up once for all of them.
+    /// </summary>
+    Task<IReadOnlyList<Conversion>> ConvertAsync(
+        IReadOnlyList<decimal> amounts, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken);
 }
 
 /// <summary>What converting an amount came to.</summary>
@@ -32,15 +39,20 @@ public sealed record Conversion(decimal? Amount, decimal? Rate, DateOnly? RateDa
 /// <summary>Converts with the stored rates.</summary>
 public sealed class CurrencyConversion(IExchangeRateRepository rates) : ICurrencyConversion
 {
-    public async Task<Conversion> ConvertAsync(decimal amount, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken)
+    public async Task<Conversion> ConvertAsync(decimal amount, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken) =>
+        (await ConvertAsync([amount], from, to, date, cancellationToken))[0];
+
+    public async Task<IReadOnlyList<Conversion>> ConvertAsync(
+        IReadOnlyList<decimal> amounts, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(amounts);
         if (from == to)
         {
-            return new Conversion(amount, 1m, date);
+            return [.. amounts.Select(amount => new Conversion(amount, 1m, date))];
         }
 
         return await rates.FindOnOrBeforeAsync(from, to, date, cancellationToken) is { } rate
-            ? new Conversion(rate.Convert(amount), rate.Rate, rate.Date)
-            : Conversion.NotConverted;
+            ? [.. amounts.Select(amount => new Conversion(rate.Convert(amount), rate.Rate, rate.Date))]
+            : [.. amounts.Select(_ => Conversion.NotConverted)];
     }
 }

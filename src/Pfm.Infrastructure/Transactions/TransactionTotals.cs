@@ -12,17 +12,23 @@ namespace Pfm.Infrastructure.Transactions;
 /// </summary>
 internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage
 {
-    /// <summary>The same sum as <see cref="Transaction.NetOf"/>: income adds, an expense takes away, a deleted transaction counts for nothing.</summary>
-    public async Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken) =>
-        await db.Set<Transaction>()
+    /// <summary>
+    /// Income − expenses of each account (spec section 3, rule 2), leaving out deleted transactions. The
+    /// database adds up the amounts of each type; the sign of a type has one definition,
+    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken)
+    {
+        var sums = await db.Set<Transaction>()
             .Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null)
-            .GroupBy(transaction => transaction.AccountId)
-            .Select(account => new
-            {
-                AccountId = account.Key,
-                Net = account.Sum(transaction => transaction.Type == TransactionType.Income ? transaction.Amount : -transaction.Amount),
-            })
-            .ToDictionaryAsync(account => account.AccountId, account => account.Net, cancellationToken);
+            .GroupBy(transaction => new { transaction.AccountId, transaction.Type })
+            .Select(ofType => new { ofType.Key.AccountId, ofType.Key.Type, Amount = ofType.Sum(transaction => transaction.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return sums
+            .GroupBy(sum => sum.AccountId)
+            .ToDictionary(account => account.Key, account => account.Sum(sum => sum.Type.Signed(sum.Amount)));
+    }
 
     /// <summary>
     /// A deleted transaction still counts: it is recoverable, and would come back in a currency its account

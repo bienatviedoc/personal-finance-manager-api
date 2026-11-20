@@ -77,6 +77,22 @@ public class ProfileTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_profile_change_that_meets_another_change_to_the_user_made_at_the_same_moment_is_saved_all_the_same()
+    {
+        var (browser, email) = await api.SignedInAsync();
+
+        // A wrong password from elsewhere is counted on the user, which changes the row being saved here.
+        api.Saves.BeforeNextSaveOf<Pfm.Infrastructure.Identity.User>(async () => Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await api.CreateBrowser().PostAsync("/api/v1/auth/login", new { email, password = "not the password" })).StatusCode));
+
+        var response = await browser.PatchAsync("/api/v1/me", new { timeZone = "Europe/Paris" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Europe/Paris", (await browser.Http.GetFromJsonAsync<Profile>("/api/v1/me"))!.TimeZone);
+    }
+
+    [Fact]
     public async Task A_visitor_who_is_not_signed_in_cannot_change_a_profile()
     {
         var response = await api.CreateBrowser().PatchAsync("/api/v1/me", new { baseCurrency = "EUR" });

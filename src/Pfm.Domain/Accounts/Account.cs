@@ -58,16 +58,10 @@ public sealed class Account : IUserOwned
     /// The last 4 digits of the account or card number, as a label to tell accounts apart; or none. Never
     /// more than these 4: a full number is not held anywhere (spec ACC-8).
     /// </summary>
-    public string? Last4 { get; private set; }
+    public Last4Digits? Last4 { get; private set; }
 
-    /// <summary>The most a credit card lets its holder owe, in the account's currency. Null when not given, and for every other type.</summary>
-    public decimal? CreditLimit { get; private set; }
-
-    /// <summary>The day of the month a credit card's statement closes. Null when not given, and for every other type.</summary>
-    public int? StatementDay { get; private set; }
-
-    /// <summary>The day of the month a credit card's payment is due. Null when not given, and for every other type.</summary>
-    public int? PaymentDueDay { get; private set; }
+    /// <summary>A credit card's limit, statement day and payment due day, each as far as given. None of them for every other type.</summary>
+    public CreditCardTerms CreditCard { get; private set; }
 
     /// <param name="openingAmount">
     /// The opening balance; for a credit card or loan, the amount owed, as a positive number.
@@ -76,7 +70,7 @@ public sealed class Account : IUserOwned
     /// <param name="creditCard">A credit card's terms; none for every other type.</param>
     public static Account Create(
         string name, AccountType type, Guid? institutionId, Currency currency, decimal openingAmount, DateOnly openingDate, DateTimeOffset now,
-        string? last4 = null, CreditCardTerms? creditCard = null)
+        Last4Digits? last4 = null, CreditCardTerms? creditCard = null)
     {
         var account = new Account(now);
         account.Set(name, type, institutionId, currency, openingAmount, openingDate, last4, creditCard, now);
@@ -91,7 +85,7 @@ public sealed class Account : IUserOwned
     /// <param name="creditCard">A credit card's terms; none removes them, and every other type has none.</param>
     public void Edit(
         string name, AccountType type, Guid? institutionId, Currency currency, decimal openingAmount, DateOnly openingDate,
-        bool hasTransactions, DateTimeOffset now, string? last4 = null, CreditCardTerms? creditCard = null)
+        bool hasTransactions, DateTimeOffset now, Last4Digits? last4 = null, CreditCardTerms? creditCard = null)
     {
         if (hasTransactions && currency != Currency)
         {
@@ -112,7 +106,7 @@ public sealed class Account : IUserOwned
     /// the amount owed now, which is the balance below zero (spec ACC-9). Negative when the card is over its
     /// limit. Null for an account with no credit limit.
     /// </summary>
-    public decimal? AvailableCreditWith(decimal netTransactions) => CreditLimit is { } limit ? limit + BalanceWith(netTransactions) : null;
+    public decimal? AvailableCreditWith(decimal netTransactions) => CreditCard.CreditLimit is { } limit ? limit + BalanceWith(netTransactions) : null;
 
     /// <summary>Hides the account from pickers, at any balance. Archiving it again changes nothing.</summary>
     public void Archive(DateTimeOffset now)
@@ -127,7 +121,7 @@ public sealed class Account : IUserOwned
     }
 
     private void Set(
-        string name, AccountType type, Guid? institutionId, Currency currency, decimal openingAmount, DateOnly openingDate, string? last4,
+        string name, AccountType type, Guid? institutionId, Currency currency, decimal openingAmount, DateOnly openingDate, Last4Digits? last4,
         CreditCardTerms? creditCard, DateTimeOffset now)
     {
         if (!Names.IsValid(name))
@@ -155,11 +149,6 @@ public sealed class Account : IUserOwned
             throw new ArgumentException("An amount owed is entered as a positive number.", nameof(openingAmount));
         }
 
-        if (last4 is not null && !Last4Digits.IsValid(last4))
-        {
-            throw new ArgumentException("The label is the last 4 digits of the number, never more of it.", nameof(last4));
-        }
-
         if (creditCard is { } terms)
         {
             if (type != AccountType.CreditCard && terms != default)
@@ -185,9 +174,7 @@ public sealed class Account : IUserOwned
         OpeningBalance = type.HoldsAmountOwed() ? -openingAmount : openingAmount;
         OpeningDate = openingDate;
         Last4 = last4;
-        CreditLimit = creditCard?.CreditLimit;
-        StatementDay = creditCard?.StatementDay;
-        PaymentDueDay = creditCard?.PaymentDueDay;
+        CreditCard = creditCard ?? default;
         UpdatedAt = now;
     }
 }

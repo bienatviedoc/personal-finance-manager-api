@@ -10,10 +10,12 @@ public interface ITransactionConversion
 {
     /// <summary>
     /// Converts every user's transactions that are flagged not converted and now have an exchange rate on or
-    /// before their date, and saves them. The fetch of exchange rates calls it when new rates have arrived.
-    /// Amounts already converted are left as they are.
+    /// before their date, and saves them, one user at a time. The fetch of exchange rates calls it every time.
+    /// Amounts already converted are left as they are. Answers how many users' transactions could not be
+    /// saved because they kept changing meanwhile: those wait for the next call, and every other user's are
+    /// converted all the same.
     /// </summary>
-    Task ConvertNotConvertedAsync(CancellationToken cancellationToken);
+    Task<int> ConvertNotConvertedAsync(CancellationToken cancellationToken);
 
     /// <summary>
     /// Converts every transaction of the signed-in user into a new base currency, each at the exchange rate

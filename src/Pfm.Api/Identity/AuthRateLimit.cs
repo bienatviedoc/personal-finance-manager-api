@@ -36,8 +36,10 @@ public static class AuthRateLimit
         {
             limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
 
-            // One budget per client address, shared by every limited endpoint. Behind a proxy the address is the
-            // proxy's until forwarded headers are configured, which belongs with the deployment work.
+            // One budget per client address, shared by every limited endpoint. X-Forwarded-For is not believed
+            // unless the deployment says the API is reachable only through a proxy that sets it
+            // (ASPNETCORE_FORWARDEDHEADERS_ENABLED=true, see the README): until then this is the address of
+            // whoever connected, which behind a proxy is the proxy's, and a client cannot name another.
             limiter.AddPolicy(Policy, context =>
             {
                 var options = context.RequestServices.GetRequiredService<IOptions<AuthRateLimitOptions>>().Value;

@@ -1,5 +1,3 @@
-using System.Globalization;
-using System.Text.Json;
 using FluentValidation;
 using Pfm.Application.Accounts.Institutions;
 using Pfm.Application.UseCases;
@@ -31,6 +29,9 @@ internal interface IAccountCommand
 
     string? Last4 { get; }
 
+    /// <summary>The last 4 digits sent; null when none were, or what was sent is not 4 digits.</summary>
+    Last4Digits? ParsedLast4 { get; }
+
     string? CreditLimit { get; }
 
     int? StatementDay { get; }
@@ -47,27 +48,24 @@ internal interface IAccountCommand
 /// <param name="CreditLimit">Null when none was sent, and when what was sent is not an amount.</param>
 public sealed record AccountFields(AccountType? Type, Currency? Currency, decimal? OpeningAmount, DateOnly? OpeningDate, decimal? CreditLimit)
 {
-    /// <summary>Account types as they travel: their names in camelCase, like every enum in JSON.</summary>
-    private static readonly IReadOnlyDictionary<string, AccountType> Types =
-        Enum.GetValues<AccountType>().ToDictionary(type => JsonNamingPolicy.CamelCase.ConvertName(type.ToString()));
-
-    public static readonly IReadOnlyCollection<string> TypeNames = [.. Types.Keys];
-
     public static AccountFields Read(string? type, string? currency, string? openingBalance, string? amountOwed, string? openingDate, string? creditLimit)
     {
-        AccountType? parsedType = type is not null && Types.TryGetValue(type, out var known) ? known : null;
+        var parsedType = EnumText<AccountType>.Read(type);
         var amountSent = parsedType?.HoldsAmountOwed() == true ? amountOwed : openingBalance;
 
         return new AccountFields(
             parsedType,
             Currencies.TryParse(currency, out var parsedCurrency) ? parsedCurrency : null,
             AmountText.TryParse(amountSent, out var amount) ? amount : null,
-            DateOnly.TryParseExact(openingDate, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : null,
+            DateText.Read(openingDate),
             AmountText.TryParse(creditLimit, out var limit) ? limit : null);
     }
 
     /// <summary>The last 4 digits as sent, without the spaces around them; none when left out or blank.</summary>
-    public static string? ReadLast4(string? last4) => string.IsNullOrWhiteSpace(last4) ? null : last4.Trim();
+    public static string? TrimLast4(string? last4) => string.IsNullOrWhiteSpace(last4) ? null : last4.Trim();
+
+    /// <summary>Null when none were sent, or what was sent is not exactly 4 digits.</summary>
+    public static Last4Digits? ReadLast4(string? last4) => Last4Digits.TryParse(TrimLast4(last4), out var digits) ? digits : null;
 
     /// <summary>What the domain takes: a credit card's terms, and none for every other type.</summary>
     public CreditCardTerms? CreditCardTerms(int? statementDay, int? paymentDueDay) =>
@@ -89,15 +87,15 @@ internal static class AccountRules
         validator.RuleFor(command => command.Name).IsName();
         validator.RuleFor(command => command.Type)
             .Must((command, _) => command.Parsed.Type is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", AccountFields.TypeNames)}.");
+            .WithMessage($"Choose one of: {string.Join(", ", EnumText<AccountType>.Names)}.");
         validator.RuleFor(command => command.Currency)
             .Must((command, _) => command.Parsed.Currency is not null)
             .WithMessage($"Choose one of: {string.Join(", ", Enum.GetNames<Currency>())}.");
         validator.RuleFor(command => command.OpeningDate)
             .Must((command, _) => command.Parsed.OpeningDate is not null)
-            .WithMessage("Enter a date as YYYY-MM-DD.");
+            .WithMessage(DateText.Message);
         validator.RuleFor(command => command.Last4)
-            .Must(last4 => last4 is null || Last4Digits.IsValid(last4))
+            .Must((command, last4) => last4 is null || command.ParsedLast4 is not null)
             .WithMessage("Enter only the last 4 digits. A full account or card number is never stored.");
 
         validator.When(command => command.Parsed.Type == AccountType.CreditCard, () =>
@@ -154,10 +152,10 @@ internal static class AccountRules
 
         return await institutions.FindAsync(id, cancellationToken) is { IsArchived: false }
             ? null
-            : new Dictionary<string, string[]> { [nameof(IAccountCommand.InstitutionId)] = ["Choose one of your institutions that is not archived."] };
+            : FieldError.On(nameof(IAccountCommand.InstitutionId), "Choose one of your institutions that is not archived.");
     }
 
     /// <summary>A broken account rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this AccountRuleViolation violation) =>
-        new Dictionary<string, string[]> { [violation.Property] = [violation.Message] };
+        FieldError.On(violation.Property, violation.Message);
 }

@@ -139,9 +139,9 @@ public class AccountTests
     [Fact]
     public void Any_account_can_be_labelled_with_the_last_4_digits_of_its_number()
     {
-        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 0m, FirstOfNovember, Monday, last4: "0042");
+        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 0m, FirstOfNovember, Monday, last4: Last4Digits.Parse("0042"));
 
-        Assert.Equal("0042", account.Last4);
+        Assert.Equal("0042", account.Last4?.Digits);
 
         account.Edit("Everyday", AccountType.Current, null, Currency.VND, 0m, FirstOfNovember, hasTransactions: false, Tuesday, last4: null);
 
@@ -159,16 +159,17 @@ public class AccountTests
     [InlineData("4111 1111 1111 1111")]
     public void A_label_that_is_not_exactly_4_digits_such_as_a_full_card_number_is_never_held(string last4)
     {
-        Assert.Throws<ArgumentException>(() => Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, last4));
+        Assert.False(Last4Digits.TryParse(last4, out _));
+        Assert.Throws<ArgumentException>(() => Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, Last4Digits.Parse(last4)));
     }
 
     [Fact]
     public void A_credit_card_has_a_credit_limit_a_statement_day_and_a_payment_due_day()
     {
         var card = Account.Create(
-            "Visa", AccountType.CreditCard, null, Currency.USD, 250.75m, FirstOfNovember, Monday, last4: "4242", new CreditCardTerms(5_000m, StatementDay: 25, PaymentDueDay: 15));
+            "Visa", AccountType.CreditCard, null, Currency.USD, 250.75m, FirstOfNovember, Monday, last4: Last4Digits.Parse("4242"), new CreditCardTerms(5_000m, StatementDay: 25, PaymentDueDay: 15));
 
-        Assert.Equal((5_000m, 25, 15), (card.CreditLimit, card.StatementDay, card.PaymentDueDay));
+        Assert.Equal(new CreditCardTerms(5_000m, 25, 15), card.CreditCard);
     }
 
     [Fact]
@@ -205,11 +206,11 @@ public class AccountTests
     [Fact]
     public void Editing_a_credit_card_into_another_type_leaves_its_terms_behind()
     {
-        var account = Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, last4: "4242", new CreditCardTerms(5_000m, 25, 15));
+        var account = Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, last4: Last4Digits.Parse("4242"), new CreditCardTerms(5_000m, 25, 15));
 
-        account.Edit("Everyday", AccountType.Current, null, Currency.USD, 0m, FirstOfNovember, hasTransactions: false, Tuesday, last4: "4242");
+        account.Edit("Everyday", AccountType.Current, null, Currency.USD, 0m, FirstOfNovember, hasTransactions: false, Tuesday, last4: Last4Digits.Parse("4242"));
 
-        Assert.Equal(((decimal?)null, (int?)null, (int?)null, "4242"), (account.CreditLimit, account.StatementDay, account.PaymentDueDay, account.Last4));
+        Assert.Equal((default(CreditCardTerms), "4242"), (account.CreditCard, account.Last4?.Digits));
     }
 
     [Theory]

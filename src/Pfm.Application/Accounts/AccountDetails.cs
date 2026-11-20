@@ -19,6 +19,6 @@ public sealed record AccountDetails(
     /// <param name="netTransactions">What the account's transactions come to.</param>
     public static AccountDetails Of(Account account, decimal netTransactions) =>
         new(account.Id, account.InstitutionId, account.Name, account.Type, account.Currency, account.OpeningBalance, account.AmountOwed,
-            account.OpeningDate, account.BalanceWith(netTransactions), account.IsArchived, account.RowVersion, account.Last4,
-            account.CreditLimit, account.StatementDay, account.PaymentDueDay, account.AvailableCreditWith(netTransactions));
+            account.OpeningDate, account.BalanceWith(netTransactions), account.IsArchived, account.RowVersion, account.Last4?.Digits,
+            account.CreditCard.CreditLimit, account.CreditCard.StatementDay, account.CreditCard.PaymentDueDay, account.AvailableCreditWith(netTransactions));
 }

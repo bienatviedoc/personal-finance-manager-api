@@ -103,7 +103,11 @@ nothing) and its handler. It has no validator or `Result`: the handler implement
 directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
-breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
+breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`. A command
+reads what travels as text with `EnumText<T>` (an enum's camelCase name), `DateText` and `AmountText`, and a
+handler names one field to fix with `FieldError.On`. A use case about the signed-in user's own sign-in finds them
+with `IUsers.FindSignedInAsync`. An endpoint that edits from a row version reads `If-Match` with
+`RowVersions.TryRead`, which also answers the 428 and 412.
 
 **Archive, never delete.** `DELETE` on an institution, account or category archives it: it
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
@@ -139,7 +143,11 @@ already uses it can still show it. An account can be archived at any balance.
 
 - **Nobody enters a rate.** The worker's `ExchangeRateFetchJob` runs `FetchExchangeRates` when it starts and every
   six hours: it asks the source for every day since the latest one stored (a year back the first time) and stores
-  the rate of every pair of currencies, in both directions, per day. A stored day is never fetched again. Rates
+  the rate of every pair of currencies, in both directions, per day. A stored rate never changes. A day stored
+  without every pair (the source had not quoted a currency yet) is asked for again for a week, and only the
+  pairs it lacks are filled in. Rates are stored with `INSERT … ON CONFLICT DO NOTHING`, so two workers fetching
+  at once store each rate once and neither fails. The job is a plain `BackgroundService` on a timer: the
+  specification names Hangfire for background jobs (section 9), which is not in the repository yet. Rates
   belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
   ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the
   network.
@@ -167,14 +175,17 @@ already uses it can still show it. An account can be archived at any balance.
   `IAccountLookup` (both in `Pfm.Application.Contracts`).
 - **Converted once** (rule 7, [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)).
   Recording a transaction converts its amount into the user's base currency at the exchange rate of its date, or
-  of the nearest earlier day that has one, and the transaction keeps the result: `BaseCurrency`,
-  `BaseCurrencyAmount`, `ExchangeRate` and `ExchangeRateDate`. Rates that arrive later never change it. An edit
+  of the nearest earlier day that has one, and the transaction keeps the result as one value,
+  `BaseCurrencyConversion`, in four columns: `BaseCurrency`, `BaseCurrencyAmount`, `ExchangeRate` and
+  `ExchangeRateDate`. Rates that arrive later never change it. An edit
   converts again only when it changes the amount, the date or the account. A transaction in the base currency
   itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
 - **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
-  `BaseCurrencyAmount`. When a fetch stores new rates it asks Transactions, through `ITransactionConversion`
-  (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted transactions, deleted ones
-  included; any edit of one tries again too.
+  `BaseCurrencyAmount`. Every fetch, whether it stored new rates or not, asks Transactions, through
+  `ITransactionConversion` (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted
+  transactions, deleted ones included; any edit of one tries again too. Each user's are saved on their own: when
+  a user changes theirs at that moment the conversion reads them again and retries, and if they keep changing
+  only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
   only happen until the base currency locks (rule 12).
@@ -253,8 +264,11 @@ method on a port when it needs something Identity does, such as a reset token.
   `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
   `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
   share one budget: when the API is reachable only through a proxy that sets `X-Forwarded-For` (the SPA's nginx
-  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` so the API counts the real client. Never set it
-  when clients can reach the API directly: they could then name any address.
+  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` on the API in that deployment, so it counts the
+  real client. Set this way the API believes the header from whoever connects, so the network must let only that
+  proxy reach it. Never set it when clients can reach the API directly: they could then name any address. It is
+  off by default and nothing in the code turns it on; `compose.yaml` publishes the API directly, so it is not set
+  there, and neither repository has a deployment file that puts the API behind the nginx image yet.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.
@@ -320,7 +334,11 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There is one
+exception, and `UserOwnedDataTests` fails when a second appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted. It runs for the worker, which
+acts for no user, and answers user ids only, never a row; the worker then acts for each of those users in turn,
+inside the filter. Raw SQL is used only on exchange rates, which belong to no user.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
@@ -340,12 +358,19 @@ if they were signed in. Registration uses it to create the new user's default ca
   `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
-  stale too.
+  stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has
+  nothing to call stale: it reads again and is made on what was saved (`RetryOnConcurrentChangeAsync`). In
+  tests, `api.Saves` (`InterleavedSaves`) has another request get in between a use case's read and its save.
 - **Idempotency** (spec section 11): `POST /transactions` takes an `Idempotency-Key` header, a key of up to 200
   characters the client makes up for the transaction it is recording. Sending the request again with the same
   key records nothing and answers the first transaction, with the same 201. The key is kept with the
   transaction under a unique index per user, so two copies of the request arriving together still record one:
-  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction.
+  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction. A fingerprint of
+  what the request asked for is kept beside the key (`IdempotentRequest`): the same key with a different
+  transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
+  so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
+  not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
+  nothing, so a late retry cannot bring back what the user deleted.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its

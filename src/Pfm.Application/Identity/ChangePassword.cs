@@ -21,7 +21,7 @@ public sealed class ChangePasswordValidator : AbstractValidator<ChangePasswordCo
         RuleFor(command => command.NewPassword).CustomAsync(async (password, context, _) =>
         {
             // The policy may judge a password against the user's email; with nobody signed in, the handler refuses later.
-            var email = currentUser.UserId is { } userId && await users.FindByIdAsync(userId) is { } user ? user.Email : "";
+            var email = (await users.FindSignedInAsync(currentUser))?.Email ?? "";
             foreach (var problem in await passwords.CheckAsync(email, password))
             {
                 context.AddFailure(problem);
@@ -39,17 +39,17 @@ public sealed class ChangePasswordHandler(
 {
     protected override async Task<Result<Done?>> ExecuteAsync(ChangePasswordCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is null)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
             return (Done?)null;
         }
 
-        if (!await users.ChangePasswordAsync(userId, command.CurrentPassword, command.NewPassword))
+        if (!await users.ChangePasswordAsync(user.Id, command.CurrentPassword, command.NewPassword))
         {
             return Result<Done?>.Invalid(PasswordErrors.Incorrect(nameof(command.CurrentPassword)));
         }
 
-        await sessions.RefreshAsync(userId);
+        await sessions.RefreshAsync(user.Id);
         return new Done();
     }
 }
