@@ -192,6 +192,118 @@ public class TransactionTests
         Assert.Throws<InvalidOperationException>(() => deleted.Edit(TransactionType.Expense, Everyday, Currency.VND, 10m, Today, Groceries, null, null, Today, Tuesday));
     }
 
+    [Fact]
+    public void A_recorded_transaction_is_not_converted_until_its_amount_is_converted_into_the_base_currency()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        Assert.False(dollars.IsConverted);
+
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today.AddDays(-2));
+
+        Assert.True(dollars.IsConverted);
+        Assert.Equal((Currency.VND, 2_500_000m, 25_000m, Today.AddDays(-2)), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal((100m, Currency.USD), (dollars.Amount, dollars.Currency));
+    }
+
+    [Fact]
+    public void An_amount_is_converted_once_and_a_second_conversion_into_the_same_base_currency_is_refused()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+
+        Assert.True(dollars.IsConvertedInto(Currency.VND));
+        Assert.Throws<InvalidOperationException>(() => dollars.ConvertInto(Currency.VND, 2_600_000m, 26_000m, Today));
+        Assert.Throws<InvalidOperationException>(() => dollars.FlagNotConverted(Currency.VND));
+        Assert.Equal((2_500_000m, 25_000m), (dollars.BaseCurrencyAmount, dollars.ExchangeRate));
+    }
+
+    [Fact]
+    public void With_no_exchange_rate_a_transaction_is_flagged_not_converted_in_the_base_currency_and_converted_when_one_arrives()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+
+        dollars.FlagNotConverted(Currency.VND);
+
+        Assert.False(dollars.IsConverted);
+        Assert.False(dollars.IsConvertedInto(Currency.VND));
+        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+
+        Assert.Equal(2_500_000m, dollars.BaseCurrencyAmount);
+    }
+
+    [Fact]
+    public void An_edit_that_leaves_the_amount_date_and_account_alone_keeps_the_converted_amount()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+        var eatingOut = Category.Create("Eating out", CategoryKind.Expense, "utensils", Color.Parse("#ea580c"), Monday);
+
+        dollars.Edit(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, eatingOut, "Pizza 4P's", "dinner", Today, Tuesday);
+
+        Assert.Equal((Currency.VND, 2_500_000m, 25_000m, Today), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+    }
+
+    [Theory]
+    [InlineData("amount")]
+    [InlineData("date")]
+    [InlineData("account")]
+    public void An_edit_of_the_amount_the_date_or_the_account_drops_the_converted_amount_so_it_is_converted_again(string changed)
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+
+        dollars.Edit(
+            TransactionType.Expense, changed == "account" ? Guid.CreateVersion7() : Everyday, Currency.USD, changed == "amount" ? 120m : 100m,
+            changed == "date" ? Today.AddDays(-1) : Today, Groceries, null, null, Today, Tuesday);
+
+        Assert.False(dollars.IsConverted);
+        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        dollars.ConvertInto(Currency.VND, 3_000_000m, 25_000m, Today.AddDays(-1));
+        Assert.Equal(3_000_000m, dollars.BaseCurrencyAmount);
+    }
+
+    [Fact]
+    public void A_refused_edit_keeps_the_converted_amount()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+
+        Assert.Throws<TransactionRuleViolation>(() => dollars.Edit(TransactionType.Expense, Everyday, Currency.USD, 120m, Today.AddDays(1), Groceries, null, null, Today, Tuesday));
+
+        Assert.Equal(2_500_000m, dollars.BaseCurrencyAmount);
+    }
+
+    [Fact]
+    public void A_converted_amount_can_be_converted_into_another_base_currency_or_flagged_not_converted_in_it()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
+        dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
+
+        dollars.ConvertInto(Currency.EUR, 80m, 0.8m, Today);
+        Assert.Equal((Currency.EUR, 80m, 0.8m, Today), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+
+        dollars.FlagNotConverted(Currency.VND);
+        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+    }
+
+    [Fact]
+    public void A_converted_amount_fits_the_base_currency_and_its_exchange_rate_is_positive_and_of_the_transactions_date_or_earlier()
+    {
+        var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today.AddDays(-1), Groceries, null, null, Today, Monday);
+
+        Assert.Throws<ArgumentException>(() => dollars.ConvertInto(Currency.VND, 2_500_000.5m, 25_000m, Today.AddDays(-1)));
+        Assert.Throws<ArgumentException>(() => dollars.ConvertInto(Currency.VND, -1m, 25_000m, Today.AddDays(-1)));
+        Assert.Throws<ArgumentException>(() => dollars.ConvertInto(Currency.VND, 2_500_000m, 0m, Today.AddDays(-1)));
+        Assert.Throws<ArgumentException>(() => dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today));
+        Assert.Throws<ArgumentOutOfRangeException>(() => dollars.ConvertInto((Currency)9, 2_500_000m, 25_000m, Today.AddDays(-1)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => dollars.FlagNotConverted((Currency)9));
+        Assert.False(dollars.IsConverted);
+        Assert.True(Transaction.CanHoldInBaseCurrency(0m, Currency.USD));
+        Assert.False(Transaction.CanHoldInBaseCurrency(1_000_000_000_000_000m, Currency.VND));
+    }
+
     /// <summary>An expense in VND on the everyday account, recorded on Monday.</summary>
     private static Transaction Spend(decimal amount, DateOnly? date = null, Category? category = null) =>
         Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date ?? Today, category ?? Groceries, null, null, Today, Monday);
