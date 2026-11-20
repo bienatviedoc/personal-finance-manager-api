@@ -40,12 +40,13 @@ public class LockoutTests(PfmApi api)
     [Fact]
     public async Task The_lock_lifts_when_its_time_is_up()
     {
-        var shortLock = PfmApi.CreateBrowser(api.WhereSignInLocksFor(TimeSpan.FromSeconds(1)));
+        // Long enough that the locked attempt below lands inside it even on a slow machine.
+        var shortLock = PfmApi.CreateBrowser(api.WhereSignInLocksFor(TimeSpan.FromSeconds(3)));
         var (browser, email) = await api.RegisteredAndVerifiedAsync(shortLock);
         await WrongPasswordsAsync(browser, email, Allowed);
         var locked = await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
 
-        await Task.Delay(TimeSpan.FromSeconds(1.2));
+        await Task.Delay(TimeSpan.FromSeconds(3.2));
         var afterwards = await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });
 
         Assert.Equal(HttpStatusCode.Unauthorized, locked.StatusCode);
