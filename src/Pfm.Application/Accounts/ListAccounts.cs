@@ -70,6 +70,9 @@ public sealed class ListAccountsHandler(
     private async Task<BaseCurrencyTotal> InBaseCurrencyAsync(IReadOnlyList<InstitutionTotal> totals, CancellationToken cancellationToken)
     {
         var baseCurrency = await baseCurrencies.OfCurrentUserAsync(cancellationToken);
+
+        // Not the user's calendar (IUserCalendar): rates are stored by the UTC day their sources publish by, and
+        // a balance is as of now, so the day whose rate applies is today in UTC wherever the user is.
         var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
 
         var institutions = new List<InstitutionBaseCurrencyTotal>();
