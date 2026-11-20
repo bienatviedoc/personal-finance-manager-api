@@ -12,6 +12,12 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
     /// </summary>
     public const string IdempotencyKey = "IdempotencyKey";
 
+    /// <summary>
+    /// A fingerprint (SHA-256, in hex) of what the request with <see cref="IdempotencyKey"/> asked for, which
+    /// tells its retry from another request using the key again. A column only, like the key.
+    /// </summary>
+    public const string IdempotencyFingerprint = "IdempotencyFingerprint";
+
     public void Configure(EntityTypeBuilder<Transaction> transaction)
     {
         transaction.ToTable("Transactions", table =>
@@ -35,6 +41,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.Payee).HasMaxLength(Transaction.MaxPayeeLength);
         transaction.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
         transaction.Property<string?>(IdempotencyKey).HasMaxLength(200);
+        transaction.Property<string?>(IdempotencyFingerprint).HasMaxLength(64);
 
         // PostgreSQL's own row version (xmin): it changes with every update, so a stale edit matches no row.
         transaction.Property(row => row.RowVersion).IsRowVersion();

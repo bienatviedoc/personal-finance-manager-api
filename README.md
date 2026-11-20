@@ -345,7 +345,12 @@ if they were signed in. Registration uses it to create the new user's default ca
   characters the client makes up for the transaction it is recording. Sending the request again with the same
   key records nothing and answers the first transaction, with the same 201. The key is kept with the
   transaction under a unique index per user, so two copies of the request arriving together still record one:
-  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction.
+  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction. A fingerprint of
+  what the request asked for is kept beside the key (`IdempotentRequest`): the same key with a different
+  transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
+  so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
+  not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
+  nothing, so a late retry cannot bring back what the user deleted.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its

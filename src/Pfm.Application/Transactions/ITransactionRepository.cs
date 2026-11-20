@@ -17,8 +17,11 @@ public interface ITransactionRepository
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 
-    /// <summary>The transaction a request with this idempotency key recorded, deleted since or not; null when none did.</summary>
-    Task<Transaction?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
+    /// <summary>
+    /// The transaction a request with this idempotency key recorded, deleted since or not, with that request's
+    /// fingerprint; null when none did.
+    /// </summary>
+    Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
 
     /// <summary>Every transaction of the user, deleted or not.</summary>
     Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
@@ -29,8 +32,8 @@ public interface ITransactionRepository
     /// <summary>Every user, signed in or not, who has a transaction flagged not converted.</summary>
     Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken);
 
-    /// <param name="idempotencyKey">The key of the request recording it, if it sent one: no second transaction can be saved with it.</param>
-    void Add(Transaction transaction, string? idempotencyKey);
+    /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
+    void Add(Transaction transaction, IdempotentRequest? request);
 
     /// <summary>Reads the transaction again as it is saved now, dropping changes not yet saved.</summary>
     Task RefreshAsync(Transaction transaction, CancellationToken cancellationToken);

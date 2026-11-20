@@ -94,6 +94,9 @@ public sealed class Transaction : IUserOwned
 
     public static bool IsValidNote(string? note) => note is null || note.Trim().Length <= MaxNoteLength;
 
+    /// <summary>A payee or note as the transaction keeps it: trimmed, and null when nothing is left.</summary>
+    public static string? Normalised(string? text) => string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
     /// <param name="category">One of the user's categories that is not archived, of the kind the type takes.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
@@ -282,8 +285,8 @@ public sealed class Transaction : IUserOwned
         Amount = amount;
         Date = date;
         CategoryId = category.Id;
-        Payee = string.IsNullOrWhiteSpace(payee) ? null : payee.Trim();
-        Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        Payee = Normalised(payee);
+        Note = Normalised(note);
         UpdatedAt = now;
     }
 }

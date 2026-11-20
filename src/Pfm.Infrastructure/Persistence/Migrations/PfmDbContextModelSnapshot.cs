@@ -334,6 +334,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateOnly?>("ExchangeRateDate")
                         .HasColumnType("date");
 
+                    b.Property<string>("IdempotencyFingerprint")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<string>("IdempotencyKey")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
