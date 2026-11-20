@@ -17,4 +17,12 @@ internal sealed class CookieSessions(UserManager<User> users, SignInManager<User
     }
 
     public Task SignOutAsync() => signIn.SignOutAsync();
+
+    // Issues the cookie again with the user's new security stamp; sessions holding the old stamp end.
+    public async Task RefreshAsync(Guid userId)
+    {
+        var user = await users.FindByIdAsync(userId.ToString())
+            ?? throw new InvalidOperationException($"User {userId} does not exist.");
+        await signIn.RefreshSignInAsync(user);
+    }
 }

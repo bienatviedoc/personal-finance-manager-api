@@ -94,6 +94,13 @@ public static class InfrastructureServices
                 options.Password.RequireUppercase = false;
                 options.Password.RequireNonAlphanumeric = false;
                 options.Password.RequiredUniqueChars = 1;
+
+                // Five wrong passwords or two-factor codes in a row lock sign-in for the user for fifteen minutes:
+                // long enough to make guessing hopeless, short enough that someone locking another user out on
+                // purpose costs them little. A password reset lifts it.
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddEntityFrameworkStores<PfmDbContext>()
             .AddSignInPorts();
@@ -116,6 +123,7 @@ public static class InfrastructureServices
         // Only a host that signs people in replaces this, with AddSignIn().
         builder.Services.TryAddScoped<ISessions, NoSessions>();
         builder.Services.AddScoped<IUsers, IdentityUsers>();
+        builder.Services.AddScoped<ITwoFactor, IdentityTwoFactor>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
         builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
         return builder;

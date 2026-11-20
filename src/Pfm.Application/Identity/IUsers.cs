@@ -32,15 +32,35 @@ public interface IUsers
     Task<string> CreatePasswordResetTokenAsync(Guid userId);
 
     /// <summary>
-    /// Sets a password the policy accepts, and ends every session the user has. False when there is no
-    /// such user or the token is invalid, already used or expired.
+    /// Sets a password the policy accepts, ends every session the user has, and lifts a sign-in lock: whoever
+    /// holds the link owns the email address. False when there is no such user or the token is invalid, already
+    /// used or expired.
     /// </summary>
     Task<bool> ResetPasswordAsync(Guid userId, string token, string newPassword);
+
+    /// <summary>
+    /// Sets a password the policy accepts, and ends every session the user has. False when there is no such
+    /// user or the current password is wrong.
+    /// </summary>
+    Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword);
+
+    /// <summary>
+    /// Counts a wrong password or two-factor code. After several in a row, sign-in is locked for the user for a
+    /// while (see <c>AddUsers</c> for how many and how long).
+    /// </summary>
+    Task RecordFailedSignInAsync(Guid userId);
+
+    /// <summary>Whether sign-in is locked for the user right now, after too many wrong attempts.</summary>
+    Task<bool> IsLockedOutAsync(Guid userId);
+
+    /// <summary>Starts the count of wrong attempts again, once the user has signed in.</summary>
+    Task ClearFailedSignInsAsync(Guid userId);
 }
 
 /// <summary>What the sign-in use cases need to know about a user.</summary>
 /// <param name="Locale">The locale emails to the user are written in; null when they have not chosen one.</param>
-public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed, Locale? Locale);
+/// <param name="TwoFactorEnabled">Whether signing in also takes a code from the user's authenticator app.</param>
+public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed, Locale? Locale, bool TwoFactorEnabled);
 
 /// <summary>
 /// The result of creating a user: the user, or why not. <see cref="EmailTaken"/> is set when another
