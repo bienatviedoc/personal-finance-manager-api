@@ -22,18 +22,18 @@ public sealed class TurnOffTwoFactorHandler(
 {
     protected override async Task<Result<Done?>> ExecuteAsync(TurnOffTwoFactorCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is null)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
             return (Done?)null;
         }
 
-        if (!await users.CheckPasswordAsync(userId, command.Password))
+        if (!await users.CheckPasswordAsync(user.Id, command.Password))
         {
             return Result<Done?>.Invalid(PasswordErrors.Incorrect(nameof(command.Password)));
         }
 
-        await twoFactor.TurnOffAsync(userId);
-        await sessions.RefreshAsync(userId);
+        await twoFactor.TurnOffAsync(user.Id);
+        await sessions.RefreshAsync(user.Id);
         return new Done();
     }
 }

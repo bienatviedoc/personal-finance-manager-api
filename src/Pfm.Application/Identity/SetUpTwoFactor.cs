@@ -33,7 +33,7 @@ public sealed class SetUpTwoFactorHandler(
 
     protected override async Task<Result<SetUpTwoFactorOutcome?>> ExecuteAsync(SetUpTwoFactorCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is not { } user)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
             return (SetUpTwoFactorOutcome?)null;
         }
@@ -43,7 +43,7 @@ public sealed class SetUpTwoFactorHandler(
             return new SetUpTwoFactorOutcome.AlreadyOn();
         }
 
-        var key = await twoFactor.AuthenticatorKeyAsync(userId);
+        var key = await twoFactor.AuthenticatorKeyAsync(user.Id);
         return new SetUpTwoFactorOutcome.Ready(key, AuthenticatorUri(user.Email, key));
     }
 

@@ -1,4 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using Microsoft.AspNetCore.Http.HttpResults;
 
 namespace Pfm.Api;
 
@@ -8,13 +10,28 @@ namespace Pfm.Api;
 /// </summary>
 public static class RowVersions
 {
-    /// <summary>Reads an <c>If-Match</c> header. Anything but a quoted number is not a version the API gave out.</summary>
-    public static bool TryRead(string ifMatch, out uint rowVersion)
+    /// <summary>
+    /// Reads the <c>If-Match</c> of an edit. Without one the edit is refused with 428; anything but a quoted
+    /// number is not a version the API gave out, so it matches nothing and the edit is stale (412).
+    /// </summary>
+    /// <param name="what">What is being edited, as the problem's title names it: "account".</param>
+    public static bool TryRead(string? ifMatch, string what, out uint rowVersion, [NotNullWhen(false)] out ProblemHttpResult? refused)
     {
         rowVersion = default;
-        return ifMatch is ['"', .. var number, '"']
-            && uint.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion);
+        refused = ifMatch switch
+        {
+            null => TypedResults.Problem(statusCode: StatusCodes.Status428PreconditionRequired, title: $"Send the {what}'s row version as If-Match."),
+            ['"', .. var number, '"'] when uint.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion) => null,
+            _ => Stale(what),
+        };
+
+        return refused is null;
     }
+
+    /// <summary>The 412 an edit made from a row version that is no longer the row's answers; nothing was saved.</summary>
+    public static ProblemHttpResult Stale(string what) =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status412PreconditionFailed, title: $"The {what} has changed since it was read. Read it again, then edit it.");
 
     /// <summary>Sends the row version as the response's <c>ETag</c>, for the next edit's <c>If-Match</c>.</summary>
     public static void SendAsETag(this HttpContext http, string rowVersion) => http.Response.Headers.ETag = $"\"{rowVersion}\"";

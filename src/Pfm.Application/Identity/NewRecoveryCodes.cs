@@ -34,7 +34,7 @@ public sealed class NewRecoveryCodesHandler(
 {
     protected override async Task<Result<NewRecoveryCodesOutcome?>> ExecuteAsync(NewRecoveryCodesCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is not { } user)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
             return (NewRecoveryCodesOutcome?)null;
         }
@@ -44,11 +44,11 @@ public sealed class NewRecoveryCodesHandler(
             return new NewRecoveryCodesOutcome.TwoFactorOff();
         }
 
-        if (!await users.CheckPasswordAsync(userId, command.Password))
+        if (!await users.CheckPasswordAsync(user.Id, command.Password))
         {
             return Result<NewRecoveryCodesOutcome?>.Invalid(PasswordErrors.Incorrect(nameof(command.Password)));
         }
 
-        return new NewRecoveryCodesOutcome.Replaced(new RecoveryCodesDetails(await twoFactor.NewRecoveryCodesAsync(userId)));
+        return new NewRecoveryCodesOutcome.Replaced(new RecoveryCodesDetails(await twoFactor.NewRecoveryCodesAsync(user.Id)));
     }
 }

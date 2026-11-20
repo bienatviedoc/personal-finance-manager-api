@@ -23,15 +23,13 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
         var account = await accounts.FindAsync(command.AccountId, cancellationToken);
         if (account is null || (account.IsArchived && account.Id != currentAccountId))
         {
-            return Result<RecordedAgainst>.Invalid(
-                TransactionRules.Error(nameof(ITransactionCommand.AccountId), "Choose one of your accounts that is not archived."));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.AccountId), "Choose one of your accounts that is not archived."));
         }
 
         var category = await categories.FindAsync(command.CategoryId, cancellationToken);
         if (category is null)
         {
-            return Result<RecordedAgainst>.Invalid(
-                TransactionRules.Error(nameof(ITransactionCommand.CategoryId), "Choose one of your categories that is not archived."));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.CategoryId), "Choose one of your categories that is not archived."));
         }
 
         return new RecordedAgainst(account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken));

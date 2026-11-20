@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -676,23 +677,6 @@ public class TransactionTests(PfmApi api)
         return (await response.Content.ReadFromJsonAsync<TransactionList>())!;
     }
 
-    private static async Task<Guid> AddAccountAsync(Browser browser, string name, string currency = "VND", string openingBalance = "0")
-    {
-        var response = await browser.PostAsync("/api/v1/accounts", new { name, type = "current", currency, openingBalance, openingDate = "2026-11-01" });
-        response.EnsureSuccessStatusCode();
-        return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;
-    }
-
-    private static async Task<string> BalanceAsync(Browser browser, Guid accountId) =>
-        (await browser.Http.GetFromJsonAsync<AccountBody>($"/api/v1/accounts/{accountId}"))!.Balance;
-
-    /// <summary>One of the default categories (or one added since), top-level or a subcategory, by name.</summary>
-    private static async Task<Guid> CategoryAsync(Browser browser, string name)
-    {
-        var tree = (await browser.Http.GetFromJsonAsync<CategoryList>("/api/v1/categories?includeArchived=true"))!.Items;
-        return tree.Concat(tree.SelectMany(category => category.Subcategories)).Single(category => category.Name == name).Id;
-    }
-
     private sealed record Identified(Guid Id);
 
     private sealed record AccountBody(Guid Id, string Balance, string Currency, string RowVersion);
@@ -700,10 +684,6 @@ public class TransactionTests(PfmApi api)
     private sealed record AccountList(AccountBody[] Items, TotalBody[] Totals);
 
     private sealed record TotalBody(string Balance);
-
-    private sealed record CategoryBody(Guid Id, string Name, string Kind, List<CategoryBody> Subcategories);
-
-    private sealed record CategoryList(List<CategoryBody> Items);
 
     private sealed record TransactionList(TransactionBody[] Items, string? NextCursor);
 

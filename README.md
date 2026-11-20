@@ -103,7 +103,11 @@ nothing) and its handler. It has no validator or `Result`: the handler implement
 directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
-breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
+breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`. A command
+reads what travels as text with `EnumText<T>` (an enum's camelCase name), `DateText` and `AmountText`, and a
+handler names one field to fix with `FieldError.On`. A use case about the signed-in user's own sign-in finds them
+with `IUsers.FindSignedInAsync`. An endpoint that edits from a row version reads `If-Match` with
+`RowVersions.TryRead`, which also answers the 428 and 412.
 
 **Archive, never delete.** `DELETE` on an institution, account or category archives it: it
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever

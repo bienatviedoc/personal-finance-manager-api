@@ -11,6 +11,9 @@ namespace Pfm.Api.Transactions;
 /// <summary>Transactions over HTTP. The use cases decide everything; these only map requests and answers.</summary>
 public static class TransactionEndpoints
 {
+    /// <summary>What these endpoints edit, as a problem about its row version names it.</summary>
+    private const string What = "transaction";
+
     public static IEndpointRouteBuilder MapTransactionEndpoints(this IEndpointRouteBuilder api)
     {
         var transactions = api.MapGroup("/transactions").WithTags("Transactions").ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -98,15 +101,9 @@ public static class TransactionEndpoints
         Guid id, TransactionRequest request, [FromHeader(Name = "If-Match")] string? ifMatch, EditTransactionHandler handler, HttpContext http,
         CancellationToken cancellationToken)
     {
-        if (ifMatch is null)
+        if (!RowVersions.TryRead(ifMatch, What, out var rowVersion, out var refused))
         {
-            return TypedResults.Problem(
-                statusCode: StatusCodes.Status428PreconditionRequired, title: "Send the transaction's row version as If-Match.");
-        }
-
-        if (!RowVersions.TryRead(ifMatch, out var rowVersion))
-        {
-            return Stale();
+            return refused;
         }
 
         var result = await handler.HandleAsync(
@@ -122,7 +119,7 @@ public static class TransactionEndpoints
         {
             null => TypedResults.NotFound(),
             { Edited: { } edited } => TypedResults.Ok(Versioned(http, TransactionResponse.From(edited))),
-            _ => Stale(),
+            _ => RowVersions.Stale(What),
         };
     }
 
@@ -137,10 +134,6 @@ public static class TransactionEndpoints
 
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
-
-    private static ProblemHttpResult Stale() =>
-        TypedResults.Problem(
-            statusCode: StatusCodes.Status412PreconditionFailed, title: "The transaction has changed since it was read. Read it again, then edit it.");
 
     private static TransactionResponse Versioned(HttpContext http, TransactionResponse transaction)
     {

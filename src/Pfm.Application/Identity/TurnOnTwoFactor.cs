@@ -30,7 +30,7 @@ public sealed class TurnOnTwoFactorHandler(
 
     protected override async Task<Result<RecoveryCodesDetails?>> ExecuteAsync(TurnOnTwoFactorCommand command, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is not { } user)
+        if (await users.FindSignedInAsync(currentUser) is not { } user)
         {
             return (RecoveryCodesDetails?)null;
         }
@@ -41,16 +41,16 @@ public sealed class TurnOnTwoFactorHandler(
             return Refused("Two-factor sign-in is already on.");
         }
 
-        if (!await twoFactor.CheckCodeAsync(userId, command.Code))
+        if (!await twoFactor.CheckCodeAsync(user.Id, command.Code))
         {
             return Refused(CodeIncorrectMessage);
         }
 
-        var recoveryCodes = await twoFactor.TurnOnAsync(userId);
-        await sessions.RefreshAsync(userId);
+        var recoveryCodes = await twoFactor.TurnOnAsync(user.Id);
+        await sessions.RefreshAsync(user.Id);
         return new RecoveryCodesDetails(recoveryCodes);
     }
 
     private static Result<RecoveryCodesDetails?> Refused(string why) =>
-        Result<RecoveryCodesDetails?>.Invalid(new Dictionary<string, string[]> { [nameof(TurnOnTwoFactorCommand.Code)] = [why] });
+        Result<RecoveryCodesDetails?>.Invalid(FieldError.On(nameof(TurnOnTwoFactorCommand.Code), why));
 }
