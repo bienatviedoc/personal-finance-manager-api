@@ -34,10 +34,18 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
         transaction.Property(row => row.Amount).HasPrecision(19, 4);
         transaction.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
-        // Null in the domain only until the transaction is first saved, which converts it or flags it not converted.
-        transaction.Property(row => row.BaseCurrency).HasConversion<string>().HasMaxLength(3).IsRequired();
-        transaction.Property(row => row.BaseCurrencyAmount).HasPrecision(19, 4);
-        transaction.Property(row => row.ExchangeRate).HasPrecision(28, Domain.ExchangeRates.ExchangeRate.Decimals);
+
+        // The conversion is columns of the transaction. Null in the domain only until the transaction is first
+        // saved, which converts it or flags it not converted, so the base currency is always there.
+        transaction.ComplexProperty(row => row.Conversion, conversion =>
+        {
+            conversion.IsRequired();
+            conversion.Property(converted => converted.BaseCurrency).HasColumnName("BaseCurrency").HasConversion<string>().HasMaxLength(3);
+            conversion.Property(converted => converted.Amount).HasColumnName("BaseCurrencyAmount").HasPrecision(19, 4);
+            conversion.Property(converted => converted.ExchangeRate).HasColumnName("ExchangeRate").HasPrecision(28, Domain.ExchangeRates.ExchangeRate.Decimals);
+            conversion.Property(converted => converted.ExchangeRateDate).HasColumnName("ExchangeRateDate");
+            conversion.Ignore(converted => converted.IsConverted);
+        });
         transaction.Property(row => row.Payee).HasMaxLength(Transaction.MaxPayeeLength);
         transaction.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
         transaction.Property<string?>(IdempotencyKey).HasMaxLength(200);

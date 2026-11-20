@@ -373,7 +373,8 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
         await using var scope = api.Services.CreateAsyncScope();
         var transaction = await scope.ServiceProvider.GetRequiredService<PfmDbContext>().Set<Transaction>()
             .IgnoreQueryFilters().AsNoTracking().SingleAsync(row => row.Id == transactionId);
-        return new Converted(transaction.BaseCurrency, transaction.BaseCurrencyAmount, transaction.ExchangeRate, transaction.ExchangeRateDate);
+        var conversion = transaction.Conversion;
+        return new Converted(conversion?.BaseCurrency, conversion?.Amount, conversion?.ExchangeRate, conversion?.ExchangeRateDate);
     }
 
     private static string Text(DateOnly date) => date.ToString("yyyy-MM-dd");

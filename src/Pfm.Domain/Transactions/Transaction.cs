@@ -45,19 +45,10 @@ public sealed class Transaction : IUserOwned
     public DateOnly Date { get; private set; }
 
     /// <summary>
-    /// The base currency the amount is converted into, or is waiting to be while it is not converted. Null
-    /// only until the transaction is first saved.
+    /// The amount in the user's base currency, or that it is not converted yet. Null only until the
+    /// transaction is first saved, which converts it or flags it not converted.
     /// </summary>
-    public Currency? BaseCurrency { get; private set; }
-
-    /// <summary>The amount in <see cref="BaseCurrency"/>, like <see cref="Amount"/> without a sign; null while not converted.</summary>
-    public decimal? BaseCurrencyAmount { get; private set; }
-
-    /// <summary>What one unit of <see cref="Currency"/> was worth in <see cref="BaseCurrency"/> when the amount was converted; null while not converted.</summary>
-    public decimal? ExchangeRate { get; private set; }
-
-    /// <summary>The day <see cref="ExchangeRate"/> is of: the transaction's date, or the nearest earlier day that had a rate.</summary>
-    public DateOnly? ExchangeRateDate { get; private set; }
+    public BaseCurrencyConversion? Conversion { get; private set; }
 
     public Guid CategoryId { get; private set; }
 
@@ -79,7 +70,7 @@ public sealed class Transaction : IUserOwned
     public bool IsDeleted => DeletedAt is not null;
 
     /// <summary>Whether the amount has been converted into the base currency. Once it has, it stays as converted.</summary>
-    public bool IsConverted => BaseCurrencyAmount is not null;
+    public bool IsConverted => Conversion is { IsConverted: true };
 
     /// <summary>
     /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
@@ -137,10 +128,7 @@ public sealed class Transaction : IUserOwned
     }
 
     /// <summary>Whether the amount is already converted into this base currency, and so is not converted again.</summary>
-    public bool IsConvertedInto(Currency baseCurrency) => IsConverted && BaseCurrency == baseCurrency;
-
-    /// <summary>Whether an amount fits the base currency: what a converted amount must do to be kept.</summary>
-    public static bool CanHoldInBaseCurrency(decimal amount, Currency baseCurrency) => amount >= 0 && Amounts.IsValid(amount, baseCurrency);
+    public bool IsConvertedInto(Currency baseCurrency) => Conversion is { IsConverted: true } converted && converted.BaseCurrency == baseCurrency;
 
     /// <summary>
     /// Keeps the amount as converted into the user's base currency at the exchange rate of the transaction's
@@ -154,25 +142,12 @@ public sealed class Transaction : IUserOwned
     public void ConvertInto(Currency baseCurrency, decimal amount, decimal exchangeRate, DateOnly exchangeRateDate)
     {
         GuardNotConvertedInto(baseCurrency);
-        if (!CanHoldInBaseCurrency(amount, baseCurrency))
-        {
-            throw new ArgumentException($"A converted amount is not negative and fits {baseCurrency}.", nameof(amount));
-        }
-
-        if (exchangeRate <= 0)
-        {
-            throw new ArgumentException("An exchange rate is greater than zero.", nameof(exchangeRate));
-        }
-
         if (exchangeRateDate > Date)
         {
             throw new ArgumentException("An amount is converted at the rate of its date or of an earlier day.", nameof(exchangeRateDate));
         }
 
-        BaseCurrency = baseCurrency;
-        BaseCurrencyAmount = amount;
-        ExchangeRate = exchangeRate;
-        ExchangeRateDate = exchangeRateDate;
+        Conversion = BaseCurrencyConversion.Converted(baseCurrency, amount, exchangeRate, exchangeRateDate);
     }
 
     /// <summary>
@@ -183,29 +158,19 @@ public sealed class Transaction : IUserOwned
     public void FlagNotConverted(Currency baseCurrency)
     {
         GuardNotConvertedInto(baseCurrency);
-        BaseCurrency = baseCurrency;
-        DropConversion();
+        Conversion = BaseCurrencyConversion.NotConverted(baseCurrency);
     }
 
     private void GuardNotConvertedInto(Currency baseCurrency)
     {
-        if (!Enum.IsDefined(baseCurrency))
-        {
-            throw new ArgumentOutOfRangeException(nameof(baseCurrency), baseCurrency, "Not a supported currency.");
-        }
-
         if (IsConvertedInto(baseCurrency))
         {
             throw new InvalidOperationException("An amount is converted once and is not revalued.");
         }
     }
 
-    private void DropConversion()
-    {
-        BaseCurrencyAmount = null;
-        ExchangeRate = null;
-        ExchangeRateDate = null;
-    }
+    /// <summary>What was converted is no longer what the transaction says, so it waits to be converted again.</summary>
+    private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
     public void Delete(DateTimeOffset now)

@@ -39,7 +39,7 @@ public sealed class TransactionConversion(
         {
             foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
             {
-                await ConvertAsync(transaction, transaction.BaseCurrency!.Value, cancellationToken);
+                await ConvertAsync(transaction, transaction.Conversion!.BaseCurrency, cancellationToken);
             }
 
             try
@@ -91,7 +91,7 @@ public sealed class TransactionConversion(
     private static void Keep(Transaction transaction, Currency baseCurrency, Conversion converted)
     {
         // An amount too large for the base currency to hold has no converted amount either.
-        if (converted is { Amount: { } amount, Rate: { } rate, RateDate: { } rateDate } && Transaction.CanHoldInBaseCurrency(amount, baseCurrency))
+        if (converted is { Amount: { } amount, Rate: { } rate, RateDate: { } rateDate } && BaseCurrencyConversion.CanHold(amount, baseCurrency))
         {
             transaction.ConvertInto(baseCurrency, amount, rate, rateDate);
         }

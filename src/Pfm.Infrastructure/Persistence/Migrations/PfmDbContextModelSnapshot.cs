@@ -310,15 +310,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
 
-                    b.Property<string>("BaseCurrency")
-                        .IsRequired()
-                        .HasMaxLength(3)
-                        .HasColumnType("character varying(3)");
-
-                    b.Property<decimal?>("BaseCurrencyAmount")
-                        .HasPrecision(19, 4)
-                        .HasColumnType("numeric(19,4)");
-
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uuid");
 
@@ -335,13 +326,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<decimal?>("ExchangeRate")
-                        .HasPrecision(28, 18)
-                        .HasColumnType("numeric(28,18)");
-
-                    b.Property<DateOnly?>("ExchangeRateDate")
-                        .HasColumnType("date");
 
                     b.Property<string>("IdempotencyFingerprint")
                         .HasMaxLength(64)
@@ -376,6 +360,31 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("UserId")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
+
+                    b.ComplexProperty(typeof(Dictionary<string, object>), "Conversion", "Pfm.Domain.Transactions.Transaction.Conversion#BaseCurrencyConversion", b1 =>
+                        {
+                            b1.IsRequired();
+
+                            b1.Property<decimal?>("Amount")
+                                .HasPrecision(19, 4)
+                                .HasColumnType("numeric(19,4)")
+                                .HasColumnName("BaseCurrencyAmount");
+
+                            b1.Property<string>("BaseCurrency")
+                                .IsRequired()
+                                .HasMaxLength(3)
+                                .HasColumnType("character varying(3)")
+                                .HasColumnName("BaseCurrency");
+
+                            b1.Property<decimal?>("ExchangeRate")
+                                .HasPrecision(28, 18)
+                                .HasColumnType("numeric(28,18)")
+                                .HasColumnName("ExchangeRate");
+
+                            b1.Property<DateOnly?>("ExchangeRateDate")
+                                .HasColumnType("date")
+                                .HasColumnName("ExchangeRateDate");
+                        });
 
                     b.HasKey("Id");
 

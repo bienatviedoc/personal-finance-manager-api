@@ -201,7 +201,7 @@ public class TransactionTests
         dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today.AddDays(-2));
 
         Assert.True(dollars.IsConverted);
-        Assert.Equal((Currency.VND, 2_500_000m, 25_000m, Today.AddDays(-2)), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.Converted(Currency.VND, 2_500_000m, 25_000m, Today.AddDays(-2)), dollars.Conversion);
         Assert.Equal((100m, Currency.USD), (dollars.Amount, dollars.Currency));
     }
 
@@ -214,7 +214,7 @@ public class TransactionTests
         Assert.True(dollars.IsConvertedInto(Currency.VND));
         Assert.Throws<InvalidOperationException>(() => dollars.ConvertInto(Currency.VND, 2_600_000m, 26_000m, Today));
         Assert.Throws<InvalidOperationException>(() => dollars.FlagNotConverted(Currency.VND));
-        Assert.Equal((2_500_000m, 25_000m), (dollars.BaseCurrencyAmount, dollars.ExchangeRate));
+        Assert.Equal((2_500_000m, 25_000m), (dollars.Conversion?.Amount, dollars.Conversion?.ExchangeRate));
     }
 
     [Fact]
@@ -226,11 +226,11 @@ public class TransactionTests
 
         Assert.False(dollars.IsConverted);
         Assert.False(dollars.IsConvertedInto(Currency.VND));
-        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.NotConverted(Currency.VND), dollars.Conversion);
 
         dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
 
-        Assert.Equal(2_500_000m, dollars.BaseCurrencyAmount);
+        Assert.Equal(2_500_000m, dollars.Conversion?.Amount);
     }
 
     [Fact]
@@ -242,7 +242,7 @@ public class TransactionTests
 
         dollars.Edit(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, eatingOut, "Pizza 4P's", "dinner", Today, Tuesday);
 
-        Assert.Equal((Currency.VND, 2_500_000m, 25_000m, Today), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.Converted(Currency.VND, 2_500_000m, 25_000m, Today), dollars.Conversion);
     }
 
     [Theory]
@@ -259,9 +259,9 @@ public class TransactionTests
             changed == "date" ? Today.AddDays(-1) : Today, Groceries, null, null, Today, Tuesday);
 
         Assert.False(dollars.IsConverted);
-        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.NotConverted(Currency.VND), dollars.Conversion);
         dollars.ConvertInto(Currency.VND, 3_000_000m, 25_000m, Today.AddDays(-1));
-        Assert.Equal(3_000_000m, dollars.BaseCurrencyAmount);
+        Assert.Equal(3_000_000m, dollars.Conversion?.Amount);
     }
 
     [Fact]
@@ -272,7 +272,7 @@ public class TransactionTests
 
         Assert.Throws<TransactionRuleViolation>(() => dollars.Edit(TransactionType.Expense, Everyday, Currency.USD, 120m, Today.AddDays(1), Groceries, null, null, Today, Tuesday));
 
-        Assert.Equal(2_500_000m, dollars.BaseCurrencyAmount);
+        Assert.Equal(2_500_000m, dollars.Conversion?.Amount);
     }
 
     [Fact]
@@ -282,10 +282,10 @@ public class TransactionTests
         dollars.ConvertInto(Currency.VND, 2_500_000m, 25_000m, Today);
 
         dollars.ConvertInto(Currency.EUR, 80m, 0.8m, Today);
-        Assert.Equal((Currency.EUR, 80m, 0.8m, Today), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.Converted(Currency.EUR, 80m, 0.8m, Today), dollars.Conversion);
 
         dollars.FlagNotConverted(Currency.VND);
-        Assert.Equal((Currency.VND, null, null, null), (dollars.BaseCurrency, dollars.BaseCurrencyAmount, dollars.ExchangeRate, dollars.ExchangeRateDate));
+        Assert.Equal(BaseCurrencyConversion.NotConverted(Currency.VND), dollars.Conversion);
     }
 
     [Fact]
@@ -300,8 +300,8 @@ public class TransactionTests
         Assert.Throws<ArgumentOutOfRangeException>(() => dollars.ConvertInto((Currency)9, 2_500_000m, 25_000m, Today.AddDays(-1)));
         Assert.Throws<ArgumentOutOfRangeException>(() => dollars.FlagNotConverted((Currency)9));
         Assert.False(dollars.IsConverted);
-        Assert.True(Transaction.CanHoldInBaseCurrency(0m, Currency.USD));
-        Assert.False(Transaction.CanHoldInBaseCurrency(1_000_000_000_000_000m, Currency.VND));
+        Assert.True(BaseCurrencyConversion.CanHold(0m, Currency.USD));
+        Assert.False(BaseCurrencyConversion.CanHold(1_000_000_000_000_000m, Currency.VND));
     }
 
     /// <summary>An expense in VND on the everyday account, recorded on Monday.</summary>

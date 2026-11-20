@@ -175,8 +175,9 @@ already uses it can still show it. An account can be archived at any balance.
   `IAccountLookup` (both in `Pfm.Application.Contracts`).
 - **Converted once** (rule 7, [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)).
   Recording a transaction converts its amount into the user's base currency at the exchange rate of its date, or
-  of the nearest earlier day that has one, and the transaction keeps the result: `BaseCurrency`,
-  `BaseCurrencyAmount`, `ExchangeRate` and `ExchangeRateDate`. Rates that arrive later never change it. An edit
+  of the nearest earlier day that has one, and the transaction keeps the result as one value,
+  `BaseCurrencyConversion`, in four columns: `BaseCurrency`, `BaseCurrencyAmount`, `ExchangeRate` and
+  `ExchangeRateDate`. Rates that arrive later never change it. An edit
   converts again only when it changes the amount, the date or the account. A transaction in the base currency
   itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
 - **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
