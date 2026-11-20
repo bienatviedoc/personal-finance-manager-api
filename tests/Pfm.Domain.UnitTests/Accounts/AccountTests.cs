@@ -135,4 +135,96 @@ public class AccountTests
         Assert.Equal(-80m, account.BalanceWith(netTransactions: 0m));
         Assert.Equal(Monday, account.UpdatedAt);
     }
+
+    [Fact]
+    public void Any_account_can_be_labelled_with_the_last_4_digits_of_its_number()
+    {
+        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 0m, FirstOfNovember, Monday, last4: "0042");
+
+        Assert.Equal("0042", account.Last4);
+
+        account.Edit("Everyday", AccountType.Current, null, Currency.VND, 0m, FirstOfNovember, hasTransactions: false, Tuesday, last4: null);
+
+        Assert.Null(account.Last4);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("123")]
+    [InlineData("12345")]
+    [InlineData("12a4")]
+    [InlineData(" 1234")]
+    [InlineData("１２３４")]
+    [InlineData("4111111111111111")]
+    [InlineData("4111 1111 1111 1111")]
+    public void A_label_that_is_not_exactly_4_digits_such_as_a_full_card_number_is_never_held(string last4)
+    {
+        Assert.Throws<ArgumentException>(() => Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, last4));
+    }
+
+    [Fact]
+    public void A_credit_card_has_a_credit_limit_a_statement_day_and_a_payment_due_day()
+    {
+        var card = Account.Create(
+            "Visa", AccountType.CreditCard, null, Currency.USD, 250.75m, FirstOfNovember, Monday, last4: "4242", new CreditCardTerms(5_000m, StatementDay: 25, PaymentDueDay: 15));
+
+        Assert.Equal((5_000m, 25, 15), (card.CreditLimit, card.StatementDay, card.PaymentDueDay));
+    }
+
+    [Fact]
+    public void Available_credit_is_the_credit_limit_minus_the_amount_owed()
+    {
+        var card = Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 250.75m, FirstOfNovember, Monday, creditCard: new CreditCardTerms(5_000m, null, null));
+
+        Assert.Equal(4_749.25m, card.AvailableCreditWith(netTransactions: 0m));
+        Assert.Equal(4_649.25m, card.AvailableCreditWith(netTransactions: -100m));
+        Assert.Equal(-50m, card.AvailableCreditWith(netTransactions: -4_799.25m));
+    }
+
+    [Fact]
+    public void A_credit_card_with_no_credit_limit_has_no_available_credit_to_show()
+    {
+        var card = Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 250.75m, FirstOfNovember, Monday, creditCard: new CreditCardTerms(null, 25, 15));
+        var current = Account.Create("Everyday", AccountType.Current, null, Currency.USD, 100m, FirstOfNovember, Monday);
+
+        Assert.Null(card.AvailableCreditWith(netTransactions: 0m));
+        Assert.Null(current.AvailableCreditWith(netTransactions: 0m));
+    }
+
+    [Theory]
+    [InlineData(AccountType.Current)]
+    [InlineData(AccountType.Loan)]
+    public void Only_a_credit_card_has_credit_card_terms(AccountType type)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Account.Create("Money", type, null, Currency.USD, 0m, FirstOfNovember, Monday, creditCard: new CreditCardTerms(5_000m, null, null)));
+        Assert.Throws<ArgumentException>(() =>
+            Account.Create("Money", type, null, Currency.USD, 0m, FirstOfNovember, Monday, creditCard: new CreditCardTerms(null, 25, null)));
+    }
+
+    [Fact]
+    public void Editing_a_credit_card_into_another_type_leaves_its_terms_behind()
+    {
+        var account = Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, last4: "4242", new CreditCardTerms(5_000m, 25, 15));
+
+        account.Edit("Everyday", AccountType.Current, null, Currency.USD, 0m, FirstOfNovember, hasTransactions: false, Tuesday, last4: "4242");
+
+        Assert.Equal(((decimal?)null, (int?)null, (int?)null, "4242"), (account.CreditLimit, account.StatementDay, account.PaymentDueDay, account.Last4));
+    }
+
+    [Theory]
+    [InlineData("-1", 25, 15)]
+    [InlineData("0.005", 25, 15)]
+    [InlineData("1000000000000000", 25, 15)]
+    [InlineData("5000", 0, 15)]
+    [InlineData("5000", 32, 15)]
+    [InlineData("5000", 25, 0)]
+    [InlineData("5000", 25, 32)]
+    public void A_credit_limit_is_an_amount_that_is_not_negative_and_a_day_is_a_day_of_the_month(string creditLimit, int statementDay, int paymentDueDay)
+    {
+        var limit = decimal.Parse(creditLimit, System.Globalization.CultureInfo.InvariantCulture);
+
+        Assert.Throws<ArgumentException>(() =>
+            Account.Create("Visa", AccountType.CreditCard, null, Currency.USD, 0m, FirstOfNovember, Monday, creditCard: new CreditCardTerms(limit, statementDay, paymentDueDay)));
+    }
 }
