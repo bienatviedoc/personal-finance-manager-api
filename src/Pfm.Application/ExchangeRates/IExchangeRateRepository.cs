@@ -7,10 +7,10 @@ namespace Pfm.Application.ExchangeRates;
 public interface IExchangeRateRepository
 {
     /// <summary>
-    /// The rate of the pair on the date, or on the nearest earlier day that has one; null when there is
+    /// The rate from one currency to the other on the date, or on the nearest earlier day that has one; null when there is
     /// none on or before it.
     /// </summary>
-    Task<ExchangeRate?> FindOnOrBeforeAsync(Currency baseCurrency, Currency quoteCurrency, DateOnly date, CancellationToken cancellationToken);
+    Task<ExchangeRate?> FindOnOrBeforeAsync(Currency from, Currency to, DateOnly date, CancellationToken cancellationToken);
 
     /// <summary>The latest day any rate is stored for; null while there are none.</summary>
     Task<DateOnly?> LatestDateAsync(CancellationToken cancellationToken);

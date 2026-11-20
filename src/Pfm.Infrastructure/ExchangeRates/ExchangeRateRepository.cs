@@ -9,9 +9,9 @@ namespace Pfm.Infrastructure.ExchangeRates;
 /// <summary>Exchange rates in the database. They belong to no user, so no user filter applies.</summary>
 internal sealed class ExchangeRateRepository(PfmDbContext db) : IExchangeRateRepository
 {
-    public Task<ExchangeRate?> FindOnOrBeforeAsync(Currency baseCurrency, Currency quoteCurrency, DateOnly date, CancellationToken cancellationToken) =>
+    public Task<ExchangeRate?> FindOnOrBeforeAsync(Currency from, Currency to, DateOnly date, CancellationToken cancellationToken) =>
         db.Set<ExchangeRate>().AsNoTracking()
-            .Where(rate => rate.BaseCurrency == baseCurrency && rate.QuoteCurrency == quoteCurrency && rate.Date <= date)
+            .Where(rate => rate.From == from && rate.To == to && rate.Date <= date)
             .OrderByDescending(rate => rate.Date)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -38,15 +38,15 @@ internal sealed class ExchangeRateRepository(PfmDbContext db) : IExchangeRateRep
             return 0;
         }
 
-        var baseCurrencies = rates.Select(rate => rate.BaseCurrency.ToString()).ToArray();
-        var quoteCurrencies = rates.Select(rate => rate.QuoteCurrency.ToString()).ToArray();
+        var from = rates.Select(rate => rate.From.ToString()).ToArray();
+        var to = rates.Select(rate => rate.To.ToString()).ToArray();
         var dates = rates.Select(rate => rate.Date).ToArray();
         var values = rates.Select(rate => rate.Rate).ToArray();
 
         var stored = await db.Database
             .SqlQuery<DateOnly>($"""
-                INSERT INTO "ExchangeRates" ("BaseCurrency", "QuoteCurrency", "Date", "Rate")
-                SELECT * FROM unnest({baseCurrencies}, {quoteCurrencies}, {dates}, {values})
+                INSERT INTO "ExchangeRates" ("FromCurrency", "ToCurrency", "Date", "Rate")
+                SELECT * FROM unnest({from}, {to}, {dates}, {values})
                 ON CONFLICT DO NOTHING
                 RETURNING "Date" AS "Value"
                 """)

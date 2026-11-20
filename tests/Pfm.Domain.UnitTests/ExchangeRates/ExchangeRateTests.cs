@@ -13,7 +13,7 @@ public class ExchangeRateTests
     [InlineData(Currency.EUR, Currency.USD, "1.25", "0.10", "0.13")] // 0.125: a half rounds away from zero
     [InlineData(Currency.VND, Currency.USD, "0.00004", "1000000", "40")]
     [InlineData(Currency.USD, Currency.VND, "25775", "0", "0")]
-    public void A_rate_converts_an_amount_of_its_base_currency_into_its_quote_currency_rounded_to_that_currencys_decimals(
+    public void A_rate_converts_an_amount_of_the_currency_it_is_from_into_the_one_it_is_to_rounded_to_that_currencys_decimals(
         Currency from, Currency to, string rate, string amount, string converted)
     {
         var exchangeRate = ExchangeRate.Create(from, to, Friday, decimal.Parse(rate));
@@ -47,7 +47,7 @@ public class ExchangeRateTests
                 ("VND", "EUR", 0.000032m),
                 ("VND", "USD", 0.00004m),
             ],
-            rates.Select(rate => (rate.BaseCurrency.ToString(), rate.QuoteCurrency.ToString(), rate.Rate)).Order());
+            rates.Select(rate => (rate.From.ToString(), rate.To.ToString(), rate.Rate)).Order());
         Assert.All(rates, rate => Assert.Equal(Friday, rate.Date));
     }
 
@@ -56,7 +56,7 @@ public class ExchangeRateTests
     {
         var rates = ExchangeRate.BetweenEvery(Currency.USD, Friday, new Dictionary<Currency, decimal> { [Currency.VND] = 25775m });
 
-        var dongToDollars = rates.Single(rate => rate.BaseCurrency == Currency.VND);
+        var dongToDollars = rates.Single(rate => rate.From == Currency.VND);
 
         Assert.Equal(0.000038797284190107m, dongToDollars.Rate); // 1 / 25775 = 0.00003879728419010669...
     }
@@ -70,6 +70,6 @@ public class ExchangeRateTests
 
         Assert.Equal(
             [("EUR", "USD"), ("USD", "EUR")],
-            rates.Select(rate => (rate.BaseCurrency.ToString(), rate.QuoteCurrency.ToString())).Order());
+            rates.Select(rate => (rate.From.ToString(), rate.To.ToString())).Order());
     }
 }

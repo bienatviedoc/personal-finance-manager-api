@@ -228,13 +228,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("Pfm.Domain.ExchangeRates.ExchangeRate", b =>
                 {
-                    b.Property<string>("BaseCurrency")
+                    b.Property<string>("From")
                         .HasMaxLength(3)
-                        .HasColumnType("character varying(3)");
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("FromCurrency");
 
-                    b.Property<string>("QuoteCurrency")
+                    b.Property<string>("To")
                         .HasMaxLength(3)
-                        .HasColumnType("character varying(3)");
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("ToCurrency");
 
                     b.Property<DateOnly>("Date")
                         .HasColumnType("date");
@@ -243,7 +245,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(28, 18)
                         .HasColumnType("numeric(28,18)");
 
-                    b.HasKey("BaseCurrency", "QuoteCurrency", "Date");
+                    b.HasKey("From", "To", "Date");
 
                     b.ToTable("ExchangeRates", (string)null);
                 });
