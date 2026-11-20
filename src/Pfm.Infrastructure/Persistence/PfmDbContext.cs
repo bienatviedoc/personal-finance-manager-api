@@ -57,6 +57,8 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         }
     }
 
+    void IUnitOfWork.DiscardChanges() => ChangeTracker.Clear();
+
     async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginTransactionAsync(CancellationToken cancellationToken) =>
         new Transaction(await Database.BeginTransactionAsync(cancellationToken));
 

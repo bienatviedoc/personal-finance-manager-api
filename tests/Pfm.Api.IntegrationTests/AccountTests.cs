@@ -515,6 +515,20 @@ public class AccountTests(PfmApi api)
     }
 
     [Fact]
+    public async Task An_account_edited_while_it_is_being_archived_is_archived_all_the_same_and_keeps_the_edit()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAsync(browser, Current("Everyday"));
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Accounts.Account>(() => EditAsync(browser, account, Current("Daily spending")));
+
+        var response = await browser.DeleteAsync($"{Accounts}/{account.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var read = await GetAsync(browser, account.Id);
+        Assert.Equal((true, "Daily spending"), (read.IsArchived, read.Name));
+    }
+
+    [Fact]
     public async Task No_balance_or_available_credit_is_stored_only_the_opening_balance_and_the_credit_limit()
     {
         await using var scope = api.Services.CreateAsyncScope();

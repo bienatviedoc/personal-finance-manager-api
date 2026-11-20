@@ -346,7 +346,9 @@ if they were signed in. Registration uses it to create the new user's default ca
   `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
-  stale too.
+  stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has
+  nothing to call stale: it reads again and is made on what was saved (`RetryOnConcurrentChangeAsync`). In
+  tests, `api.Saves` (`InterleavedSaves`) has another request get in between a use case's read and its save.
 - **Idempotency** (spec section 11): `POST /transactions` takes an `Idempotency-Key` header, a key of up to 200
   characters the client makes up for the transaction it is recording. Sending the request again with the same
   key records nothing and answers the first transaction, with the same 201. The key is kept with the

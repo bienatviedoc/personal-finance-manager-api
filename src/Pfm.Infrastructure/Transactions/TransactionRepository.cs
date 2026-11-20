@@ -54,7 +54,4 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         added.Property(TransactionConfiguration.IdempotencyKey).CurrentValue = request?.Key;
         added.Property(TransactionConfiguration.IdempotencyFingerprint).CurrentValue = request?.Fingerprint;
     }
-
-    public Task RefreshAsync(Transaction transaction, CancellationToken cancellationToken) =>
-        db.Entry(transaction).ReloadAsync(cancellationToken);
 }

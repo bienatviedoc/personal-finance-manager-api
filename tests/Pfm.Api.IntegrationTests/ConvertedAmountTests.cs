@@ -262,6 +262,21 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_transaction_edited_while_the_base_currency_changes_keeps_the_edit_and_is_converted_into_the_new_one()
+    {
+        await RatesAreAsync((Today, 25000m, 0.5m));
+        var (browser, _) = await api.SignedInAsync();
+        var expense = await AddAsync(browser, await AddAccountAsync(browser, "USD"), "100", Today);
+        api.Saves.BeforeNextSaveOf<Transaction>(() => EditAsync(browser, expense, new() { ["amount"] = "200.00" }));
+
+        var response = await browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("200.00", (await GetAsync(browser, expense.Id)).Amount);
+        Assert.Equal(new Converted(Currency.EUR, 100m, 0.5m, Today), await ConvertedAsync(expense.Id));
+    }
+
+    [Fact]
     public async Task Changing_another_profile_setting_or_sending_the_same_base_currency_leaves_converted_amounts_as_they_are()
     {
         await RatesAreAsync((Today.AddDays(-1), 25000m));

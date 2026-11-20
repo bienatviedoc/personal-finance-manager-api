@@ -34,7 +34,4 @@ public interface ITransactionRepository
 
     /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
     void Add(Transaction transaction, IdempotentRequest? request);
-
-    /// <summary>Reads the transaction again as it is saved now, dropping changes not yet saved.</summary>
-    Task RefreshAsync(Transaction transaction, CancellationToken cancellationToken);
 }

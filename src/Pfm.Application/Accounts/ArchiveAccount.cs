@@ -17,16 +17,18 @@ public sealed class ArchiveAccountHandler(
     IValidator<ArchiveAccountCommand> validator, IAccountRepository accounts, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<ArchiveAccountCommand, Done?>(validator)
 {
-    protected override async Task<Result<Done?>> ExecuteAsync(ArchiveAccountCommand command, CancellationToken cancellationToken)
-    {
-        var account = await accounts.FindAsync(command.Id, cancellationToken);
-        if (account is null)
+    /// <summary>Archiving names no row version, so one that meets an edit made at the same moment is made again on what was saved.</summary>
+    protected override Task<Result<Done?>> ExecuteAsync(ArchiveAccountCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync<Result<Done?>>(async () =>
         {
-            return (Done?)null;
-        }
+            var account = await accounts.FindAsync(command.Id, cancellationToken);
+            if (account is null)
+            {
+                return (Done?)null;
+            }
 
-        account.Archive(clock.GetUtcNow());
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return new Done();
-    }
+            account.Archive(clock.GetUtcNow());
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return new Done();
+        });
 }

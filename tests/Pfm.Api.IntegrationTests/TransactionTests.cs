@@ -354,6 +354,25 @@ public class TransactionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_transaction_edited_while_it_is_being_deleted_is_deleted_all_the_same()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "1000");
+        var transaction = await AddAsync(browser, "expense", everyday, "250");
+        var path = $"{Transactions}/{transaction.Id}";
+        var edited = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Transaction>(async () =>
+            edited = (await browser.PutAsync(path, await ANewAsync(browser, "expense", everyday, "300"), ifMatch: Quoted(transaction.RowVersion))).StatusCode);
+
+        var response = await browser.DeleteAsync(path);
+
+        Assert.Equal(HttpStatusCode.OK, edited);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty((await PageAsync(browser)).Items);
+        Assert.Equal("1000.00", await BalanceAsync(browser, everyday));
+    }
+
+    [Fact]
     public async Task The_list_is_newest_date_first_and_within_a_date_last_recorded_first()
     {
         var (browser, _) = await api.SignedInAsync();

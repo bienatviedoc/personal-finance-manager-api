@@ -49,6 +49,8 @@ public sealed class InterleavedSaves
             await ((IUnitOfWork)db).SaveChangesAsync(cancellationToken);
         }
 
+        public void DiscardChanges() => ((IUnitOfWork)db).DiscardChanges();
+
         public Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
             ((IUnitOfWork)db).BeginTransactionAsync(cancellationToken);
     }

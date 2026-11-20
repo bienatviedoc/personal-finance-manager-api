@@ -1,6 +1,7 @@
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
+using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
@@ -15,9 +16,6 @@ public sealed class TransactionConversion(
     ICurrencyConversion conversion, ITransactionRepository transactions, IActForUser actFor, IUnitOfWork unitOfWork)
     : ITransactionConversion
 {
-    /// <summary>A user's transactions that changed between being read and saved are read again and converted as saved, this many times at most.</summary>
-    private const int Attempts = 3;
-
     /// <summary>Runs for no user, in the worker, so it acts for each user in turn and saves what it converted of theirs.</summary>
     public async Task<int> ConvertNotConvertedAsync(CancellationToken cancellationToken)
     {
@@ -37,10 +35,9 @@ public sealed class TransactionConversion(
     /// <summary>False when the user's transactions kept changing: nothing of theirs is saved, and nothing is left half done for the next user's save.</summary>
     private async Task<bool> ConvertNotConvertedOfUserAsync(CancellationToken cancellationToken)
     {
-        for (var attempt = 1; ; attempt++)
+        for (var attempt = 1; attempt <= ConcurrentChanges.Attempts; attempt++)
         {
-            var waiting = await transactions.ListNotConvertedAsync(cancellationToken);
-            foreach (var transaction in waiting)
+            foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
             {
                 await ConvertAsync(transaction, transaction.BaseCurrency!.Value, cancellationToken);
             }
@@ -53,17 +50,11 @@ public sealed class TransactionConversion(
             catch (ConcurrentChangeException)
             {
                 // Edited or deleted by its user meanwhile, perhaps converted by that edit. Start again from what was saved.
-                foreach (var transaction in waiting)
-                {
-                    await transactions.RefreshAsync(transaction, cancellationToken);
-                }
-
-                if (attempt == Attempts)
-                {
-                    return false;
-                }
+                unitOfWork.DiscardChanges();
             }
         }
+
+        return false;
     }
 
     public async Task ConvertEveryAmountIntoAsync(Currency baseCurrency, CancellationToken cancellationToken)

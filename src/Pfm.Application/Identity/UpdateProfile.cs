@@ -49,6 +49,8 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
 /// A new base currency has every transaction of the user converted into it, each at the exchange rate of its
 /// own date: the amounts were kept in the old one, and totals are only ever in the base currency. Spec rule 12
 /// (the base currency locks once a budget exists) belongs here once budgets exist; from then on this cannot happen.
+/// The change names no row version, so when the user or one of those transactions is changed by another
+/// request before it is saved, it is made again on what was saved.
 /// </remarks>
 public sealed class UpdateProfileHandler(
     IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles, ITransactionConversion transactions,
@@ -57,29 +59,30 @@ public sealed class UpdateProfileHandler(
 {
     private static readonly ProfileDetails? NoUser = null;
 
-    protected override async Task<Result<ProfileDetails?>> ExecuteAsync(UpdateProfileCommand command, CancellationToken cancellationToken)
-    {
-        if (currentUser.UserId is not { } userId || await profiles.FindAsync(userId, cancellationToken) is not { } profile)
+    protected override Task<Result<ProfileDetails?>> ExecuteAsync(UpdateProfileCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync<Result<ProfileDetails?>>(async () =>
         {
-            return NoUser;
-        }
+            if (currentUser.UserId is not { } userId || await profiles.FindAsync(userId, cancellationToken) is not { } profile)
+            {
+                return NoUser;
+            }
 
-        var settings = new ProfileSettings(
-            command.ParsedBaseCurrency ?? profile.BaseCurrency,
-            command.TimeZone ?? profile.TimeZone,
-            command.ParsedLocale ?? profile.Locale);
+            var settings = new ProfileSettings(
+                command.ParsedBaseCurrency ?? profile.BaseCurrency,
+                command.TimeZone ?? profile.TimeZone,
+                command.ParsedLocale ?? profile.Locale);
 
-        if (!await profiles.ChangeSettingsAsync(userId, settings, cancellationToken))
-        {
-            return NoUser;
-        }
+            if (!await profiles.ChangeSettingsAsync(userId, settings, cancellationToken))
+            {
+                return NoUser;
+            }
 
-        if (settings.BaseCurrency != profile.BaseCurrency)
-        {
-            await transactions.ConvertEveryAmountIntoAsync(settings.BaseCurrency, cancellationToken);
-        }
+            if (settings.BaseCurrency != profile.BaseCurrency)
+            {
+                await transactions.ConvertEveryAmountIntoAsync(settings.BaseCurrency, cancellationToken);
+            }
 
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return profile with { BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale };
-    }
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return profile with { BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale };
+        });
 }
