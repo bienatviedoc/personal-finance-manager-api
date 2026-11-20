@@ -76,6 +76,7 @@ app.MapGroup("/api/v1")
     .MapIdentityEndpoints()
     .MapProfileEndpoints()
     .MapInstitutionEndpoints()
+    .MapAccountEndpoints()
     .MapCategoryEndpoints();
 
 app.Run();

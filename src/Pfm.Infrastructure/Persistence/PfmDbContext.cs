@@ -40,7 +40,17 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         IsolateUserOwnedData(modelBuilder);
     }
 
-    Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
+    async Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrentChangeException(exception);
+        }
+    }
 
     async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginTransactionAsync(CancellationToken cancellationToken) =>
         new Transaction(await Database.BeginTransactionAsync(cancellationToken));
