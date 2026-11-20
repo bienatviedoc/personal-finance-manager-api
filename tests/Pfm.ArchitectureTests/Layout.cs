@@ -21,6 +21,16 @@ internal static class Layout
     public static XDocument ProjectFile(string project) =>
         XDocument.Load(Path.Combine(RepositoryRoot(), "src", project, $"{project}.csproj"));
 
+    /// <summary>Every C# source file under <c>src</c>, by its path from the repository root, leaving out generated migrations and build output.</summary>
+    public static IReadOnlyDictionary<string, string> SourceFiles()
+    {
+        var root = RepositoryRoot();
+        return Directory.EnumerateFiles(Path.Combine(root, "src"), "*.cs", SearchOption.AllDirectories)
+            .Select(file => Path.GetRelativePath(root, file).Replace('\\', '/'))
+            .Where(file => !file.Contains("/Migrations/", StringComparison.Ordinal) && !file.Contains("/obj/", StringComparison.Ordinal) && !file.Contains("/bin/", StringComparison.Ordinal))
+            .ToDictionary(file => file, file => File.ReadAllText(Path.Combine(root, file)));
+    }
+
     private static string RepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory is not null; directory = directory.Parent)

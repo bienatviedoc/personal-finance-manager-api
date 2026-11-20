@@ -329,7 +329,11 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There is one
+exception, and `UserOwnedDataTests` fails when a second appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted. It runs for the worker, which
+acts for no user, and answers user ids only, never a row; the worker then acts for each of those users in turn,
+inside the filter. Raw SQL is used only on exchange rates, which belong to no user.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
