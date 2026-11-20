@@ -10,11 +10,14 @@ public static class SecurityEndpoints
     {
         var me = api.MapGroup("/me").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
         me.MapGet("/two-factor", GetTwoFactor).WithName("GetTwoFactor");
-        me.MapPost("/password", ChangePassword).WithName("ChangePassword");
-        me.MapPost("/two-factor/setup", SetUpTwoFactor).WithName("SetUpTwoFactor").ProducesProblem(StatusCodes.Status409Conflict);
-        me.MapPost("/two-factor/enable", TurnOnTwoFactor).WithName("TurnOnTwoFactor");
-        me.MapPost("/two-factor/disable", TurnOffTwoFactor).WithName("TurnOffTwoFactor");
-        me.MapPost("/two-factor/recovery-codes", NewRecoveryCodes).WithName("NewRecoveryCodes").ProducesProblem(StatusCodes.Status409Conflict);
+
+        // Each of these takes a password or a code, so each is limited like signing in is.
+        var guarded = me.MapGroup("").LimitAuthAttempts();
+        guarded.MapPost("/password", ChangePassword).WithName("ChangePassword");
+        guarded.MapPost("/two-factor/setup", SetUpTwoFactor).WithName("SetUpTwoFactor").ProducesProblem(StatusCodes.Status409Conflict);
+        guarded.MapPost("/two-factor/enable", TurnOnTwoFactor).WithName("TurnOnTwoFactor");
+        guarded.MapPost("/two-factor/disable", TurnOffTwoFactor).WithName("TurnOffTwoFactor");
+        guarded.MapPost("/two-factor/recovery-codes", NewRecoveryCodes).WithName("NewRecoveryCodes").ProducesProblem(StatusCodes.Status409Conflict);
         return api;
     }
 

@@ -24,6 +24,7 @@ builder.Services.AddInfrastructure(builder.Configuration);
 var cookies = CookiePolicy.For(builder.Environment);
 builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
+builder.Services.AddAuthRateLimit();
 builder.Services.AddPfmJson();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi("v1");
@@ -57,6 +58,9 @@ app.UseExceptionHandler(new ExceptionHandlerOptions
     StatusCodeSelector = exception => exception is BadHttpRequestException bad ? bad.StatusCode : StatusCodes.Status500InternalServerError,
 });
 app.UseStatusCodePages();
+
+// Before signing anyone in: a client over its limit costs no password hash or database call.
+app.UseRateLimiter();
 
 app.UseAuthentication();
 app.UseAuthorization();

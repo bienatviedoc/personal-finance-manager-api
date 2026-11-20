@@ -12,8 +12,10 @@ public static class IdentityEndpoints
         // Every endpoint here can also answer 401 (not signed in) and, for POSTs, 400 (anti-forgery).
         api.MapPost("/auth/logout", SignOut).WithName("SignOut").WithTags("Identity").ProducesProblem(StatusCodes.Status401Unauthorized);
 
-        var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous();
-        auth.MapGet("/antiforgery", GetAntiforgeryToken).WithName("GetAntiforgeryToken");
+        api.MapGet("/auth/antiforgery", GetAntiforgeryToken).WithName("GetAntiforgeryToken").WithTags("Identity").AllowAnonymous();
+
+        // What a visitor can do without signing in, each a place to guess at: all of them are rate limited.
+        var auth = api.MapGroup("/auth").WithTags("Identity").AllowAnonymous().LimitAuthAttempts();
         auth.MapPost("/register", Register).WithName("Register");
         auth.MapPost("/verify-email", VerifyEmail).WithName("VerifyEmail").ProducesProblem(StatusCodes.Status400BadRequest);
         auth.MapPost("/resend-verification", ResendVerification).WithName("ResendVerification");
