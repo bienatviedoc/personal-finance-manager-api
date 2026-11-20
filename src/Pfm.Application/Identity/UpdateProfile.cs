@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Identity;
@@ -44,9 +45,14 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
 /// <summary>
 /// Answers the updated profile, or null when nobody is signed in (or their user is gone).
 /// </summary>
-/// <remarks>Spec rule 12 (the base currency locks once a budget exists) belongs here once budgets exist.</remarks>
+/// <remarks>
+/// A new base currency has every transaction of the user converted into it, each at the exchange rate of its
+/// own date: the amounts were kept in the old one, and totals are only ever in the base currency. Spec rule 12
+/// (the base currency locks once a budget exists) belongs here once budgets exist; from then on this cannot happen.
+/// </remarks>
 public sealed class UpdateProfileHandler(
-    IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles, IUnitOfWork unitOfWork)
+    IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles, ITransactionConversion transactions,
+    IUnitOfWork unitOfWork)
     : CommandHandler<UpdateProfileCommand, ProfileDetails?>(validator)
 {
     private static readonly ProfileDetails? NoUser = null;
@@ -66,6 +72,11 @@ public sealed class UpdateProfileHandler(
         if (!await profiles.ChangeSettingsAsync(userId, settings, cancellationToken))
         {
             return NoUser;
+        }
+
+        if (settings.BaseCurrency != profile.BaseCurrency)
+        {
+            await transactions.ConvertEveryAmountIntoAsync(settings.BaseCurrency, cancellationToken);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

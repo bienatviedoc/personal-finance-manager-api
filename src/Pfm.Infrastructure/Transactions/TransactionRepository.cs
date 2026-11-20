@@ -32,6 +32,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .AsNoTracking()
             .SingleOrDefaultAsync(transaction => EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyKey) == idempotencyKey, cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Transaction>> ListNotConvertedAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().Where(transaction => transaction.BaseCurrencyAmount == null).ToListAsync(cancellationToken);
 

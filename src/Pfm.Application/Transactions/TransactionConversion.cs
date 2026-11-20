@@ -30,6 +30,14 @@ public sealed class TransactionConversion(
         }
     }
 
+    public async Task ConvertEveryAmountIntoAsync(Currency baseCurrency, CancellationToken cancellationToken)
+    {
+        foreach (var transaction in await transactions.ListEveryAsync(cancellationToken))
+        {
+            await ConvertAsync(transaction, baseCurrency, cancellationToken);
+        }
+    }
+
     /// <summary>
     /// Converts the amount unless it is already converted into <paramref name="baseCurrency"/>. The caller
     /// saves the transaction.

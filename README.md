@@ -146,7 +146,8 @@ already uses it can still show it. An account can be archived at any balance.
   not converted and leave it out of totals (spec section 3, rule 7). A module reads the user's base currency
   through `IBaseCurrency` (`Pfm.Application.Contracts.Identity`).
 - **Exchange rates are not a module.** Like `Currency`, they are shared by all six: `Pfm.Domain.ExchangeRates` and
-  `Pfm.Application.ExchangeRates` reach into no module, and any module may use them.
+  `Pfm.Application.ExchangeRates` reach into no module, and any module may use them. The one thing a fetch asks
+  of a module goes through a contract: `ITransactionConversion` (see Transactions below).
 - **Configuration** (all optional): `ExchangeRates__SourceUrl` (a self-hosted Frankfurter),
   `ExchangeRates__DaysBackWhenEmpty` (365) and `ExchangeRates__FetchEvery` (`06:00:00`).
 
@@ -161,6 +162,19 @@ already uses it can still show it. An account can be archived at any balance.
 - **Today is the user's.** A date cannot be in the future in the user's time zone (rule 8). Transactions asks
   Identity what today is through `IUserCalendar`, and Accounts for the account's currency through
   `IAccountLookup` (both in `Pfm.Application.Contracts`).
+- **Converted once** (rule 7, [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)).
+  Recording a transaction converts its amount into the user's base currency at the exchange rate of its date, or
+  of the nearest earlier day that has one, and the transaction keeps the result: `BaseCurrency`,
+  `BaseCurrencyAmount`, `ExchangeRate` and `ExchangeRateDate`. Rates that arrive later never change it. An edit
+  converts again only when it changes the amount, the date or the account. A transaction in the base currency
+  itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
+- **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
+  `BaseCurrencyAmount`. When a fetch stores new rates it asks Transactions, through `ITransactionConversion`
+  (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted transactions, deleted ones
+  included; any edit of one tries again too.
+- **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
+  transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
+  only happen until the base currency locks (rule 12).
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.

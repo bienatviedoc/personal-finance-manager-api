@@ -64,6 +64,17 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_amount_too_large_to_hold_in_the_base_currency_is_saved_and_flagged_not_converted()
+    {
+        await RatesAreAsync((Today, 25000m));
+        var (browser, _) = await api.SignedInAsync();
+
+        var expense = await AddAsync(browser, await AddAccountAsync(browser, "USD"), "999999999999999", Today);
+
+        Assert.Equal(new Converted(Currency.VND, null, null, null), await ConvertedAsync(expense.Id));
+    }
+
+    [Fact]
     public async Task A_converted_amount_is_not_revalued_when_a_newer_rate_arrives_or_when_the_payee_note_category_or_type_is_edited()
     {
         await RatesAreAsync((Today.AddDays(-1), 25000m));
@@ -156,6 +167,61 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today.AddDays(-1)), await ConvertedAsync(converted.Id));
         Assert.Equal(new Converted(Currency.VND, 3_250_000m, 32500m, Today), await ConvertedAsync(waiting.Id));
         Assert.Equal(converted.RowVersion, (await GetAsync(browser, converted.Id)).RowVersion);
+    }
+
+    [Fact]
+    public async Task Changing_the_base_currency_converts_every_transaction_into_the_new_one_at_the_rate_of_its_own_date()
+    {
+        await RatesAreAsync((Today.AddDays(-2), 24000m, 0.8m), (Today.AddDays(-1), 25000m, 0.5m));
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "USD");
+        var inDollars = await AddAsync(browser, dollars, "100", Today.AddDays(-1));
+        var inDong = await AddAsync(browser, await AddAccountAsync(browser, "VND"), "1200000", Today.AddDays(-2));
+        var beforeAnyRate = await AddAsync(browser, await AddAccountAsync(browser, "EUR"), "10", Today.AddDays(-3));
+        var deleted = await AddAsync(browser, dollars, "8", Today.AddDays(-2));
+        (await browser.DeleteAsync($"{Transactions}/{deleted.Id}")).EnsureSuccessStatusCode();
+        Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today.AddDays(-1)), await ConvertedAsync(inDollars.Id));
+
+        (await browser.PatchAsync("/api/v1/me", new { baseCurrency = "EUR" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(new Converted(Currency.EUR, 50m, 0.5m, Today.AddDays(-1)), await ConvertedAsync(inDollars.Id));
+        Assert.Equal(new Converted(Currency.EUR, 6.4m, 0.8m, Today.AddDays(-2)), await ConvertedAsync(deleted.Id));
+        Assert.Equal(new Converted(Currency.EUR, 10m, 1m, Today.AddDays(-3)), await ConvertedAsync(beforeAnyRate.Id));
+
+        // A dong was 0.8 / 24,000 of a euro two days ago.
+        Assert.Equal(new Converted(Currency.EUR, 40m, 0.000033333333333333m, Today.AddDays(-2)), await ConvertedAsync(inDong.Id));
+
+        (await browser.PatchAsync("/api/v1/me", new { baseCurrency = "USD" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(new Converted(Currency.USD, 100m, 1m, Today.AddDays(-1)), await ConvertedAsync(inDollars.Id));
+        Assert.Equal(new Converted(Currency.USD, null, null, null), await ConvertedAsync(beforeAnyRate.Id));
+    }
+
+    [Fact]
+    public async Task Changing_another_profile_setting_or_sending_the_same_base_currency_leaves_converted_amounts_as_they_are()
+    {
+        await RatesAreAsync((Today.AddDays(-1), 25000m));
+        var (browser, _) = await api.SignedInAsync();
+        var expense = await AddAsync(browser, await AddAccountAsync(browser, "USD"), "100", Today);
+        await RatesAreAsync((Today, 26000m));
+
+        (await browser.PatchAsync("/api/v1/me", new { baseCurrency = "VND", timeZone = "Asia/Bangkok", locale = "en" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today.AddDays(-1)), await ConvertedAsync(expense.Id));
+        Assert.Equal(expense.RowVersion, (await GetAsync(browser, expense.Id)).RowVersion);
+    }
+
+    [Fact]
+    public async Task One_users_change_of_base_currency_leaves_another_users_transactions_alone()
+    {
+        await RatesAreAsync((Today, 25000m));
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        var bobs = await AddAsync(bob, await AddAccountAsync(bob, "USD"), "100", Today);
+
+        (await alice.PatchAsync("/api/v1/me", new { baseCurrency = "USD" })).EnsureSuccessStatusCode();
+
+        Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today), await ConvertedAsync(bobs.Id));
     }
 
     private async Task RatesAreAsync(params (DateOnly Date, decimal Dong)[] days)

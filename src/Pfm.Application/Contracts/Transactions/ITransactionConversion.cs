@@ -1,3 +1,5 @@
+using Pfm.Domain;
+
 namespace Pfm.Application.Contracts.Transactions;
 
 /// <summary>
@@ -12,4 +14,11 @@ public interface ITransactionConversion
     /// Amounts already converted are left as they are.
     /// </summary>
     Task ConvertNotConvertedAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Converts every transaction of the signed-in user into a new base currency, each at the exchange rate
+    /// of its own date, flagging as not converted the ones with no rate on or before it. Identity calls it
+    /// when the user changes their base currency, and saves the transactions with the profile.
+    /// </summary>
+    Task ConvertEveryAmountIntoAsync(Currency baseCurrency, CancellationToken cancellationToken);
 }

@@ -20,6 +20,9 @@ public interface ITransactionRepository
     /// <summary>The transaction a request with this idempotency key recorded, deleted since or not; null when none did.</summary>
     Task<Transaction?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
 
+    /// <summary>Every transaction of the user, deleted or not.</summary>
+    Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
+
     /// <summary>The user's transactions flagged not converted, deleted or not: a deleted one can be recovered.</summary>
     Task<IReadOnlyList<Transaction>> ListNotConvertedAsync(CancellationToken cancellationToken);
 
