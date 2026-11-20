@@ -75,6 +75,7 @@ app.MapGroup("/api/v1")
     .DocumentAntiforgeryRefusals()
     .MapIdentityEndpoints()
     .MapProfileEndpoints()
+    .MapSecurityEndpoints()
     .MapInstitutionEndpoints()
     .MapCategoryEndpoints();
 

@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -91,6 +92,20 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>
+    /// Turns two-factor sign-in on for the user signed in on this browser, the way the security screen does: set up,
+    /// then confirm with a code. Answers the authenticator's key (for <see cref="Totp"/>) and the recovery codes.
+    /// </summary>
+    public async Task<(string Key, string[] RecoveryCodes)> TurnOnTwoFactorAsync(Browser browser)
+    {
+        var setup = await (await browser.PostAsync("/api/v1/me/two-factor/setup")).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var key = setup.GetProperty("key").GetString()!;
+        var enabled = await browser.PostAsync("/api/v1/me/two-factor/enable", new { code = Totp.CodeFor(key) });
+        enabled.EnsureSuccessStatusCode();
+        var codes = (await enabled.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("recoveryCodes");
+        return (key, [.. codes.EnumerateArray().Select(code => code.GetString()!)]);
+    }
+
+    /// <summary>
     /// A second copy of the API in the Development environment, used over plain HTTP the way the
     /// local stack is (no TLS in front of it).
     /// </summary>
@@ -116,6 +131,15 @@ public sealed class PfmApi : IAsyncLifetime
     {
         var factory = CreateFactory(ConnectionString, Emails, configure: services =>
             services.Configure<PasswordResetTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.Zero));
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
+    /// <summary>A second copy of the API where a sign-in lock lasts only this long.</summary>
+    public WebApplicationFactory<Program> WhereSignInLocksFor(TimeSpan time)
+    {
+        var factory = CreateFactory(ConnectionString, Emails, configure: services =>
+            services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(options => options.Lockout.DefaultLockoutTimeSpan = time));
         _extraFactories.Add(factory);
         return factory;
     }
