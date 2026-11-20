@@ -51,7 +51,7 @@ public sealed record CreateTransactionOutcome(TransactionDetails? Recorded)
 /// it is now: edited since, or deleted. A deleted transaction's key stays used, so a late retry cannot bring
 /// back what the user deleted. An account or category that is not one of the user's, or is archived, is an
 /// error on its id. When the account's currency or the user's base currency changes before it is saved, it is
-/// recorded again in the new one.
+/// recorded again in the new one; when the category's kind does, it is held to the new kind.
 /// </summary>
 public sealed class CreateTransactionHandler(
     IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,

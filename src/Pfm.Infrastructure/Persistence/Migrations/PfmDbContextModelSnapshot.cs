@@ -298,6 +298,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ParentId");
 
+                    b.HasIndex("Id", "Kind")
+                        .IsUnique();
+
                     b.HasIndex("UserId", "ParentId");
 
                     b.ToTable("Categories", (string)null);
@@ -317,6 +320,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("CategoryKind")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasComputedColumnSql("CASE \"Type\" WHEN 'Income' THEN 'Income' WHEN 'Expense' THEN 'Expense' END", true);
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");

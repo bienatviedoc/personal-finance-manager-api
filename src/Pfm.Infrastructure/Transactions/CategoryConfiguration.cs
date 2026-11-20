@@ -20,5 +20,8 @@ internal sealed class CategoryConfiguration : IEntityTypeConfiguration<Category>
         // subcategories (as erasing a user's data will, #43).
         builder.HasOne<Category>().WithMany().HasForeignKey(category => category.ParentId).OnDelete(DeleteBehavior.NoAction);
         builder.HasIndex(category => new { category.UserId, category.ParentId });
+
+        // What TransactionConfiguration.CategoryKindIsItsCategorys points at.
+        builder.HasIndex(category => new { category.Id, category.Kind }).IsUnique();
     }
 }

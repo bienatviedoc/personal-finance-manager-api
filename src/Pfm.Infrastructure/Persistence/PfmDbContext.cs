@@ -62,8 +62,9 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     }
 
     /// <summary>
-    /// Whether the database refused the save because a transaction no longer has its account's currency or its
-    /// user's base currency: another request changed one of them since this one read it. The second is checked
+    /// Whether the database refused the save because a transaction no longer has its account's currency, its
+    /// user's base currency or a category of its kind: another request changed one of them since this one read
+    /// it. The base currency is checked
     /// at commit, where the error arrives as it is, not inside a <see cref="DbUpdateException"/>.
     /// </summary>
     private static bool RefusedAfterAConcurrentSave(Exception exception) =>

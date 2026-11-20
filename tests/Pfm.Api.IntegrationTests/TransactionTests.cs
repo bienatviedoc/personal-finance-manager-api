@@ -670,6 +670,62 @@ public class TransactionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_categorys_kind_cannot_change_while_its_first_transaction_is_being_recorded()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var shopping = await CategoryAsync(browser, "Shopping");
+        var recorded = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Category>(async () => recorded = (await RecordOnAsync(browser, everyday, shopping)).StatusCode);
+
+        var changed = await MakeShoppingIncomeAsync(browser, shopping);
+
+        Assert.Equal(HttpStatusCode.Created, recorded);
+        Assert.Equal(HttpStatusCode.BadRequest, changed.StatusCode);
+        Assert.Equal(["kind"], await changed.ErrorFieldsAsync());
+        Assert.Equal("expense", await KindAsync(browser, shopping));
+    }
+
+    [Fact]
+    public async Task A_transaction_recorded_while_its_categorys_kind_changes_is_refused_as_the_category_no_longer_takes_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var shopping = await CategoryAsync(browser, "Shopping");
+        var changed = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.Transaction>(async () => changed = (await MakeShoppingIncomeAsync(browser, shopping)).StatusCode);
+
+        var recorded = await RecordOnAsync(browser, everyday, shopping);
+
+        Assert.Equal(HttpStatusCode.OK, changed);
+        Assert.Equal(HttpStatusCode.BadRequest, recorded.StatusCode);
+        Assert.Equal(["categoryId"], await recorded.ErrorFieldsAsync());
+        Assert.Empty((await PageAsync(browser)).Items);
+        Assert.Equal("income", await KindAsync(browser, shopping));
+    }
+
+    [Fact]
+    public async Task Expenses_recorded_at_the_same_time_as_their_category_becomes_an_income_category_are_all_recorded_or_none_is()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var shopping = await CategoryAsync(browser, "Shopping");
+
+        var answers = await Task.WhenAll(Enumerable.Range(1, 6).Select(request =>
+            request == 3 ? MakeShoppingIncomeAsync(browser, shopping) : RecordOnAsync(browser, everyday, shopping)));
+
+        // The change is refused when an expense got in first; otherwise the expenses that come after it are.
+        var recorded = (await PageAsync(browser)).Items;
+        var kind = await KindAsync(browser, shopping);
+        Assert.Equal(answers.Count(answer => answer.StatusCode == HttpStatusCode.Created), recorded.Length);
+        Assert.Equal(recorded.Length == 0 ? "income" : "expense", kind);
+        Assert.Equal(recorded.Length == 0 ? HttpStatusCode.OK : HttpStatusCode.BadRequest, answers[2].StatusCode);
+        Assert.All(
+            answers.Where((_, index) => index != 2),
+            answer => Assert.Contains(answer.StatusCode, new[] { HttpStatusCode.Created, HttpStatusCode.BadRequest }));
+    }
+
+    [Fact]
     public async Task Another_users_transactions_are_never_visible_or_changeable()
     {
         var (bob, _) = await api.SignedInAsync();
@@ -717,6 +773,16 @@ public class TransactionTests(PfmApi api)
             ifMatch: Quoted(account.RowVersion));
     }
 
+    private static Task<HttpResponseMessage> RecordOnAsync(Browser browser, Guid accountId, Guid categoryId) =>
+        browser.PostAsync(Transactions, new { type = "expense", accountId, amount = "100", date = "2026-11-02", categoryId });
+
+    private static Task<HttpResponseMessage> MakeShoppingIncomeAsync(Browser browser, Guid shopping) =>
+        browser.PutAsync($"/api/v1/categories/{shopping}", new { name = "Shopping", kind = "income", icon = "shopping-bag", color = "#ea580c" });
+
+    /// <summary>The kind of one of the user's top-level categories.</summary>
+    private static async Task<string> KindAsync(Browser browser, Guid categoryId) =>
+        (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items.Single(category => category.Id == categoryId).Kind;
+
     private static async Task<string> CurrencyAsync(Browser browser, Guid accountId) =>
         (await browser.Http.GetFromJsonAsync<AccountBody>($"/api/v1/accounts/{accountId}"))!.Currency;
 
@@ -753,6 +819,10 @@ public class TransactionTests(PfmApi api)
     }
 
     private sealed record Identified(Guid Id);
+
+    private sealed record CategoryTree(CategoryBody[] Items);
+
+    private sealed record CategoryBody(Guid Id, string Kind);
 
     private sealed record AccountBody(Guid Id, string Balance, string Currency, string RowVersion);
 

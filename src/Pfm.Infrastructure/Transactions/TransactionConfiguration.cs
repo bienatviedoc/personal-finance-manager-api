@@ -19,6 +19,20 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
     /// </summary>
     public const string IdempotencyFingerprint = "IdempotencyFingerprint";
 
+    /// <summary>
+    /// The kind of category the transaction's type takes, worked out by the database from the type. A column
+    /// only: it is there for <see cref="CategoryKindIsItsCategorys"/> to point at the category with.
+    /// </summary>
+    public const string CategoryKind = "CategoryKind";
+
+    /// <summary>
+    /// A transaction's category and the kind its type takes are a category and that category's kind. So the
+    /// database refuses a transaction recorded on a category that has just changed kind, and a change of kind
+    /// on a category a transaction has just been recorded on, whichever of the two requests saves second.
+    /// Added by its migration alone, like the two in <c>ModuleReferences</c>.
+    /// </summary>
+    public const string CategoryKindIsItsCategorys = "FK_Transactions_Categories_CategoryId_CategoryKind";
+
     public void Configure(EntityTypeBuilder<Transaction> transaction)
     {
         transaction.ToTable("Transactions", table =>
@@ -35,6 +49,11 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
         transaction.Property(row => row.Amount).HasPrecision(19, 4);
         transaction.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
+
+        // Null for a type that takes no category of either kind, which the foreign key then leaves alone.
+        transaction.Property<string?>(CategoryKind)
+            .HasMaxLength(10)
+            .HasComputedColumnSql("""CASE "Type" WHEN 'Income' THEN 'Income' WHEN 'Expense' THEN 'Expense' END""", stored: true);
 
         // The conversion is columns of the transaction. Null in the domain only until the transaction is first
         // saved, which converts it or flags it not converted, so the base currency is always there.

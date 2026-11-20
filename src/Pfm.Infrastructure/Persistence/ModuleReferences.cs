@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Pfm.Domain.Accounts;
 using Pfm.Domain.Transactions;
 using Pfm.Infrastructure.Identity;
+using Pfm.Infrastructure.Transactions;
 
 namespace Pfm.Infrastructure.Persistence;
 
@@ -38,7 +39,7 @@ internal static class ModuleReferences
         modelBuilder.Entity<User>().HasIndex(user => new { user.Id, user.BaseCurrency }).IsUnique();
     }
 
-    /// <summary>Whether the constraint a save broke is one of the two that another request's save can break.</summary>
+    /// <summary>Whether the constraint a save broke is one of the three that another request's save can break.</summary>
     public static bool IsBrokenByAConcurrentSave(string? constraintName) =>
-        constraintName is TransactionCurrencyIsItsAccounts or TransactionBaseCurrencyIsItsUsers;
+        constraintName is TransactionCurrencyIsItsAccounts or TransactionBaseCurrencyIsItsUsers or TransactionConfiguration.CategoryKindIsItsCategorys;
 }
