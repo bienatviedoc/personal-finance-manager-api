@@ -12,13 +12,18 @@ namespace Pfm.Application.Accounts;
 /// <param name="OpeningBalance">A decimal string, such as <c>"125000.00"</c>.</param>
 /// <param name="AmountOwed">A decimal string, positive.</param>
 /// <param name="OpeningDate">A calendar date, <c>YYYY-MM-DD</c>.</param>
+/// <param name="Last4">The last 4 digits of the account or card number, never more of it.</param>
+/// <param name="CreditLimit">A decimal string, not negative. A credit card's only, like the two days of the month.</param>
 public sealed record CreateAccountCommand(
-    string Name, string? Type, Guid? InstitutionId, string? Currency, string? OpeningBalance, string? AmountOwed, string? OpeningDate)
+    string Name, string? Type, Guid? InstitutionId, string? Currency, string? OpeningBalance, string? AmountOwed,
+    string? OpeningDate, string? Last4 = null, string? CreditLimit = null, int? StatementDay = null, int? PaymentDueDay = null)
     : IAccountCommand
 {
     public string Name { get; } = Name?.Trim() ?? "";
 
-    public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate);
+    public string? Last4 { get; } = AccountFields.ReadLast4(Last4);
+
+    public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate, CreditLimit);
 }
 
 public sealed class CreateAccountValidator : AbstractValidator<CreateAccountCommand>
@@ -42,7 +47,7 @@ public sealed class CreateAccountHandler(
         var fields = command.Parsed;
         var account = Account.Create(
             command.Name, fields.Type!.Value, command.InstitutionId, fields.Currency!.Value, fields.OpeningAmount!.Value, fields.OpeningDate!.Value,
-            clock.GetUtcNow());
+            clock.GetUtcNow(), command.Last4, fields.CreditCardTerms(command.StatementDay, command.PaymentDueDay));
         accounts.Add(account);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 

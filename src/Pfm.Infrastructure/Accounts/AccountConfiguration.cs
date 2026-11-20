@@ -16,6 +16,8 @@ internal sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
         account.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
         account.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
         account.Property(row => row.OpeningBalance).HasPrecision(19, 4);
+        account.Property(row => row.Last4).HasMaxLength(Last4Digits.Length).IsFixedLength();
+        account.Property(row => row.CreditLimit).HasPrecision(19, 4);
 
         // PostgreSQL's own row version (xmin): it changes with every update, so a stale edit matches no row.
         account.Property(row => row.RowVersion).IsRowVersion();
