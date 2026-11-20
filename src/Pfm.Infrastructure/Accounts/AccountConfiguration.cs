@@ -16,8 +16,17 @@ internal sealed class AccountConfiguration : IEntityTypeConfiguration<Account>
         account.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
         account.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
         account.Property(row => row.OpeningBalance).HasPrecision(19, 4);
-        account.Property(row => row.Last4).HasMaxLength(Last4Digits.Length).IsFixedLength();
-        account.Property(row => row.CreditLimit).HasPrecision(19, 4);
+        account.Property(row => row.Last4)
+            .HasConversion(last4 => last4!.Digits, digits => Last4Digits.Parse(digits))
+            .HasMaxLength(Last4Digits.Length).IsFixedLength();
+
+        // A credit card's terms are columns of the account, null for every other type.
+        account.ComplexProperty(row => row.CreditCard, terms =>
+        {
+            terms.Property(card => card.CreditLimit).HasColumnName(nameof(CreditCardTerms.CreditLimit)).HasPrecision(19, 4);
+            terms.Property(card => card.StatementDay).HasColumnName(nameof(CreditCardTerms.StatementDay));
+            terms.Property(card => card.PaymentDueDay).HasColumnName(nameof(CreditCardTerms.PaymentDueDay));
+        });
 
         // PostgreSQL's own row version (xmin): it changes with every update, so a stale edit matches no row.
         account.Property(row => row.RowVersion).IsRowVersion();

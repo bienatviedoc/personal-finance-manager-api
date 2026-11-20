@@ -29,6 +29,9 @@ internal interface IAccountCommand
 
     string? Last4 { get; }
 
+    /// <summary>The last 4 digits sent; null when none were, or what was sent is not 4 digits.</summary>
+    Last4Digits? ParsedLast4 { get; }
+
     string? CreditLimit { get; }
 
     int? StatementDay { get; }
@@ -59,7 +62,10 @@ public sealed record AccountFields(AccountType? Type, Currency? Currency, decima
     }
 
     /// <summary>The last 4 digits as sent, without the spaces around them; none when left out or blank.</summary>
-    public static string? ReadLast4(string? last4) => string.IsNullOrWhiteSpace(last4) ? null : last4.Trim();
+    public static string? TrimLast4(string? last4) => string.IsNullOrWhiteSpace(last4) ? null : last4.Trim();
+
+    /// <summary>Null when none were sent, or what was sent is not exactly 4 digits.</summary>
+    public static Last4Digits? ReadLast4(string? last4) => Last4Digits.TryParse(TrimLast4(last4), out var digits) ? digits : null;
 
     /// <summary>What the domain takes: a credit card's terms, and none for every other type.</summary>
     public CreditCardTerms? CreditCardTerms(int? statementDay, int? paymentDueDay) =>
@@ -89,7 +95,7 @@ internal static class AccountRules
             .Must((command, _) => command.Parsed.OpeningDate is not null)
             .WithMessage(DateText.Message);
         validator.RuleFor(command => command.Last4)
-            .Must(last4 => last4 is null || Last4Digits.IsValid(last4))
+            .Must((command, last4) => last4 is null || command.ParsedLast4 is not null)
             .WithMessage("Enter only the last 4 digits. A full account or card number is never stored.");
 
         validator.When(command => command.Parsed.Type == AccountType.CreditCard, () =>

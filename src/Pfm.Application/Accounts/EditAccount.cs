@@ -19,7 +19,9 @@ public sealed record EditAccountCommand(
 {
     public string Name { get; } = Name?.Trim() ?? "";
 
-    public string? Last4 { get; } = AccountFields.ReadLast4(Last4);
+    public string? Last4 { get; } = AccountFields.TrimLast4(Last4);
+
+    public Last4Digits? ParsedLast4 { get; } = AccountFields.ReadLast4(Last4);
 
     public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate, CreditLimit);
 }
@@ -73,7 +75,7 @@ public sealed class EditAccountHandler(
         {
             account.Edit(
                 command.Name, fields.Type!.Value, command.InstitutionId, fields.Currency!.Value, fields.OpeningAmount!.Value, fields.OpeningDate!.Value,
-                hasTransactions: await transactions.AnyOnAsync(account.Id, cancellationToken), clock.GetUtcNow(), command.Last4,
+                hasTransactions: await transactions.AnyOnAsync(account.Id, cancellationToken), clock.GetUtcNow(), command.ParsedLast4,
                 fields.CreditCardTerms(command.StatementDay, command.PaymentDueDay));
         }
         catch (AccountRuleViolation violation)
