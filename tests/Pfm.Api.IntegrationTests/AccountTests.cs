@@ -253,6 +253,160 @@ public class AccountTests(PfmApi api)
         Assert.Equal(oldBank, (await GetAsync(browser, account.Id)).InstitutionId);
     }
 
+    [Theory]
+    [InlineData("current", "openingBalance")]
+    [InlineData("cash", "openingBalance")]
+    [InlineData("creditCard", "amountOwed")]
+    [InlineData("loan", "amountOwed")]
+    public async Task Any_account_can_be_labelled_with_the_last_4_digits_of_its_number(string type, string amountField)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var body = new Dictionary<string, object?> { ["name"] = "Money", ["type"] = type, ["currency"] = "VND", ["openingDate"] = "2026-11-01", [amountField] = "0", ["last4"] = "0042" };
+
+        var account = await AddAsync(browser, body);
+
+        Assert.Equal("0042", account.Last4);
+        Assert.Equal("0042", (await GetAsync(browser, account.Id)).Last4);
+        Assert.Equal("0042", Assert.Single(await ListAsync(browser)).Last4);
+    }
+
+    [Theory]
+    [InlineData("123")]
+    [InlineData("12345")]
+    [InlineData("12a4")]
+    [InlineData("12 4")]
+    [InlineData("4111111111111111")]
+    [InlineData("4111 1111 1111 1111")]
+    [InlineData("4111-1111-1111-1111")]
+    [InlineData("0011000123456")]
+    public async Task A_full_account_or_card_number_is_never_accepted_as_the_last_4_digits_nor_stored(string last4)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAsync(browser, Current("Everyday"));
+        var body = new { name = "Money", type = "current", currency = "VND", openingBalance = "0", openingDate = "2026-11-01", last4 };
+
+        var added = await browser.PostAsync(Accounts, body);
+        var edited = await browser.PutAsync($"{Accounts}/{account.Id}", body, ifMatch: Quoted(account.RowVersion));
+
+        Assert.Equal(HttpStatusCode.BadRequest, added.StatusCode);
+        Assert.Equal(["last4"], await added.ErrorFieldsAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, edited.StatusCode);
+        Assert.Equal(["last4"], await edited.ErrorFieldsAsync());
+        Assert.Equal([null], (await ListAsync(browser)).Select(listed => listed.Last4));
+    }
+
+    [Fact]
+    public async Task An_edit_changes_the_last_4_digits_and_leaving_them_out_removes_the_label()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAsync(browser, new { name = "Everyday", type = "current", currency = "VND", openingBalance = "0", openingDate = "2026-11-01", last4 = "0042" });
+
+        var relabelled = await EditAsync(browser, account, new { name = "Everyday", type = "current", currency = "VND", openingBalance = "0", openingDate = "2026-11-01", last4 = "9001" });
+        var unlabelled = await EditAsync(browser, relabelled, Current("Everyday"));
+
+        Assert.Equal("9001", relabelled.Last4);
+        Assert.Null(unlabelled.Last4);
+        Assert.Null((await GetAsync(browser, account.Id)).Last4);
+    }
+
+    [Fact]
+    public async Task A_credit_card_has_a_credit_limit_a_statement_day_and_a_payment_due_day_and_shows_its_available_credit()
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var card = await AddAsync(browser, new
+        {
+            name = "Visa", type = "creditCard", currency = "USD", amountOwed = "250.75", openingDate = "2026-11-01", last4 = "4242", creditLimit = "5000",
+            statementDay = 25, paymentDueDay = 15,
+        });
+
+        Assert.Equal(("5000.00", 25, 15), (card.CreditLimit, card.StatementDay, card.PaymentDueDay));
+        Assert.Equal(("250.75", "-250.75", "4749.25"), (card.AmountOwed, card.Balance, card.AvailableCredit));
+        Assert.Equal(card, await GetAsync(browser, card.Id));
+        Assert.Equal(card, Assert.Single(await ListAsync(browser)));
+    }
+
+    [Fact]
+    public async Task Available_credit_follows_an_edit_of_the_credit_limit_or_the_amount_owed_at_once_and_goes_below_zero_over_the_limit()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var card = await AddAsync(browser, new { name = "Visa", type = "creditCard", currency = "VND", amountOwed = "2000000", openingDate = "2026-11-01", creditLimit = "10000000" });
+
+        var raised = await EditAsync(browser, card, new { name = "Visa", type = "creditCard", currency = "VND", amountOwed = "3000000", openingDate = "2026-11-01", creditLimit = "20000000" });
+        var over = await EditAsync(browser, raised, new { name = "Visa", type = "creditCard", currency = "VND", amountOwed = "3000000", openingDate = "2026-11-01", creditLimit = "2500000" });
+
+        Assert.Equal("8000000.00", card.AvailableCredit);
+        Assert.Equal("17000000.00", raised.AvailableCredit);
+        Assert.Equal("-500000.00", over.AvailableCredit);
+    }
+
+    [Fact]
+    public async Task A_credit_cards_fields_are_optional_and_with_no_credit_limit_there_is_no_available_credit()
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var bare = await AddAsync(browser, new { name = "Visa", type = "creditCard", currency = "USD", amountOwed = "250.75", openingDate = "2026-11-01" });
+        var daysOnly = await AddAsync(browser, new { name = "Mastercard", type = "creditCard", currency = "USD", amountOwed = "0", openingDate = "2026-11-01", statementDay = 31, paymentDueDay = 1 });
+
+        Assert.Equal((null, null, null, null), (bare.CreditLimit, bare.StatementDay, bare.PaymentDueDay, bare.AvailableCredit));
+        Assert.Equal((null, 31, 1, null), (daysOnly.CreditLimit, daysOnly.StatementDay, daysOnly.PaymentDueDay, daysOnly.AvailableCredit));
+    }
+
+    [Theory]
+    [InlineData("creditLimit", "-1")]
+    [InlineData("creditLimit", "abc")]
+    [InlineData("creditLimit", "1,000")]
+    [InlineData("creditLimit", "10.005")]
+    [InlineData("creditLimit", "1000000000000000")]
+    [InlineData("statementDay", 0)]
+    [InlineData("statementDay", 32)]
+    [InlineData("paymentDueDay", 0)]
+    [InlineData("paymentDueDay", -3)]
+    [InlineData("paymentDueDay", 32)]
+    public async Task A_credit_limit_that_is_not_an_amount_or_a_day_that_is_not_a_day_of_the_month_is_refused_by_name(string field, object value)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var body = new Dictionary<string, object?> { ["name"] = "Visa", ["type"] = "creditCard", ["currency"] = "USD", ["amountOwed"] = "0", ["openingDate"] = "2026-11-01", [field] = value };
+
+        var response = await browser.PostAsync(Accounts, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal([field], await response.ErrorFieldsAsync());
+    }
+
+    [Theory]
+    [InlineData("current", "openingBalance")]
+    [InlineData("savings", "openingBalance")]
+    [InlineData("loan", "amountOwed")]
+    public async Task Only_a_credit_card_takes_a_credit_limit_a_statement_day_or_a_payment_due_day(string type, string amountField)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var body = new Dictionary<string, object?>
+        {
+            ["name"] = "Money", ["type"] = type, ["currency"] = "USD", ["openingDate"] = "2026-11-01", [amountField] = "0",
+            ["creditLimit"] = "5000", ["statementDay"] = 25, ["paymentDueDay"] = 15,
+        };
+
+        var response = await browser.PostAsync(Accounts, body);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["creditLimit", "paymentDueDay", "statementDay"], await response.ErrorFieldsAsync());
+    }
+
+    [Fact]
+    public async Task Editing_a_credit_card_into_another_type_leaves_its_credit_card_fields_behind_and_keeps_its_last_4_digits()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var card = await AddAsync(browser, new
+        {
+            name = "Visa", type = "creditCard", currency = "USD", amountOwed = "0", openingDate = "2026-11-01", last4 = "4242", creditLimit = "5000", statementDay = 25, paymentDueDay = 15,
+        });
+
+        var current = await EditAsync(browser, card, new { name = "Everyday", type = "current", currency = "USD", openingBalance = "0", openingDate = "2026-11-01", last4 = "4242" });
+
+        Assert.Equal(("4242", null, null, null, null), (current.Last4, current.CreditLimit, current.StatementDay, current.PaymentDueDay, current.AvailableCredit));
+    }
+
     [Fact]
     public async Task The_list_is_in_order_of_name_with_each_accounts_balance()
     {
@@ -361,7 +515,7 @@ public class AccountTests(PfmApi api)
     }
 
     [Fact]
-    public async Task No_balance_is_stored_only_the_opening_balance()
+    public async Task No_balance_or_available_credit_is_stored_only_the_opening_balance_and_the_credit_limit()
     {
         await using var scope = api.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PfmDbContext>();
@@ -371,7 +525,10 @@ public class AccountTests(PfmApi api)
             .ToListAsync();
 
         Assert.Equal(
-            ["CreatedAt", "Currency", "Id", "InstitutionId", "IsArchived", "Name", "OpeningBalance", "OpeningDate", "Type", "UpdatedAt", "UserId"],
+            [
+                "CreatedAt", "CreditLimit", "Currency", "Id", "InstitutionId", "IsArchived", "Last4", "Name", "OpeningBalance", "OpeningDate",
+                "PaymentDueDay", "StatementDay", "Type", "UpdatedAt", "UserId",
+            ],
             columns.Order(StringComparer.Ordinal));
     }
 
@@ -431,6 +588,13 @@ public class AccountTests(PfmApi api)
         return (await response.Content.ReadFromJsonAsync<AccountBody>())!;
     }
 
+    private static async Task<AccountBody> EditAsync(Browser browser, AccountBody from, object account)
+    {
+        var response = await browser.PutAsync($"{Accounts}/{from.Id}", account, ifMatch: Quoted(from.RowVersion));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<AccountBody>())!;
+    }
+
     private static async Task<AccountBody> GetAsync(Browser browser, Guid id)
     {
         var response = await browser.GetAsync($"{Accounts}/{id}");
@@ -457,5 +621,6 @@ public class AccountTests(PfmApi api)
 
     private sealed record AccountBody(
         Guid Id, Guid? InstitutionId, string Name, string Type, string Currency, string OpeningBalance, string? AmountOwed, string OpeningDate,
-        string Balance, bool IsArchived, string RowVersion);
+        string Balance, bool IsArchived, string RowVersion, string? Last4 = null, string? CreditLimit = null, int? StatementDay = null,
+        int? PaymentDueDay = null, string? AvailableCredit = null);
 }

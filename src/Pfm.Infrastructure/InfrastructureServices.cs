@@ -12,6 +12,7 @@ using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
+using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
 using Pfm.Infrastructure.Transactions;
@@ -65,6 +66,7 @@ public static class InfrastructureServices
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
+        services.AddExchangeRates();
 
         return services;
     }

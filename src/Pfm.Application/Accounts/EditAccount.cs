@@ -9,16 +9,19 @@ namespace Pfm.Application.Accounts;
 
 /// <summary>
 /// Changes an account, from the row version the caller last read (<paramref name="RowVersion"/>). A credit
-/// card or loan sends <paramref name="AmountOwed"/>; any other type, <paramref name="OpeningBalance"/>.
+/// card or loan sends <paramref name="AmountOwed"/>; any other type, <paramref name="OpeningBalance"/>. The last
+/// 4 digits and a credit card's fields are replaced like everything else: left out, they are removed.
 /// </summary>
 public sealed record EditAccountCommand(
     Guid Id, uint RowVersion, string Name, string? Type, Guid? InstitutionId, string? Currency, string? OpeningBalance, string? AmountOwed,
-    string? OpeningDate)
+    string? OpeningDate, string? Last4 = null, string? CreditLimit = null, int? StatementDay = null, int? PaymentDueDay = null)
     : IAccountCommand
 {
     public string Name { get; } = Name?.Trim() ?? "";
 
-    public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate);
+    public string? Last4 { get; } = AccountFields.ReadLast4(Last4);
+
+    public AccountFields Parsed { get; } = AccountFields.Read(Type, Currency, OpeningBalance, AmountOwed, OpeningDate, CreditLimit);
 }
 
 public sealed class EditAccountValidator : AbstractValidator<EditAccountCommand>
@@ -70,7 +73,8 @@ public sealed class EditAccountHandler(
         {
             account.Edit(
                 command.Name, fields.Type!.Value, command.InstitutionId, fields.Currency!.Value, fields.OpeningAmount!.Value, fields.OpeningDate!.Value,
-                hasTransactions: await transactions.AnyOnAsync(account.Id, cancellationToken), clock.GetUtcNow());
+                hasTransactions: await transactions.AnyOnAsync(account.Id, cancellationToken), clock.GetUtcNow(), command.Last4,
+                fields.CreditCardTerms(command.StatementDay, command.PaymentDueDay));
         }
         catch (AccountRuleViolation violation)
         {

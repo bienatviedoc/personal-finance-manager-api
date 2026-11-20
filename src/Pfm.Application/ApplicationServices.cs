@@ -5,6 +5,7 @@ using Pfm.Application.Accounts;
 using Pfm.Application.Contracts.Accounts;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
+using Pfm.Application.ExchangeRates;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Categories;
@@ -35,6 +36,10 @@ public static class ApplicationServices
         services.AddScoped<IAccountLookup, AccountLookup>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<TransactionContext>();
+        services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+
+        // Every module converts between currencies through this.
+        services.AddScoped<ICurrencyConversion, CurrencyConversion>();
 
         return services;
     }
