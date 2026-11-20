@@ -105,9 +105,53 @@ change data save through `IUnitOfWork` and read the time from `TimeProvider`. St
 domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
 breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
 
-**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+**Archive, never delete.** `DELETE` on an institution, account or category archives it: it
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
-already uses it can still show it.
+already uses it can still show it. An account can be archived at any balance.
+
+### Accounts and balances
+
+- **A balance is never stored.** `Account.BalanceWith` adds what the account's transactions come to onto its
+  opening balance, each time it is asked. Accounts asks the Transactions module for that sum through
+  `IAccountTransactions` (in `Pfm.Application.Contracts.Transactions`), which answers nothing until transactions
+  exist (#9, `NoTransactionsYet`). The same contract says whether an account has transactions, which fixes its
+  currency. A test pins the columns of the `Accounts` table, so a stored balance cannot slip in.
+- **Amount owed.** A credit card or loan sends `amountOwed`, a positive number, instead of `openingBalance`; the
+  domain holds it as a negative opening balance, so the account shows a negative balance (spec section 3, rule 9).
+  The response carries both.
+- **Last 4 digits.** Any account can send `last4`, the last 4 digits of its number, as a label. It is exactly 4
+  digits (`Last4Digits`) in a `character(4)` column: a full account or card number is refused by name and has
+  nowhere to be stored (spec ACC-8).
+- **Credit card fields.** Only a credit card takes `creditLimit` (a decimal string, not negative), `statementDay`
+  and `paymentDueDay` (days of the month, 1 to 31), each optional (`CreditCardTerms`); any other type that sends
+  one is refused. The response adds `availableCredit`: the credit limit minus the amount owed now, so it is the
+  limit plus the (negative) balance, negative over the limit, and null without a limit. Like the balance it is
+  computed each time (`Account.AvailableCreditWith`) and never stored. `PUT` replaces every field, so `last4` or
+  a credit card field left out is removed.
+- **`GET /accounts`** is paged like every list, and also answers `totals`: the balance of each institution in
+  each currency, over the whole list whichever page is asked for. Currencies are never added together.
+- **`baseCurrencyTotal`**, on the same answer, is those totals converted into the user's base currency at today's
+  exchange rates and added up: one balance for everything, and one for each of its `institutions` (spec ACC-4). A
+  balance that is not converted (see below) is left out and listed under `notConverted`, on the institution and
+  on the whole.
+
+### Exchange rates
+
+- **Nobody enters a rate.** The worker's `ExchangeRateFetchJob` runs `FetchExchangeRates` when it starts and every
+  six hours: it asks the source for every day since the latest one stored (a year back the first time) and stores
+  the rate of every pair of currencies, in both directions, per day. A stored day is never fetched again. Rates
+  belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
+  ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the
+  network.
+- **Convert through `ICurrencyConversion`** (`Pfm.Application.ExchangeRates`), from any module: it answers the
+  amount at the rate of the date asked for, or of the nearest earlier day that has one, with the rate and the day
+  it is of. With no rate on or before the date it answers `Conversion.NotConverted`: keep the amount, flag it as
+  not converted and leave it out of totals (spec section 3, rule 7). A module reads the user's base currency
+  through `IBaseCurrency` (`Pfm.Application.Contracts.Identity`).
+- **Exchange rates are not a module.** Like `Currency`, they are shared by all six: `Pfm.Domain.ExchangeRates` and
+  `Pfm.Application.ExchangeRates` reach into no module, and any module may use them.
+- **Configuration** (all optional): `ExchangeRates__SourceUrl` (a self-hosted Frankfurter),
+  `ExchangeRates__DaysBackWhenEmpty` (365) and `ExchangeRates__FetchEvery` (`06:00:00`).
 
 ## Signing in
 
@@ -256,10 +300,15 @@ if they were signed in. Registration uses it to create the new user's default ca
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
   `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
   all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
+- **Optimistic concurrency** (spec section 11): an account's `rowVersion` is PostgreSQL's `xmin`, also sent as
+  the `ETag` of every response that answers one account. `PUT /accounts/{id}` must name it in `If-Match`
+  (`If-Match: "1234"`): a version that is no longer the account's answers 412 and saves nothing, and leaving
+  the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws `ConcurrentChangeException` when the row
+  changed between reading and saving, which the use case answers as stale too.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
-  code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
+  code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
-  name in camelCase (`"income"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  name in camelCase (`"income"`, `"creditCard"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
   in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:

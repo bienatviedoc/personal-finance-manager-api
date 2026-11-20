@@ -84,6 +84,14 @@ _Avoid_: Deleted user, suspended user
 The single currency a user chooses for totals, budgets and reports across accounts in different currencies.
 _Avoid_: Home currency, default currency, reporting currency
 
+**Exchange rate**:
+What one unit of a currency was worth in another on one calendar day. Rates are fetched each day, shared by every user and never entered by one.
+_Avoid_: FX rate, conversion rate, price
+
+**Not converted**:
+Said of an amount that stays in its own currency because no exchange rate exists on or before its date. It is flagged and left out of base-currency totals until a rate arrives.
+_Avoid_: Unconverted, pending, missing rate (for the amount)
+
 **Locale**:
 The language a user uses the app in, English or Vietnamese: the interface, how amounts and dates are written, and the names of the default categories they start with. A user registers in a locale and can change it later; one who has never chosen one sees their browser's.
 _Avoid_: Language (as a separate setting), culture

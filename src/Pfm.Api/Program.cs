@@ -83,6 +83,7 @@ app.MapGroup("/api/v1")
     .MapProfileEndpoints()
     .MapSecurityEndpoints()
     .MapInstitutionEndpoints()
+    .MapAccountEndpoints()
     .MapCategoryEndpoints();
 
 app.Run();

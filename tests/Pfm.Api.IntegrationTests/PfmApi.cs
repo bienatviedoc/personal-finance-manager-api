@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
+using Pfm.Application.ExchangeRates;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Observability;
@@ -217,6 +218,8 @@ public sealed class PfmApi : IAsyncLifetime
                 services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
+                services.RemoveAll<IExchangeRateSource>();
+                services.AddSingleton<IExchangeRateSource, FakeExchangeRateSource>();
                 if (telemetry is not null)
                 {
                     // Added to the API's own pipelines, so only what they export is captured.

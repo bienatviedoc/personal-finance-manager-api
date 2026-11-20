@@ -4,11 +4,14 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Accounts;
 using Pfm.Application.Accounts.Institutions;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
+using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
 using Pfm.Infrastructure.Transactions;
@@ -41,6 +44,7 @@ public static class InfrastructureServices
         services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
+        services.AddScoped<IAccountRepository, AccountRepository>();
 
         services.AddHealthChecks().AddDbContextCheck<PfmDbContext>("database", tags: [ReadyTag]);
 
@@ -59,6 +63,8 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ICategoryUsage, NoTransactionsYet>();
+        services.AddScoped<IAccountTransactions, NoTransactionsYet>();
+        services.AddExchangeRates();
 
         return services;
     }
