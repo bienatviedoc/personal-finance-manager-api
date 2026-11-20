@@ -5,6 +5,11 @@ namespace Pfm.Domain.Transactions;
 /// positive and its type gives the sign; its currency is its account's. Deleting it is soft: it leaves
 /// lists and balances at once and stays recoverable.
 /// </summary>
+/// <remarks>
+/// Its amount is converted into the user's base currency once, at the exchange rate of its date, and never
+/// revalued when rates move (spec section 3, rule 7; decision record 0002). Until a rate exists on or before
+/// its date it is not converted.
+/// </remarks>
 public sealed class Transaction : IUserOwned
 {
     public const int MaxPayeeLength = 200;
@@ -39,6 +44,21 @@ public sealed class Transaction : IUserOwned
     /// <summary>A calendar date in the user's time zone, never in the future.</summary>
     public DateOnly Date { get; private set; }
 
+    /// <summary>
+    /// The base currency the amount is converted into, or is waiting to be while it is not converted. Null
+    /// only until the transaction is first saved.
+    /// </summary>
+    public Currency? BaseCurrency { get; private set; }
+
+    /// <summary>The amount in <see cref="BaseCurrency"/>, like <see cref="Amount"/> without a sign; null while not converted.</summary>
+    public decimal? BaseCurrencyAmount { get; private set; }
+
+    /// <summary>What one unit of <see cref="Currency"/> was worth in <see cref="BaseCurrency"/> when the amount was converted; null while not converted.</summary>
+    public decimal? ExchangeRate { get; private set; }
+
+    /// <summary>The day <see cref="ExchangeRate"/> is of: the transaction's date, or the nearest earlier day that had a rate.</summary>
+    public DateOnly? ExchangeRateDate { get; private set; }
+
     public Guid CategoryId { get; private set; }
 
     /// <summary>Who was paid, or who paid; null when not entered.</summary>
@@ -57,6 +77,9 @@ public sealed class Transaction : IUserOwned
     public uint RowVersion { get; private set; }
 
     public bool IsDeleted => DeletedAt is not null;
+
+    /// <summary>Whether the amount has been converted into the base currency. Once it has, it stays as converted.</summary>
+    public bool IsConverted => BaseCurrencyAmount is not null;
 
     /// <summary>What the transaction does to its account's balance: nothing once deleted.</summary>
     public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
@@ -111,6 +134,77 @@ public sealed class Transaction : IUserOwned
         }
 
         Set(type, accountId, currency, amount, date, category, payee, note, today, now);
+    }
+
+    /// <summary>Whether the amount is already converted into this base currency, and so is not converted again.</summary>
+    public bool IsConvertedInto(Currency baseCurrency) => IsConverted && BaseCurrency == baseCurrency;
+
+    /// <summary>Whether an amount fits the base currency: what a converted amount must do to be kept.</summary>
+    public static bool CanHoldInBaseCurrency(decimal amount, Currency baseCurrency) => amount >= 0 && Amounts.IsValid(amount, baseCurrency);
+
+    /// <summary>
+    /// Keeps the amount as converted into the user's base currency at the exchange rate of the transaction's
+    /// date, or of the nearest earlier day that has one. It is converted once: only an edit of the amount, the
+    /// date or the account, or another base currency, has it converted again.
+    /// </summary>
+    /// <param name="amount">The amount in <paramref name="baseCurrency"/>, rounded to its decimals.</param>
+    /// <param name="exchangeRate">What one unit of the transaction's currency is worth in <paramref name="baseCurrency"/>.</param>
+    /// <param name="exchangeRateDate">The day the rate is of, on or before the transaction's date.</param>
+    /// <exception cref="InvalidOperationException">The amount is already converted into <paramref name="baseCurrency"/>.</exception>
+    public void ConvertInto(Currency baseCurrency, decimal amount, decimal exchangeRate, DateOnly exchangeRateDate)
+    {
+        GuardNotConvertedInto(baseCurrency);
+        if (!CanHoldInBaseCurrency(amount, baseCurrency))
+        {
+            throw new ArgumentException($"A converted amount is not negative and fits {baseCurrency}.", nameof(amount));
+        }
+
+        if (exchangeRate <= 0)
+        {
+            throw new ArgumentException("An exchange rate is greater than zero.", nameof(exchangeRate));
+        }
+
+        if (exchangeRateDate > Date)
+        {
+            throw new ArgumentException("An amount is converted at the rate of its date or of an earlier day.", nameof(exchangeRateDate));
+        }
+
+        BaseCurrency = baseCurrency;
+        BaseCurrencyAmount = amount;
+        ExchangeRate = exchangeRate;
+        ExchangeRateDate = exchangeRateDate;
+    }
+
+    /// <summary>
+    /// Flags the transaction as not converted: no exchange rate exists on or before its date, so it waits
+    /// for one, in the base currency it will be converted into.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The amount is already converted into <paramref name="baseCurrency"/>.</exception>
+    public void FlagNotConverted(Currency baseCurrency)
+    {
+        GuardNotConvertedInto(baseCurrency);
+        BaseCurrency = baseCurrency;
+        DropConversion();
+    }
+
+    private void GuardNotConvertedInto(Currency baseCurrency)
+    {
+        if (!Enum.IsDefined(baseCurrency))
+        {
+            throw new ArgumentOutOfRangeException(nameof(baseCurrency), baseCurrency, "Not a supported currency.");
+        }
+
+        if (IsConvertedInto(baseCurrency))
+        {
+            throw new InvalidOperationException("An amount is converted once and is not revalued.");
+        }
+    }
+
+    private void DropConversion()
+    {
+        BaseCurrencyAmount = null;
+        ExchangeRate = null;
+        ExchangeRateDate = null;
     }
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
@@ -174,6 +268,12 @@ public sealed class Transaction : IUserOwned
             throw new TransactionRuleViolation(
                 nameof(CategoryId),
                 type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.");
+        }
+
+        // What was converted is no longer what the transaction says: it is converted again, at its date's rate.
+        if (amount != Amount || date != Date || accountId != AccountId)
+        {
+            DropConversion();
         }
 
         Type = type;

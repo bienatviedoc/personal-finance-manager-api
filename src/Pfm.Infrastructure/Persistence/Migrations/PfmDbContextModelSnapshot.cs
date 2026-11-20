@@ -301,6 +301,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
 
+                    b.Property<string>("BaseCurrency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<decimal?>("BaseCurrencyAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
                     b.Property<Guid>("CategoryId")
                         .HasColumnType("uuid");
 
@@ -317,6 +326,13 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<DateTimeOffset?>("DeletedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal?>("ExchangeRate")
+                        .HasPrecision(28, 18)
+                        .HasColumnType("numeric(28,18)");
+
+                    b.Property<DateOnly?>("ExchangeRateDate")
+                        .HasColumnType("date");
 
                     b.Property<string>("IdempotencyKey")
                         .HasMaxLength(200)
@@ -354,6 +370,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CategoryId");
 
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_Transactions_UserId_NotConverted")
+                        .HasFilter("\"BaseCurrencyAmount\" IS NULL");
+
                     b.HasIndex("UserId", "IdempotencyKey")
                         .IsUnique();
 
@@ -365,6 +385,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Transactions", null, t =>
                         {
                             t.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
+
+                            t.HasCheckConstraint("CK_Transactions_Converted_Or_Not", "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
                         });
                 });
 

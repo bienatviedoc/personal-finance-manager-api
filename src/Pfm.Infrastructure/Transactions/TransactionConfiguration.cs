@@ -14,12 +14,24 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
 
     public void Configure(EntityTypeBuilder<Transaction> transaction)
     {
-        transaction.ToTable("Transactions", table => table.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0"));
+        transaction.ToTable("Transactions", table =>
+        {
+            table.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
+
+            // Converted with its rate and the rate's day, or not converted and none of the three.
+            table.HasCheckConstraint(
+                "CK_Transactions_Converted_Or_Not",
+                "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+        });
         transaction.HasKey(row => row.Id);
         transaction.Property(row => row.Id).ValueGeneratedNever();
         transaction.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
         transaction.Property(row => row.Amount).HasPrecision(19, 4);
         transaction.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
+        // Null in the domain only until the transaction is first saved, which converts it or flags it not converted.
+        transaction.Property(row => row.BaseCurrency).HasConversion<string>().HasMaxLength(3).IsRequired();
+        transaction.Property(row => row.BaseCurrencyAmount).HasPrecision(19, 4);
+        transaction.Property(row => row.ExchangeRate).HasPrecision(28, Domain.ExchangeRates.ExchangeRate.Decimals);
         transaction.Property(row => row.Payee).HasMaxLength(Transaction.MaxPayeeLength);
         transaction.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
         transaction.Property<string?>(IdempotencyKey).HasMaxLength(200);
@@ -28,6 +40,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.RowVersion).IsRowVersion();
         transaction.Ignore(row => row.IsDeleted);
         transaction.Ignore(row => row.SignedAmount);
+        transaction.Ignore(row => row.IsConverted);
 
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
@@ -35,6 +48,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         // The list, newest first; and the sum of an account's transactions, which is its balance (spec section 10).
         transaction.HasIndex(row => new { row.UserId, row.Date, row.Id }).IsDescending(false, true, true);
         transaction.HasIndex(row => new { row.UserId, row.AccountId, row.Date });
+
+        // The transactions waiting for an exchange rate, which a fetch of new rates converts.
+        transaction.HasIndex(row => row.UserId).HasFilter("\"BaseCurrencyAmount\" IS NULL").HasDatabaseName("IX_Transactions_UserId_NotConverted");
 
         // A retried request cannot record its transaction twice. Rows without a key never collide.
         transaction.HasIndex(nameof(Transaction.UserId), IdempotencyKey).IsUnique();

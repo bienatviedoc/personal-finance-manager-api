@@ -36,6 +36,8 @@ public static class ApplicationServices
         services.AddScoped<IAccountLookup, AccountLookup>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<TransactionContext>();
+        services.AddScoped<TransactionConversion>();
+        services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
 
         // Every module converts between currencies through this.

@@ -5,6 +5,7 @@ using Pfm.Application.Contracts.Accounts;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
@@ -85,13 +86,13 @@ internal static class TransactionRules
 }
 
 /// <summary>
-/// Reads what a transaction is recorded against: the account and category the command names, and today's
-/// date for the user. Shared by recording and editing.
+/// Reads what a transaction is recorded against: the account and category the command names, today's date
+/// for the user and their base currency. Shared by recording and editing.
 /// </summary>
-public sealed class TransactionContext(IAccountLookup accounts, ICategoryRepository categories, IUserCalendar calendar)
+public sealed class TransactionContext(IAccountLookup accounts, ICategoryRepository categories, IUserCalendar calendar, IBaseCurrency baseCurrency)
 {
     /// <summary>
-    /// The account, category and today's date, or the errors keyed by command property when the account or
+    /// The account, category, today's date and base currency, or the errors keyed by command property when the account or
     /// category is not one the transaction can be on.
     /// </summary>
     /// <param name="currentAccountId">The account the transaction is already on, which it may stay on after the account is archived.</param>
@@ -110,8 +111,10 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
             return (null, TransactionRules.Error(nameof(ITransactionCommand.CategoryId), "Choose one of your categories that is not archived."));
         }
 
-        return (new Found(account, category, await calendar.TodayAsync(cancellationToken)), null);
+        return (
+            new Found(account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken)),
+            null);
     }
 
-    internal sealed record Found(AccountSummary Account, Category Category, DateOnly Today);
+    internal sealed record Found(AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency);
 }

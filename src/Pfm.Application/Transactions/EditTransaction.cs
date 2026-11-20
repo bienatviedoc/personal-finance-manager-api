@@ -7,7 +7,8 @@ namespace Pfm.Application.Transactions;
 
 /// <summary>
 /// Changes a transaction, from the row version the caller last read (<paramref name="RowVersion"/>). Moved to
-/// another account, it takes that account's currency.
+/// another account, it takes that account's currency. A changed amount, date or account is converted into
+/// the base currency again; any other edit leaves the converted amount as it is (decision record 0002).
 /// </summary>
 public sealed record EditTransactionCommand(
     Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note)
@@ -38,8 +39,8 @@ public sealed record EditTransactionOutcome(TransactionDetails? Edited)
 /// may stay on an account or category that has since been archived, but not move to one.
 /// </summary>
 public sealed class EditTransactionHandler(
-    IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context, IUnitOfWork unitOfWork,
-    TimeProvider clock)
+    IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
+    TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<EditTransactionCommand, EditTransactionOutcome?>(validator)
 {
     protected override async Task<Result<EditTransactionOutcome?>> ExecuteAsync(EditTransactionCommand command, CancellationToken cancellationToken)
@@ -73,6 +74,8 @@ public sealed class EditTransactionHandler(
             return Result<EditTransactionOutcome?>.Invalid(violation.AsErrors());
         }
 
+        // Converts again only what an edit of the amount, the date or the account left without a converted amount.
+        await conversion.ConvertAsync(transaction, found.BaseCurrency, cancellationToken);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);

@@ -5,7 +5,11 @@ using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
 
-/// <summary>Records income or an expense on one of the user's accounts, in that account's currency.</summary>
+/// <summary>
+/// Records income or an expense on one of the user's accounts, in that account's currency. Its amount is
+/// converted into the user's base currency at the rate of its date and kept; with no rate on or before that
+/// date it is recorded all the same, flagged not converted (spec section 3, rule 7).
+/// </summary>
 /// <param name="Type"><c>income</c> or <c>expense</c>.</param>
 /// <param name="Amount">A decimal string greater than zero, such as <c>"125000.00"</c>.</param>
 /// <param name="Date">A calendar date, <c>YYYY-MM-DD</c>, not after today in the user's time zone.</param>
@@ -39,8 +43,8 @@ public sealed class CreateTransactionValidator : AbstractValidator<CreateTransac
 /// account or category that is not one of the user's, or is archived, is an error on its id.
 /// </summary>
 public sealed class CreateTransactionHandler(
-    IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context, IUnitOfWork unitOfWork,
-    TimeProvider clock)
+    IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
+    TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CreateTransactionCommand, TransactionDetails>(validator)
 {
     protected override async Task<Result<TransactionDetails>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken)
@@ -69,6 +73,7 @@ public sealed class CreateTransactionHandler(
             return Result<TransactionDetails>.Invalid(violation.AsErrors());
         }
 
+        await conversion.ConvertAsync(transaction, found.BaseCurrency, cancellationToken);
         transactions.Add(transaction, command.IdempotencyKey);
         try
         {
