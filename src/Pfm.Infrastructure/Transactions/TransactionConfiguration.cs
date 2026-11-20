@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Pfm.Application.Transactions;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Infrastructure.Transactions;
@@ -48,7 +49,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         });
         transaction.Property(row => row.Payee).HasMaxLength(Transaction.MaxPayeeLength);
         transaction.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
-        transaction.Property<string?>(IdempotencyKey).HasMaxLength(200);
+        transaction.Property<string?>(IdempotencyKey).HasMaxLength(CreateTransactionCommand.MaxIdempotencyKeyLength);
         transaction.Property<string?>(IdempotencyFingerprint).HasMaxLength(64);
 
         // PostgreSQL's own row version (xmin): it changes with every update, so a stale edit matches no row.

@@ -35,26 +35,25 @@ public sealed class TransactionConversion(
     /// <summary>False when the user's transactions kept changing: nothing of theirs is saved, and nothing is left half done for the next user's save.</summary>
     private async Task<bool> ConvertNotConvertedOfUserAsync(CancellationToken cancellationToken)
     {
-        for (var attempt = 1; attempt <= ConcurrentChanges.Attempts; attempt++)
+        try
         {
-            foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
+            // A save that fails found one edited or deleted by its user meanwhile, perhaps converted by that edit: start again from what was saved.
+            return await unitOfWork.RetryOnConcurrentChangeAsync(async () =>
             {
-                await ConvertAsync(transaction, transaction.Conversion!.BaseCurrency, cancellationToken);
-            }
+                foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
+                {
+                    await ConvertAsync(transaction, transaction.Conversion!.BaseCurrency, cancellationToken);
+                }
 
-            try
-            {
                 await unitOfWork.SaveChangesAsync(cancellationToken);
                 return true;
-            }
-            catch (ConcurrentChangeException)
-            {
-                // Edited or deleted by its user meanwhile, perhaps converted by that edit. Start again from what was saved.
-                unitOfWork.DiscardChanges();
-            }
+            });
         }
-
-        return false;
+        catch (ConcurrentChangeException)
+        {
+            unitOfWork.DiscardChanges();
+            return false;
+        }
     }
 
     /// <summary>The rate is looked up once for the transactions of one currency on one date, not once for each of them.</summary>

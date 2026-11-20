@@ -81,7 +81,10 @@ Each use case lives in its module in `Pfm.Application` as one file holding three
 input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
 handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
 handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
-enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property. An
+outcome that carries data is a record: one with a named instance for the case that saved nothing
+(`EditAccountOutcome.Stale`, `CreateTransactionOutcome.KeyReused`), or, when the cases carry different data,
+an abstract record with one nested record for each (`SetUpTwoFactorOutcome.Ready`, `.AlreadyOn`).
 A use case that acts on one of the user's things by id, query or command, answers null when the user has
 no such thing, and the endpoint answers 404: `EditInstitution` answers `InstitutionDetails?`,
 `ArchiveCategory` answers `Done?`. `UpdateProfile` answers null when nobody is signed in (a 401).
@@ -105,8 +108,8 @@ change data save through `IUnitOfWork` and read the time from `TimeProvider`. St
 domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
 breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`. A command
 reads what travels as text with `EnumText<T>` (an enum's camelCase name), `DateText` and `AmountText`, and a
-handler names one field to fix with `FieldError.On`. A use case about the signed-in user's own sign-in finds them
-with `IUsers.FindSignedInAsync`. An endpoint that edits from a row version reads `If-Match` with
+handler names one field to fix with `FieldError.On`. A command about the signed-in user's own sign-in finds them
+with `IUsers.FindSignedInAsync`; a query that only reads it (`GetTwoFactor`) goes by `ICurrentUser.UserId`. An endpoint that edits from a row version reads `If-Match` with
 `RowVersions.TryRead`, which also answers the 428 and 412.
 
 **Archive, never delete.** `DELETE` on an institution, account or category archives it: it
@@ -285,7 +288,8 @@ method on a port when it needs something Identity does, such as a reset token.
 
 - **Security headers** go on every answer, errors and refusals included (`SecurityHeaders`):
   `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a content
-  security policy that allows nothing (`default-src 'none'; frame-ancestors 'none'`), because the API serves
+  security policy that allows nothing (`default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`),
+  because the API serves
   data, never pages. Outside Development it also sends `Strict-Transport-Security` for a year. Answers under
   `/api` are `Cache-Control: no-store`, so financial data does not linger in a cache. The SPA's own headers and
   policy are in its repository.
