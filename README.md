@@ -42,7 +42,10 @@ dotnet test Pfm.slnx
 ```
 
 Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
-the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Those tests share one API and all call from one
+address, so its rate limit is set too high to meet; a test of the limit (or of anything else set at start-up)
+runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
+user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -118,9 +121,12 @@ the browser never holds a token a script could read.
   locale, and in English for a user who has none (`IdentityEmails`).
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
-reset the password) are in
-`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
-Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+reset the password, change the password, and set up, turn on, turn off and get recovery codes for two-factor
+sign-in) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
+`SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
+keys, codes and recovery codes), `IPasswordPolicy`
 and `IIdentityEmails`, and `ISessions`, all implemented in `Pfm.Infrastructure.Identity`: `ISessions` is
 `CookieSessions` over the sign-in manager, which a host that signs people in registers with `AddSignIn()` while it
 configures the cookie itself (the API's `AuthenticationSetup`). Every Identity specific, the sign-in manager and
@@ -140,6 +146,36 @@ method on a port when it needs something Identity does, such as a reset token.
   day that email confirmation links last). A used, expired or tampered link answers 400 with the problem type
   `urn:pfm:problem:reset-link-invalid`; a password to fix answers a validation problem, and leaves the link
   usable.
+- **Two-factor sign-in** is optional, with an authenticator app (TOTP: six digits every thirty seconds).
+  `POST /api/v1/me/two-factor/setup` answers the `key` and the same key as an `otpauth://` link
+  (`authenticatorUri`) for the SPA to draw as a QR code; nothing changes until `POST /api/v1/me/two-factor/enable`
+  proves with a `code` that the app holds the key. That answers ten `recoveryCodes`, the only time they are shown;
+  each signs the user in once in place of the authenticator. `POST /api/v1/me/two-factor/recovery-codes` replaces
+  them and `POST /api/v1/me/two-factor/disable` turns it off (forgetting the key and the codes); both ask for the
+  `password`, because a session left open must not be enough. `GET /api/v1/me/two-factor` says whether it is on
+  and how many recovery codes are left.
+- **Signing in with two factors** is one request, sent twice: `POST /api/v1/auth/login` with the email and
+  password answers 401 with the problem type `urn:pfm:problem:two-factor-required`; the same request with
+  `twoFactorCode` (or `recoveryCode`) signs in. A wrong code answers 401 `urn:pfm:problem:two-factor-code-incorrect`.
+  Only someone who knows the password gets either answer, so a stranger cannot learn who uses two factors.
+- **Changing the password:** `POST /api/v1/me/password` with `currentPassword` and `newPassword`. A wrong
+  current password or a new one the policy refuses is a validation problem naming the field.
+- **Changes that end sessions:** a new password, and turning two-factor on or off, change the user's security
+  stamp. Their other sessions end; the one that made the change is issued its cookie again
+  (`ISessions.RefreshAsync`) and carries on.
+- **Lockout:** five wrong passwords or two-factor codes in a row lock sign-in for that user for fifteen minutes
+  (set in `AddUsers`). While locked, even the right password is answered exactly as a wrong one is, so the answer
+  does not reveal that the email has a user; the SPA warns about the lock beside that message. Signing in starts
+  the count again, and a password reset lifts the lock, since whoever holds the link owns the email address.
+- **Rate limiting:** one client address gets 20 attempts a minute across every endpoint that takes a password, a
+  code or an emailed link, or that sends email: all of `/api/v1/auth/...` except the anti-forgery token and
+  signing out, plus the password and two-factor changes under `/api/v1/me`. Over that, the answer is 429 Problem
+  Details with `Retry-After`, given before a password is hashed or the database asked. Set it with
+  `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
+  `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
+  share one budget: when the API is reachable only through a proxy that sets `X-Forwarded-For` (the SPA's nginx
+  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` so the API counts the real client. Never set it
+  when clients can reach the API directly: they could then name any address.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.
@@ -151,6 +187,29 @@ method on a port when it needs something Identity does, such as a reset token.
   (a password reset or deactivation).
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
+
+## Hardening
+
+- **Security headers** go on every answer, errors and refusals included (`SecurityHeaders`):
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a content
+  security policy that allows nothing (`default-src 'none'; frame-ancestors 'none'`), because the API serves
+  data, never pages. Outside Development it also sends `Strict-Transport-Security` for a year. Answers under
+  `/api` are `Cache-Control: no-store`, so financial data does not linger in a cache. The SPA's own headers and
+  policy are in its repository.
+- **Dependency scanning:** restoring packages checks every one, direct or transitive, against NuGet's known
+  vulnerabilities (`Directory.Build.props`). One of high or critical severity fails the restore, locally and in
+  CI; low and moderate ones are warnings. Fix it by updating the package in `Directory.Packages.props`.
+- **Container scanning:** CI builds the API and worker images on the newest base image and scans them with
+  [Trivy](https://trivy.dev): the operating system's packages and the .NET runtime inside. A vulnerability of
+  high or critical severity that has a fix fails the job; one with no fix yet does not, since nothing can be done
+  about it. The usual fix is a rebuild, which picks up the patched base image. To run the same scan locally:
+
+  ```bash
+  docker build --pull -t pfm-api .
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 image \
+    --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 pfm-api
+  ```
+- Lockout and rate limiting are described under [Signing in](#signing-in).
 
 ## Observability
 

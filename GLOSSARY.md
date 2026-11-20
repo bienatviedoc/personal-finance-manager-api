@@ -68,6 +68,14 @@ _Avoid_: Dupe, conflict
 Matching an account's transactions against a statement's closing balance until the difference is exactly zero, which then locks those transactions.
 _Avoid_: Balancing, verification, closing
 
+**Two-factor sign-in**:
+Signing in with a password and, as well, a code from an authenticator app on the user's phone. A user turns it on and off; it is off until they do.
+_Avoid_: 2FA, MFA, two-step verification (in the interface)
+
+**Recovery code**:
+One of ten codes a user is shown once when they turn two-factor sign-in on. Each signs them in one time in place of a code from the authenticator app.
+_Avoid_: Backup code, scratch code
+
 **Deactivated user**:
 A user who has asked to be deleted and is within the 30 days before permanent erasure; signing in again cancels the deletion.
 _Avoid_: Deleted user, suspended user

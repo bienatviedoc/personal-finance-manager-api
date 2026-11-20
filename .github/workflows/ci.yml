@@ -15,7 +15,9 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore
+      # Dependency scan: restore fails when any package, direct or transitive, has a known vulnerability of
+      # high or critical severity (NuGet audit, set up in Directory.Build.props).
+      - name: Restore and scan dependencies
         run: dotnet restore Pfm.slnx
 
       - name: Build
@@ -33,11 +35,30 @@ jobs:
         if: always()
         run: cat TestResults/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY" || true
 
+  # Builds each image on the newest base, then scans it: the operating system's packages and the .NET runtime
+  # and libraries inside. A vulnerability of high or critical severity that has a fix fails the job (spec
+  # section 13); one with no fix yet cannot be acted on, so it does not.
   images:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build API image
-        run: docker build -t pfm-api .
+        run: docker build --pull -t pfm-api .
       - name: Build worker image
-        run: docker build -t pfm-worker --build-arg PROJECT=Pfm.Worker .
+        run: docker build --pull -t pfm-worker --build-arg PROJECT=Pfm.Worker .
+      - name: Scan API image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: pfm-api
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Scan worker image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: pfm-worker
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
