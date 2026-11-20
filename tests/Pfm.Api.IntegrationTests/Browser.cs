@@ -32,8 +32,9 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PatchJsonAsync(string path, string body) =>
         ChangeAsync(HttpMethod.Patch, path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent: null);
 
-    public Task<HttpResponseMessage> PutAsync(string path, object body) =>
-        ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body), traceparent: null);
+    /// <param name="ifMatch">The <c>If-Match</c> header exactly as written, such as <c>"42"</c> in its double quotes; left out when null.</param>
+    public Task<HttpResponseMessage> PutAsync(string path, object body, string? ifMatch = null) =>
+        ChangeAsync(HttpMethod.Put, path, JsonContent.Create(body), traceparent: null, ifMatch);
 
     public Task<HttpResponseMessage> DeleteAsync(string path) =>
         ChangeAsync(HttpMethod.Delete, path, body: null, traceparent: null);
@@ -41,9 +42,14 @@ public sealed class Browser(HttpClient http)
     private Task<HttpResponseMessage> PostAsync(string path, HttpContent body, Traceparent? traceparent) =>
         ChangeAsync(HttpMethod.Post, path, body, traceparent);
 
-    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent)
+    private async Task<HttpResponseMessage> ChangeAsync(HttpMethod method, string path, HttpContent? body, Traceparent? traceparent, string? ifMatch = null)
     {
         using var request = new HttpRequestMessage(method, path) { Content = body };
+        if (ifMatch is not null)
+        {
+            request.Headers.TryAddWithoutValidation("If-Match", ifMatch);
+        }
+
         request.Headers.Add("X-XSRF-TOKEN", await AntiforgeryTokenAsync());
         return await SendAsync(request, traceparent);
     }
