@@ -39,6 +39,8 @@ if (args is ["migrate"])
     return;
 }
 
+app.UseSecurityHeaders(app.Environment);
+
 // One structured event per request, carrying its method, path (never the query string), status and time.
 // A health probe is logged only when it fails.
 app.UseSerilogRequestLogging(options =>
