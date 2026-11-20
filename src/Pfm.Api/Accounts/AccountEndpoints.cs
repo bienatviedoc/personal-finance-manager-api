@@ -2,6 +2,7 @@ using System.Globalization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
 using Pfm.Application.Accounts;
+using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Accounts;
 
@@ -14,6 +15,8 @@ public static class AccountEndpoints
     {
         var accounts = api.MapGroup("/accounts").WithTags("Accounts").ProducesProblem(StatusCodes.Status401Unauthorized);
 
+        accounts.MapGet("/", List).WithName("ListAccounts")
+            .WithDescription("The user's accounts by name, each with its balance, and the total balance of each institution in each currency. The totals cover the whole list, whichever page is asked for. Archived accounts, which pickers never offer, only with includeArchived=true.");
         accounts.MapGet("/{id:guid}", Get).WithName("GetAccount")
             .WithDescription("One account, archived or not, with its balance. The ETag header carries its row version.");
         accounts.MapPost("/", Create).WithName("CreateAccount")
@@ -22,8 +25,32 @@ public static class AccountEndpoints
             .WithDescription("Changes an account; its balance follows a new opening balance at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
+        accounts.MapDelete("/{id:guid}", Archive).WithName("ArchiveAccount")
+            .WithDescription("Archives the account, at any balance: it leaves lists and pickers and stays in history.");
 
         return api;
+    }
+
+    /// <param name="limit">How many accounts a page holds: 1 to 100, 50 when left out.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    private static async Task<Results<Ok<AccountListResponse>, ValidationProblem>> List(
+        ListAccountsHandler handler, CancellationToken cancellationToken,
+        bool includeArchived = false, int limit = Paging.DefaultLimit, string? cursor = null)
+    {
+        if (!Paging.IsValidLimit(limit))
+        {
+            return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+        }
+
+        NameCursor? after = null;
+        if (cursor is not null && !NameCursor.TryParse(cursor, out after))
+        {
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
+        }
+
+        var list = await handler.HandleAsync(new ListAccounts(includeArchived, limit, after), cancellationToken);
+        return TypedResults.Ok(new AccountListResponse(
+            [.. list.Page.Items.Select(AccountResponse.From)], list.Page.NextCursor, [.. list.Totals.Select(InstitutionTotalResponse.From)]));
     }
 
     private static async Task<Results<Ok<AccountResponse>, NotFound>> Get(
@@ -85,6 +112,18 @@ public static class AccountEndpoints
         };
     }
 
+    private static async Task<Results<NoContent, NotFound, ValidationProblem>> Archive(
+        Guid id, ArchiveAccountHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new ArchiveAccountCommand(id), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
+    }
+
     private static ProblemHttpResult Stale() =>
         TypedResults.Problem(
             statusCode: StatusCodes.Status412PreconditionFailed, title: "The account has changed since it was read. Read it again, then edit it.");
@@ -128,4 +167,18 @@ public sealed record AccountResponse(
         new(account.Id, account.InstitutionId, account.Name, account.Type, account.Currency, AmountJson.Text(account.OpeningBalance),
             account.AmountOwed is { } owed ? AmountJson.Text(owed) : null, account.OpeningDate, AmountJson.Text(account.Balance),
             account.IsArchived, account.RowVersion.ToString(CultureInfo.InvariantCulture));
+}
+
+/// <summary>
+/// A page of accounts. <c>nextCursor</c> asks for the next page; it is null on the last. <c>totals</c> are
+/// of every account the list holds, on every page.
+/// </summary>
+public sealed record AccountListResponse(IReadOnlyList<AccountResponse> Items, string? NextCursor, IReadOnlyList<InstitutionTotalResponse> Totals);
+
+/// <summary>The total balance of the listed accounts at one institution in one currency.</summary>
+/// <param name="InstitutionId">Null for the accounts held with no institution.</param>
+/// <param name="Balance">A decimal string in <paramref name="Currency"/>.</param>
+public sealed record InstitutionTotalResponse(Guid? InstitutionId, Currency Currency, string Balance)
+{
+    public static InstitutionTotalResponse From(InstitutionTotal total) => new(total.InstitutionId, total.Currency, AmountJson.Text(total.Balance));
 }

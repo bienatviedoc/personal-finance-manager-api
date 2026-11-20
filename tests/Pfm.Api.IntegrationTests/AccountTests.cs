@@ -1,5 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Pfm.Infrastructure.Persistence;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -251,6 +254,128 @@ public class AccountTests(PfmApi api)
     }
 
     [Fact]
+    public async Task The_list_is_in_order_of_name_with_each_accounts_balance()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await AddAsync(browser, Current("travel fund", "300"));
+        await AddAsync(browser, new { name = "Visa", type = "creditCard", currency = "VND", amountOwed = "200", openingDate = "2026-11-01" });
+        await AddAsync(browser, Current("Everyday", "1000"));
+
+        var accounts = await ListAsync(browser);
+
+        Assert.Equal(["Everyday", "travel fund", "Visa"], accounts.Select(account => account.Name));
+        Assert.Equal(["1000.00", "300.00", "-200.00"], accounts.Select(account => account.Balance));
+    }
+
+    [Fact]
+    public async Task The_list_totals_the_balances_of_each_institution_in_each_currency()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var vietcombank = await AddInstitutionAsync(browser, "Vietcombank");
+        var momo = await AddInstitutionAsync(browser, "MoMo");
+        await AddAsync(browser, new { name = "Everyday", type = "current", institutionId = vietcombank, currency = "VND", openingBalance = "1000000", openingDate = "2026-11-01" });
+        await AddAsync(browser, new { name = "Visa", type = "creditCard", institutionId = vietcombank, currency = "VND", amountOwed = "200000", openingDate = "2026-11-01" });
+        await AddAsync(browser, new { name = "Dollars", type = "savings", institutionId = vietcombank, currency = "USD", openingBalance = "50.25", openingDate = "2026-11-01" });
+        await AddAsync(browser, new { name = "Wallet", type = "eWallet", institutionId = momo, currency = "VND", openingBalance = "70000", openingDate = "2026-11-01" });
+        await AddAsync(browser, new { name = "Pocket", type = "cash", currency = "VND", openingBalance = "5000", openingDate = "2026-11-01" });
+        await AddAsync(browser, new { name = "Jar", type = "cash", currency = "VND", openingBalance = "500", openingDate = "2026-11-01" });
+
+        var page = await PageAsync(browser);
+
+        Assert.Equal(
+            [
+                new TotalBody(null, "VND", "5500.00"),
+                new TotalBody(momo, "VND", "70000.00"),
+                new TotalBody(vietcombank, "USD", "50.25"),
+                new TotalBody(vietcombank, "VND", "800000.00"),
+            ],
+            page.Totals.OrderBy(total => total.InstitutionId == vietcombank).ThenBy(total => total.InstitutionId == momo).ThenBy(total => total.Currency));
+    }
+
+    [Fact]
+    public async Task The_list_comes_in_pages_each_pointing_to_the_next_and_every_page_carries_the_totals_of_the_whole_list()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await AddAsync(browser, Current("travel fund", "300"));
+        await AddAsync(browser, Current("Everyday", "1000"));
+        await AddAsync(browser, Current("Rainy day", "50"));
+
+        var first = await PageAsync(browser, "?limit=2");
+        var second = await PageAsync(browser, $"?limit=2&cursor={Uri.EscapeDataString(first.NextCursor!)}");
+
+        Assert.Equal(["Everyday", "Rainy day"], first.Items.Select(account => account.Name));
+        Assert.Equal(["travel fund"], second.Items.Select(account => account.Name));
+        Assert.Null(second.NextCursor);
+        Assert.Equal([new TotalBody(null, "VND", "1350.00")], first.Totals);
+        Assert.Equal(first.Totals, second.Totals);
+    }
+
+    [Theory]
+    [InlineData("?limit=0", "limit")]
+    [InlineData("?limit=101", "limit")]
+    [InlineData("?cursor=not-a-cursor", "cursor")]
+    public async Task A_page_size_outside_1_to_100_or_a_cursor_the_list_did_not_give_is_refused(string query, string field)
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await browser.GetAsync(Accounts + query);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal([field], await response.ErrorFieldsAsync());
+    }
+
+    [Fact]
+    public async Task Deleting_an_account_archives_it_at_any_balance_so_it_leaves_the_list_and_its_totals_but_remains_readable()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var kept = await AddAsync(browser, Current("Everyday", "1000"));
+        var archived = await AddAsync(browser, Current("Old account", "250"));
+
+        var response = await browser.DeleteAsync($"{Accounts}/{archived.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        var listed = await PageAsync(browser);
+        Assert.Equal([kept.Id], listed.Items.Select(account => account.Id));
+        Assert.Equal([new TotalBody(null, "VND", "1000.00")], listed.Totals);
+
+        var read = await GetAsync(browser, archived.Id);
+        Assert.Equal((true, "250.00"), (read.IsArchived, read.Balance));
+
+        var withArchived = await PageAsync(browser, "?includeArchived=true");
+        Assert.Equal(["Everyday", "Old account"], withArchived.Items.Select(account => account.Name));
+        Assert.Equal([new TotalBody(null, "VND", "1250.00")], withArchived.Totals);
+    }
+
+    [Fact]
+    public async Task Archiving_an_account_twice_changes_nothing()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAsync(browser, Current("Old account"));
+        await browser.DeleteAsync($"{Accounts}/{account.Id}");
+        var archived = await GetAsync(browser, account.Id);
+
+        var again = await browser.DeleteAsync($"{Accounts}/{account.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, again.StatusCode);
+        Assert.Equal(archived, await GetAsync(browser, account.Id));
+    }
+
+    [Fact]
+    public async Task No_balance_is_stored_only_the_opening_balance()
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PfmDbContext>();
+
+        var columns = await db.Database
+            .SqlQuery<string>($"SELECT column_name AS \"Value\" FROM information_schema.columns WHERE table_name = 'Accounts'")
+            .ToListAsync();
+
+        Assert.Equal(
+            ["CreatedAt", "Currency", "Id", "InstitutionId", "IsArchived", "Name", "OpeningBalance", "OpeningDate", "Type", "UpdatedAt", "UserId"],
+            columns.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Another_users_accounts_are_never_visible_or_editable()
     {
         var (bob, _) = await api.SignedInAsync();
@@ -258,7 +383,10 @@ public class AccountTests(PfmApi api)
         var (alice, _) = await api.SignedInAsync();
         var path = $"{Accounts}/{bobs.Id}";
 
+        Assert.Empty((await PageAsync(alice, "?includeArchived=true")).Items);
+        Assert.Empty((await PageAsync(alice, "?includeArchived=true")).Totals);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync(path)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.DeleteAsync(path)).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.PutAsync(path, Current("Alice's now"), ifMatch: Quoted(bobs.RowVersion))).StatusCode);
 
         Assert.Equal(bobs, await GetAsync(bob, bobs.Id));
@@ -278,7 +406,7 @@ public class AccountTests(PfmApi api)
     [Fact]
     public async Task A_visitor_who_is_not_signed_in_cannot_see_accounts()
     {
-        var response = await api.CreateBrowser().GetAsync($"{Accounts}/{Guid.CreateVersion7()}");
+        var response = await api.CreateBrowser().GetAsync(Accounts);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -312,7 +440,20 @@ public class AccountTests(PfmApi api)
         return account;
     }
 
+    private static async Task<AccountBody[]> ListAsync(Browser browser, string query = "") => (await PageAsync(browser, query)).Items;
+
+    private static async Task<AccountList> PageAsync(Browser browser, string query = "")
+    {
+        var response = await browser.GetAsync(Accounts + query);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<AccountList>())!;
+    }
+
     private sealed record Identified(Guid Id);
+
+    private sealed record AccountList(AccountBody[] Items, string? NextCursor, TotalBody[] Totals);
+
+    private sealed record TotalBody(Guid? InstitutionId, string Currency, string Balance);
 
     private sealed record AccountBody(
         Guid Id, Guid? InstitutionId, string Name, string Type, string Currency, string OpeningBalance, string? AmountOwed, string OpeningDate,
