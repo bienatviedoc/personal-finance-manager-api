@@ -21,23 +21,21 @@ public abstract record SetUpTwoFactorOutcome
 
     /// <summary>Two-factor sign-in is on already. A new key would stop the user's authenticator working, so none is made.</summary>
     public sealed record AlreadyOn : SetUpTwoFactorOutcome;
-
-    /// <summary>Nobody is signed in (or their user is gone).</summary>
-    public sealed record NotSignedIn : SetUpTwoFactorOutcome;
 }
 
+/// <summary>Answers null when nobody is signed in (or their user is gone).</summary>
 public sealed class SetUpTwoFactorHandler(
     IValidator<SetUpTwoFactorCommand> validator, ICurrentUser currentUser, IUsers users, ITwoFactor twoFactor)
-    : CommandHandler<SetUpTwoFactorCommand, SetUpTwoFactorOutcome>(validator)
+    : CommandHandler<SetUpTwoFactorCommand, SetUpTwoFactorOutcome?>(validator)
 {
     /// <summary>What an authenticator app lists the codes under.</summary>
     public const string Issuer = "Personal Finance Manager";
 
-    protected override async Task<Result<SetUpTwoFactorOutcome>> ExecuteAsync(SetUpTwoFactorCommand command, CancellationToken cancellationToken)
+    protected override async Task<Result<SetUpTwoFactorOutcome?>> ExecuteAsync(SetUpTwoFactorCommand command, CancellationToken cancellationToken)
     {
         if (currentUser.UserId is not { } userId || await users.FindByIdAsync(userId) is not { } user)
         {
-            return new SetUpTwoFactorOutcome.NotSignedIn();
+            return (SetUpTwoFactorOutcome?)null;
         }
 
         if (user.TwoFactorEnabled)
