@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Domain.Transactions;
+using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions.Categories;
 
@@ -14,5 +15,5 @@ internal static class CategoryRules
 
     /// <summary>A broken category rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this CategoryRuleViolation violation) =>
-        new Dictionary<string, string[]> { [violation.Property] = [violation.Message] };
+        FieldError.On(violation.Property, violation.Message);
 }

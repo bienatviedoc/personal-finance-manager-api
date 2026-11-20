@@ -11,4 +11,5 @@ Budgets and reports are in the user's base currency, while accounts can be in ot
 
 - If no rate exists on or before a transaction's date, the transaction is still saved and is flagged as not converted in budgets and reports until a rate arrives.
 - Rates are fetched automatically each day; users do not enter them in v1.
+- While the base currency can still change (no budget yet), changing it converts every transaction again into the new one, each at the stored rate for its own date, and from then on those amounts are locked as before.
 - A user who wants a different base currency after budgeting has no path in v1.

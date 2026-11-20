@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
+using Pfm.Application.ExchangeRates;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Observability;
@@ -47,6 +49,9 @@ public sealed class PfmApi : IAsyncLifetime
 
     /// <summary>Every span and log event the API exported, as well as sending them on.</summary>
     public CapturedTelemetry Telemetry { get; } = new();
+
+    /// <summary>Has something happen between a use case reading a row and saving it; see <see cref="InterleavedSaves"/>.</summary>
+    public InterleavedSaves Saves { get; } = new();
 
     private WebApplicationFactory<Program> Factory =>
         _factory ?? throw new InvalidOperationException("The API has not been started.");
@@ -91,6 +96,20 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>
+    /// Turns two-factor sign-in on for the user signed in on this browser, the way the security screen does: set up,
+    /// then confirm with a code. Answers the authenticator's key (for <see cref="Totp"/>) and the recovery codes.
+    /// </summary>
+    public async Task<(string Key, string[] RecoveryCodes)> TurnOnTwoFactorAsync(Browser browser)
+    {
+        var setup = await (await browser.PostAsync("/api/v1/me/two-factor/setup")).Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
+        var key = setup.GetProperty("key").GetString()!;
+        var enabled = await browser.PostAsync("/api/v1/me/two-factor/enable", new { code = Totp.CodeFor(key) });
+        enabled.EnsureSuccessStatusCode();
+        var codes = (await enabled.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>()).GetProperty("recoveryCodes");
+        return (key, [.. codes.EnumerateArray().Select(code => code.GetString()!)]);
+    }
+
+    /// <summary>
     /// A second copy of the API in the Development environment, used over plain HTTP the way the
     /// local stack is (no TLS in front of it).
     /// </summary>
@@ -120,14 +139,62 @@ public sealed class PfmApi : IAsyncLifetime
         return factory;
     }
 
-    /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
-    public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
-        new(on.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true }));
+    /// <summary>A second copy of the API where a sign-in lock lasts only this long.</summary>
+    public WebApplicationFactory<Program> WhereSignInLocksFor(TimeSpan time)
+    {
+        var factory = CreateFactory(ConnectionString, Emails, configure: services =>
+            services.Configure<Microsoft.AspNetCore.Identity.IdentityOptions>(options => options.Lockout.DefaultLockoutTimeSpan = time));
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
+    /// <summary>
+    /// A second copy of the API where a client gets only this many attempts at the auth endpoints in each window.
+    /// The copy the tests share allows so many that no test meets the limit by accident.
+    /// </summary>
+    /// <param name="behindProxy">Whether the copy is told it is reachable only through a proxy (<c>ASPNETCORE_FORWARDEDHEADERS_ENABLED=true</c>).</param>
+    public WebApplicationFactory<Program> WithAuthRateLimit(int attempts, TimeSpan window, bool behindProxy = false)
+    {
+        var settings = new Dictionary<string, string>
+        {
+            ["RateLimiting:Auth:PermitLimit"] = attempts.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["RateLimiting:Auth:WindowSeconds"] = ((int)window.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+        if (behindProxy)
+        {
+            // What the environment variable becomes in configuration.
+            settings["ForwardedHeaders_Enabled"] = "true";
+        }
+
+        var factory = CreateFactory(ConnectionString, Emails, settings: settings);
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
+    /// <summary>The header a test browser names its network address in; see <see cref="ClientAddressFilter"/>.</summary>
+    private const string ClientAddressHeader = "X-Test-Client-Address";
+
+    /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API, perhaps calling from a network address of its own.</summary>
+    public static Browser CreateBrowser(WebApplicationFactory<Program> on, string? clientAddress = null)
+    {
+        var client = on.CreateClient(new WebApplicationFactoryClientOptions { BaseAddress = new Uri("https://localhost"), HandleCookies = true });
+        if (clientAddress is not null)
+        {
+            client.DefaultRequestHeaders.Add(ClientAddressHeader, clientAddress);
+        }
+
+        return new Browser(client);
+    }
 
     public async Task InitializeAsync()
     {
         await _database.StartAsync();
-        _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry);
+        _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry, configure: services =>
+        {
+            services.AddSingleton(Saves);
+            services.RemoveAll<IUnitOfWork>();
+            services.AddScoped<IUnitOfWork, InterleavedSaves.UnitOfWork>();
+        });
         await _factory.Services.MigrateDatabaseAsync();
     }
 
@@ -152,6 +219,8 @@ public sealed class PfmApi : IAsyncLifetime
             builder.UseEnvironment(environment);
             builder.UseSetting($"ConnectionStrings:{InfrastructureServices.ConnectionStringName}", connectionString);
             builder.UseSetting("App:PublicUrl", PublicUrl);
+            // Every test calls from the same address, so the real limit would have them refuse each other.
+            builder.UseSetting("RateLimiting:Auth:PermitLimit", "1000000");
             foreach (var (key, value) in settings ?? [])
             {
                 builder.UseSetting(key, value);
@@ -160,10 +229,13 @@ public sealed class PfmApi : IAsyncLifetime
             builder.ConfigureServices(services =>
             {
                 services.AddTransient<IStartupFilter, ThrowingRouteFilter>();
+                services.AddTransient<IStartupFilter, ClientAddressFilter>();
                 // Check the session against the user's security stamp on every request, not every few minutes.
                 services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
+                services.RemoveAll<IExchangeRateSource>();
+                services.AddSingleton<IExchangeRateSource, FakeExchangeRateSource>();
                 if (telemetry is not null)
                 {
                     // Added to the API's own pipelines, so only what they export is captured.
@@ -174,6 +246,24 @@ public sealed class PfmApi : IAsyncLifetime
                 configure?.Invoke(services);
             });
         });
+
+    /// <summary>The in-memory test server has no network, so a browser says which address it calls from.</summary>
+    private sealed class ClientAddressFilter : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use(async (context, nextMiddleware) =>
+            {
+                if (context.Request.Headers.TryGetValue(ClientAddressHeader, out var address))
+                {
+                    context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(address.ToString());
+                }
+
+                await nextMiddleware(context);
+            });
+            next(app);
+        };
+    }
 
     private sealed class ThrowingRouteFilter : IStartupFilter
     {

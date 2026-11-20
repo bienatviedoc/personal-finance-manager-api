@@ -4,11 +4,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Accounts;
 using Pfm.Application.Accounts.Institutions;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Identity;
+using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
+using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
 using Pfm.Infrastructure.Transactions;
@@ -41,6 +45,7 @@ public static class InfrastructureServices
         services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
+        services.AddScoped<IAccountRepository, AccountRepository>();
 
         services.AddHealthChecks().AddDbContextCheck<PfmDbContext>("database", tags: [ReadyTag]);
 
@@ -58,7 +63,10 @@ public static class InfrastructureServices
         services.AddTransient<IEmailSender, SmtpEmailSender>();
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
-        services.AddScoped<ICategoryUsage, NoTransactionsYet>();
+        services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<ICategoryUsage, TransactionTotals>();
+        services.AddScoped<IAccountTransactions, TransactionTotals>();
+        services.AddExchangeRates();
 
         return services;
     }
@@ -86,6 +94,13 @@ public static class InfrastructureServices
                 options.Password.RequireUppercase = false;
                 options.Password.RequireNonAlphanumeric = false;
                 options.Password.RequiredUniqueChars = 1;
+
+                // Five wrong passwords or two-factor codes in a row lock sign-in for the user for fifteen minutes:
+                // long enough to make guessing hopeless, short enough that someone locking another user out on
+                // purpose costs them little. A password reset lifts it.
+                options.Lockout.AllowedForNewUsers = true;
+                options.Lockout.MaxFailedAccessAttempts = 5;
+                options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
             })
             .AddEntityFrameworkStores<PfmDbContext>()
             .AddSignInPorts();
@@ -108,6 +123,7 @@ public static class InfrastructureServices
         // Only a host that signs people in replaces this, with AddSignIn().
         builder.Services.TryAddScoped<ISessions, NoSessions>();
         builder.Services.AddScoped<IUsers, IdentityUsers>();
+        builder.Services.AddScoped<ITwoFactor, IdentityTwoFactor>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
         builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
         return builder;

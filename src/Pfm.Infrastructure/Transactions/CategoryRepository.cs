@@ -19,13 +19,3 @@ internal sealed class CategoryRepository(PfmDbContext db) : ICategoryRepository
 
     public void Add(Category category) => db.Set<Category>().Add(category);
 }
-
-/// <summary>
-/// No transactions exist yet, so no category is in use. Replaced by a query on transaction lines when
-/// transactions arrive (#9).
-/// </summary>
-internal sealed class NoTransactionsYet : ICategoryUsage
-{
-    public Task<bool> HasTransactionsAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
-        Task.FromResult(false);
-}

@@ -68,6 +68,14 @@ _Avoid_: Dupe, conflict
 Matching an account's transactions against a statement's closing balance until the difference is exactly zero, which then locks those transactions.
 _Avoid_: Balancing, verification, closing
 
+**Two-factor sign-in**:
+Signing in with a password and, as well, a code from an authenticator app on the user's phone. A user turns it on and off; it is off until they do.
+_Avoid_: 2FA, MFA, two-step verification (in the interface)
+
+**Recovery code**:
+One of ten codes a user is shown once when they turn two-factor sign-in on. Each signs them in one time in place of a code from the authenticator app.
+_Avoid_: Backup code, scratch code
+
 **Deactivated user**:
 A user who has asked to be deleted and is within the 30 days before permanent erasure; signing in again cancels the deletion.
 _Avoid_: Deleted user, suspended user
@@ -75,6 +83,14 @@ _Avoid_: Deleted user, suspended user
 **Base currency**:
 The single currency a user chooses for totals, budgets and reports across accounts in different currencies.
 _Avoid_: Home currency, default currency, reporting currency
+
+**Exchange rate**:
+What one unit of a currency was worth in another on one calendar day. Rates are fetched each day, shared by every user and never entered by one.
+_Avoid_: FX rate, conversion rate, price
+
+**Not converted**:
+Said of an amount that stays in its own currency because no exchange rate exists on or before its date. It is flagged and left out of base-currency totals until a rate arrives.
+_Avoid_: Unconverted, pending, missing rate (for the amount)
 
 **Locale**:
 The language a user uses the app in, English or Vietnamese: the interface, how amounts and dates are written, and the names of the default categories they start with. A user registers in a locale and can change it later; one who has never chosen one sees their browser's.

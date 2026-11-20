@@ -69,7 +69,7 @@ Eight concepts carry the whole product; the rules under the table are the ones m
 4. **Cross-currency transfers store both amounts.** The exchange rate is implied by the two legs, not looked up.
 5. **A transaction can be split** across several categories. The split lines must sum exactly to the transaction amount.
 6. **Budgets roll up.** Spending in a subcategory counts toward a budget set on its parent. A budget cannot be set on both a parent and its child for the same month.
-7. **Reports convert to the base currency at the rate on the transaction date.** Rates are stored per currency pair per day; a missing rate falls back to the nearest earlier date. Rates are fetched automatically each day from an external source; the user never enters them in v1. An amount is converted once, at its transaction-date rate, and is not revalued when rates move. If no rate exists on or before the date, the transaction is still saved and is flagged as not converted in budgets and reports until a rate arrives.
+7. **Reports convert to the base currency at the rate on the transaction date.** Rates are stored per currency pair per day; a missing rate falls back to the nearest earlier date. Rates are fetched automatically each day from an external source; the user never enters them in v1. An amount is converted once, at its transaction-date rate, and is not revalued when rates move. If no rate exists on or before the date, the transaction is still saved and is flagged as not converted in budgets and reports until a rate arrives. Changing the base currency, which is only possible before the first budget (rule 12), converts every transaction again into the new one, each at the rate of its own date.
 8. **Transaction date is a calendar date with no time**, interpreted in the user's time zone. Created and updated timestamps are UTC.
 9. **Credit cards and loans are accounts with a negative balance.** The user enters the amount owed as a positive number and the account shows it as a negative balance. Paying the card is a transfer from a current account, not an expense, so the spending is not counted twice.
 10. **Deletes are soft.** Accounts with history are archived, not deleted. An account can be archived at any balance, with a warning when the balance is not zero, and it stays in net worth and reports. Deleted transactions are recoverable for 30 days.
@@ -293,7 +293,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Institution` | Name, LogoKey, Color, IsArchived |  |
 | `Account` | InstitutionId?, Name, Type, Currency, OpeningBalance, OpeningDate, CreditLimit?, Last4?, IsArchived | Currency immutable once transactions exist |
 | `Category` | ParentId?, Name, Kind (Income or Expense), Icon, Color, IsArchived | Max depth 2, enforced in domain |
-| `Transaction` | AccountId, Type, Amount, Currency, Date, Payee, Note, IsRefund, TransferId?, RecurringRuleId?, ImportBatchId?, ReconciliationId?, RowVersion | Amount > 0. Currency copied from account |
+| `Transaction` | AccountId, Type, Amount, Currency, Date, BaseCurrency, BaseCurrencyAmount?, ExchangeRate?, ExchangeRateDate?, Payee, Note, IsRefund, TransferId?, RecurringRuleId?, ImportBatchId?, ReconciliationId?, RowVersion | Amount > 0. Currency copied from account. The amount converted once into the user's base currency (rule 7), with the rate used and the day that rate is of; the three are null together while the transaction is not converted |
 | `TransactionLine` | TransactionId, CategoryId, Amount, Note | One line normally, several for a split. Lines sum to the transaction amount |
 | `Tag`, `TransactionTag` | Name; TransactionId + TagId | Many to many |
 | `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage |
@@ -303,7 +303,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `ImportMapping` | AccountId, ColumnMap (JSON), DateFormat, DecimalSeparator |  |
 | `CategoryRule` | MatchText, MatchType, CategoryId, Priority | Used by import and quick add |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
-| `ExchangeRate` | BaseCurrency, QuoteCurrency, Date, Rate | Shared across users; no UserId |
+| `ExchangeRate` | FromCurrency, ToCurrency, Date, Rate | What one unit of FromCurrency was worth in ToCurrency that day. Shared across users; no UserId |
 | `AuditEntry` | Action, EntityType, EntityId, At, Summary | Append only |
 
 **Indexes and integrity**
@@ -326,7 +326,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
 - Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. The category tree is the exception: `GET /categories` returns all of its `items` at once, because a tree cannot be cut into pages and a user has dozens of categories.
 - Updates send `If-Match` with the row version; a stale version returns `412`.
-- `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate.
+- `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.
 
 **Endpoints**
@@ -335,6 +335,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | --- | --- | --- |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency, time zone, locale |
+| Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
 | Accounts | `POST /accounts/{id}/reconciliations`; `POST /reconciliations/{id}/complete` | Start and lock a reconciliation |

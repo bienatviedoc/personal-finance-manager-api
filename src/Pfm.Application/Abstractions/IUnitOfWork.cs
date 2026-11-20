@@ -3,7 +3,15 @@ namespace Pfm.Application.Abstractions;
 /// <summary>Saves every change a use case made, together, or none of them.</summary>
 public interface IUnitOfWork
 {
+    /// <exception cref="ConcurrentChangeException">A row being saved changed since it was read.</exception>
+    /// <exception cref="AlreadyExistsException">A row being saved repeats a value only one row may have.</exception>
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Forgets every change not yet saved and every row read so far, so what is read next is what is saved
+    /// now. For a use case that starts again after a <see cref="ConcurrentChangeException"/>.
+    /// </summary>
+    void DiscardChanges();
 
     /// <summary>
     /// Starts a transaction around several saves, for a use case whose steps must all happen or none

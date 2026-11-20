@@ -28,13 +28,18 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
 
 /// <summary>
 /// Answers the edited category, or null when the user has no category with that id. A new kind applies to
-/// the category's subcategories too, and is refused once any of them has transactions.
+/// the category's subcategories too, and is refused once any of them has transactions. The edit names no row
+/// version, so when one of them takes its first transaction before a new kind is saved, it is made again on
+/// what was saved, and refused.
 /// </summary>
 public sealed class EditCategoryHandler(
     IValidator<EditCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<EditCategoryCommand, CategoryDetails?>(validator)
 {
-    protected override async Task<Result<CategoryDetails?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken)
+    protected override Task<Result<CategoryDetails?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync(() => EditAsync(command, cancellationToken));
+
+    private async Task<Result<CategoryDetails?>> EditAsync(EditCategoryCommand command, CancellationToken cancellationToken)
     {
         var category = await categories.FindAsync(command.Id, cancellationToken);
         if (category is null)

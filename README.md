@@ -42,7 +42,10 @@ dotnet test Pfm.slnx
 ```
 
 Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
-the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Those tests share one API and all call from one
+address, so its rate limit is set too high to meet; a test of the limit (or of anything else set at start-up)
+runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
+user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -78,7 +81,10 @@ Each use case lives in its module in `Pfm.Application` as one file holding three
 input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
 handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
 handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
-enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property. An
+outcome that carries data is a record: one with a named instance for the case that saved nothing
+(`EditAccountOutcome.Stale`, `CreateTransactionOutcome.KeyReused`), or, when the cases carry different data,
+an abstract record with one nested record for each (`SetUpTwoFactorOutcome.Ready`, `.AlreadyOn`).
 A use case that acts on one of the user's things by id, query or command, answers null when the user has
 no such thing, and the endpoint answers 404: `EditInstitution` answers `InstitutionDetails?`,
 `ArchiveCategory` answers `Done?`. `UpdateProfile` answers null when nobody is signed in (a 401).
@@ -100,11 +106,108 @@ nothing) and its handler. It has no validator or `Result`: the handler implement
 directly, null when the user has no such thing (a 404). Handlers that
 change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
 domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
-breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
+breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`. A command
+reads what travels as text with `EnumText<T>` (an enum's camelCase name), `DateText` and `AmountText`, and a
+handler names one field to fix with `FieldError.On`. A command about the signed-in user's own sign-in finds them
+with `IUsers.FindSignedInAsync`; a query that only reads it (`GetTwoFactor`) goes by `ICurrentUser.UserId`. An endpoint that edits from a row version reads `If-Match` with
+`RowVersions.TryRead`, which also answers the 428 and 412.
 
-**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+**Archive, never delete.** `DELETE` on an institution, account or category archives it: it
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
-already uses it can still show it.
+already uses it can still show it. An account can be archived at any balance.
+
+### Accounts and balances
+
+- **A balance is never stored.** `Account.BalanceWith` adds what the account's transactions come to onto its
+  opening balance, each time it is asked. Accounts asks the Transactions module for that sum through
+  `IAccountTransactions` (in `Pfm.Application.Contracts.Transactions`), answered by a `SUM` over the account's
+  transactions (`TransactionTotals`). The same contract says whether an account has transactions, which fixes its
+  currency. A test pins the columns of the `Accounts` table, so a stored balance cannot slip in.
+- **Amount owed.** A credit card or loan sends `amountOwed`, a positive number, instead of `openingBalance`; the
+  domain holds it as a negative opening balance, so the account shows a negative balance (spec section 3, rule 9).
+  The response carries both.
+- **Last 4 digits.** Any account can send `last4`, the last 4 digits of its number, as a label. It is exactly 4
+  digits (`Last4Digits`) in a `character(4)` column: a full account or card number is refused by name and has
+  nowhere to be stored (spec ACC-8).
+- **Credit card fields.** Only a credit card takes `creditLimit` (a decimal string, not negative), `statementDay`
+  and `paymentDueDay` (days of the month, 1 to 31), each optional (`CreditCardTerms`); any other type that sends
+  one is refused. The response adds `availableCredit`: the credit limit minus the amount owed now, so it is the
+  limit plus the (negative) balance, negative over the limit, and null without a limit. Like the balance it is
+  computed each time (`Account.AvailableCreditWith`) and never stored. `PUT` replaces every field, so `last4` or
+  a credit card field left out is removed.
+- **`GET /accounts`** is paged like every list, and also answers `totals`: the balance of each institution in
+  each currency, over the whole list whichever page is asked for. Currencies are never added together.
+- **`baseCurrencyTotal`**, on the same answer, is those totals converted into the user's base currency at today's
+  exchange rates and added up: one balance for everything, and one for each of its `institutions` (spec ACC-4). A
+  balance that is not converted (see below) is left out and listed under `notConverted`, on the institution and
+  on the whole.
+
+### Exchange rates
+
+- **Nobody enters a rate.** The worker's `ExchangeRateFetchJob` runs `FetchExchangeRates` when it starts and every
+  six hours: it asks the source for every day since the latest one stored (a year back the first time) and stores
+  the rate of every pair of currencies, in both directions, per day. A stored rate never changes. A day stored
+  without every pair (the source had not quoted a currency yet) is asked for again for a week, and only the
+  pairs it lacks are filled in. Rates are stored with `INSERT … ON CONFLICT DO NOTHING`, so two workers fetching
+  at once store each rate once and neither fails. The job is a plain `BackgroundService` on a timer: the
+  specification names Hangfire for background jobs (section 9), which is not in the repository yet. Rates
+  belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
+  ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the
+  network.
+- **Convert through `ICurrencyConversion`** (`Pfm.Application.ExchangeRates`), from any module: it answers the
+  amount at the rate of the date asked for, or of the nearest earlier day that has one, with the rate and the day
+  it is of. With no rate on or before the date it answers `Conversion.NotConverted`: keep the amount, flag it as
+  not converted and leave it out of totals (spec section 3, rule 7). A module reads the user's base currency
+  through `IBaseCurrency` (`Pfm.Application.Contracts.Identity`).
+- **Exchange rates are not a module.** Like `Currency`, they are shared by all six: `Pfm.Domain.ExchangeRates` and
+  `Pfm.Application.ExchangeRates` reach into no module, and any module may use them. The one thing a fetch asks
+  of a module goes through a contract: `ITransactionConversion` (see Transactions below).
+- **Configuration** (all optional): `ExchangeRates__SourceUrl` (a self-hosted Frankfurter),
+  `ExchangeRates__DaysBackWhenEmpty` (365) and `ExchangeRates__FetchEvery` (`06:00:00`).
+
+### Transactions
+
+- **Income or an expense** on one account, with an amount above zero whose sign is its type (spec section 3,
+  rule 2), a category of the kind its type takes, and optionally a payee and a note. Its currency is never sent:
+  it is the account's, and follows the transaction to another account.
+- **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
+  say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
+  while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
+- **Today is the user's.** A date cannot be in the future in the user's time zone (rule 8). Transactions asks
+  Identity what today is through `IUserCalendar`, and Accounts for the account's currency through
+  `IAccountLookup` (both in `Pfm.Application.Contracts`).
+- **Converted once** (rule 7, [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)).
+  Recording a transaction converts its amount into the user's base currency at the exchange rate of its date, or
+  of the nearest earlier day that has one, and the transaction keeps the result as one value,
+  `BaseCurrencyConversion`, in four columns: `BaseCurrency`, `BaseCurrencyAmount`, `ExchangeRate` and
+  `ExchangeRateDate`. Rates that arrive later never change it. An edit
+  converts again only when it changes the amount, the date or the account. A transaction in the base currency
+  itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
+- **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
+  `BaseCurrencyAmount`. Every fetch, whether it stored new rates or not, asks Transactions, through
+  `ITransactionConversion` (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted
+  transactions, deleted ones included; any edit of one tries again too. Each user's are saved on their own: when
+  a user changes theirs at that moment the conversion reads them again and retries, and if they keep changing
+  only that user waits for the next fetch (the worker logs a warning).
+- **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
+  transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
+  only happen until the base currency locks (rule 12).
+- **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
+  balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
+  currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
+- **`GET /transactions`** is the newest date first and, within a date, the last recorded first, paged like every
+  list. Filters, search and totals are still to come (#10).
+- **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
+  and keeps it.
+- **A foreign key to another module's table** (a transaction's account) is configured in
+  `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
+  Two more are named there and added by their migration alone, because the model cannot hold a foreign key to
+  columns that change: a transaction's account and currency point at an account and its currency, and its
+  user and base currency at a user and their base currency. A third, within the Transactions module
+  (`TransactionConfiguration`), points a transaction's category and the kind its type takes (the stored
+  column `CategoryKind`, which the database works out from the type) at a category and its kind. They are
+  what keeps an account's currency and a category's kind fixed once it has transactions, and spec rule 7,
+  when two requests save at once (see "Optimistic concurrency" below).
 
 ## Signing in
 
@@ -118,9 +221,12 @@ the browser never holds a token a script could read.
   locale, and in English for a user who has none (`IdentityEmails`).
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
-reset the password) are in
-`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
-Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+reset the password, change the password, and set up, turn on, turn off and get recovery codes for two-factor
+sign-in) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
+`SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
+keys, codes and recovery codes), `IPasswordPolicy`
 and `IIdentityEmails`, and `ISessions`, all implemented in `Pfm.Infrastructure.Identity`: `ISessions` is
 `CookieSessions` over the sign-in manager, which a host that signs people in registers with `AddSignIn()` while it
 configures the cookie itself (the API's `AuthenticationSetup`). Every Identity specific, the sign-in manager and
@@ -140,6 +246,39 @@ method on a port when it needs something Identity does, such as a reset token.
   day that email confirmation links last). A used, expired or tampered link answers 400 with the problem type
   `urn:pfm:problem:reset-link-invalid`; a password to fix answers a validation problem, and leaves the link
   usable.
+- **Two-factor sign-in** is optional, with an authenticator app (TOTP: six digits every thirty seconds).
+  `POST /api/v1/me/two-factor/setup` answers the `key` and the same key as an `otpauth://` link
+  (`authenticatorUri`) for the SPA to draw as a QR code; nothing changes until `POST /api/v1/me/two-factor/enable`
+  proves with a `code` that the app holds the key. That answers ten `recoveryCodes`, the only time they are shown;
+  each signs the user in once in place of the authenticator. `POST /api/v1/me/two-factor/recovery-codes` replaces
+  them and `POST /api/v1/me/two-factor/disable` turns it off (forgetting the key and the codes); both ask for the
+  `password`, because a session left open must not be enough. `GET /api/v1/me/two-factor` says whether it is on
+  and how many recovery codes are left.
+- **Signing in with two factors** is one request, sent twice: `POST /api/v1/auth/login` with the email and
+  password answers 401 with the problem type `urn:pfm:problem:two-factor-required`; the same request with
+  `twoFactorCode` (or `recoveryCode`) signs in. A wrong code answers 401 `urn:pfm:problem:two-factor-code-incorrect`.
+  Only someone who knows the password gets either answer, so a stranger cannot learn who uses two factors.
+- **Changing the password:** `POST /api/v1/me/password` with `currentPassword` and `newPassword`. A wrong
+  current password or a new one the policy refuses is a validation problem naming the field.
+- **Changes that end sessions:** a new password, and turning two-factor on or off, change the user's security
+  stamp. Their other sessions end; the one that made the change is issued its cookie again
+  (`ISessions.RefreshAsync`) and carries on.
+- **Lockout:** five wrong passwords or two-factor codes in a row lock sign-in for that user for fifteen minutes
+  (set in `AddUsers`). While locked, even the right password is answered exactly as a wrong one is, so the answer
+  does not reveal that the email has a user; the SPA warns about the lock beside that message. Signing in starts
+  the count again, and a password reset lifts the lock, since whoever holds the link owns the email address.
+- **Rate limiting:** one client address gets 20 attempts a minute across every endpoint that takes a password, a
+  code or an emailed link, or that sends email: all of `/api/v1/auth/...` except the anti-forgery token and
+  signing out, plus the password and two-factor changes under `/api/v1/me`. Over that, the answer is 429 Problem
+  Details with `Retry-After`, given before a password is hashed or the database asked. Set it with
+  `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
+  `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
+  share one budget: when the API is reachable only through a proxy that sets `X-Forwarded-For` (the SPA's nginx
+  image does), set `ASPNETCORE_FORWARDEDHEADERS_ENABLED=true` on the API in that deployment, so it counts the
+  real client. Set this way the API believes the header from whoever connects, so the network must let only that
+  proxy reach it. Never set it when clients can reach the API directly: they could then name any address. It is
+  off by default and nothing in the code turns it on; `compose.yaml` publishes the API directly, so it is not set
+  there, and neither repository has a deployment file that puts the API behind the nginx image yet.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.
@@ -151,6 +290,30 @@ method on a port when it needs something Identity does, such as a reset token.
   (a password reset or deactivation).
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
+
+## Hardening
+
+- **Security headers** go on every answer, errors and refusals included (`SecurityHeaders`):
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, and a content
+  security policy that allows nothing (`default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`),
+  because the API serves
+  data, never pages. Outside Development it also sends `Strict-Transport-Security` for a year. Answers under
+  `/api` are `Cache-Control: no-store`, so financial data does not linger in a cache. The SPA's own headers and
+  policy are in its repository.
+- **Dependency scanning:** restoring packages checks every one, direct or transitive, against NuGet's known
+  vulnerabilities (`Directory.Build.props`). One of high or critical severity fails the restore, locally and in
+  CI; low and moderate ones are warnings. Fix it by updating the package in `Directory.Packages.props`.
+- **Container scanning:** CI builds the API and worker images on the newest base image and scans them with
+  [Trivy](https://trivy.dev): the operating system's packages and the .NET runtime inside. A vulnerability of
+  high or critical severity that has a fix fails the job; one with no fix yet does not, since nothing can be done
+  about it. The usual fix is a rebuild, which picks up the patched base image. To run the same scan locally:
+
+  ```bash
+  docker build --pull -t pfm-api .
+  docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.76.2 image \
+    --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 pfm-api
+  ```
+- Lockout and rate limiting are described under [Signing in](#signing-in).
 
 ## Observability
 
@@ -182,7 +345,11 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There is one
+exception, and `UserOwnedDataTests` fails when a second appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted. It runs for the worker, which
+acts for no user, and answers user ids only, never a row; the worker then acts for each of those users in turn,
+inside the filter. Raw SQL is used only on exchange rates, which belong to no user.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
@@ -197,10 +364,34 @@ if they were signed in. Registration uses it to create the new user's default ca
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
   `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
   all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
+- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
+  `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
+  `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
+  `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
+  stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has
+  nothing to call stale: it reads again and is made on what was saved (`RetryOnConcurrentChangeAsync`). The
+  same exception is thrown when the database refuses a transaction whose account has changed currency or whose
+  user has changed base currency since they were read, or a change of either that a transaction recorded
+  meanwhile no longer fits. The use case is made again: the transaction takes the new currency, the base
+  currency change converts the new transaction too, and the account's currency change is refused, as it has
+  a transaction now. A category's kind goes the same way: the change is refused once a transaction got in
+  first, and a transaction is refused by the kind its category has just taken. In
+  tests, `api.Saves` (`InterleavedSaves`) has another request get in between a use case's read and its save.
+- **Idempotency** (spec section 11): `POST /transactions` takes an `Idempotency-Key` header, a key of up to 200
+  characters the client makes up for the transaction it is recording. Sending the request again with the same
+  key records nothing and answers the first transaction, with the same 201. The key is kept with the
+  transaction under a unique index per user, so two copies of the request arriving together still record one:
+  the loser's save throws `AlreadyExistsException` and it answers the winner's transaction. A fingerprint of
+  what the request asked for is kept beside the key (`IdempotentRequest`): the same key with a different
+  transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
+  so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
+  not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
+  nothing, so a late retry cannot bring back what the user deleted.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
-  code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
+  code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
-  name in camelCase (`"income"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  name in camelCase (`"income"`, `"creditCard"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
   in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:

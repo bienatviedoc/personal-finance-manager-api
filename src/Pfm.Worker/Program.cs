@@ -1,6 +1,7 @@
 using Pfm.Application;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
+using Pfm.Worker.ExchangeRates;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -12,5 +13,6 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddUsers();
 
 // Background jobs are registered here as the slices that need them land.
+builder.Services.AddHostedService<ExchangeRateFetchJob>();
 
 builder.Build().Run();

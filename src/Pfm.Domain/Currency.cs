@@ -13,6 +13,9 @@ public enum Currency
 
 public static class Currencies
 {
+    /// <summary>How many decimals an amount in the currency has: none for VND, two for the others.</summary>
+    public static int DecimalPlaces(this Currency currency) => currency == Currency.VND ? 0 : 2;
+
     /// <summary>
     /// The currency with exactly this ISO 4217 code. Codes are upper case; numbers and other spellings
     /// are not codes.

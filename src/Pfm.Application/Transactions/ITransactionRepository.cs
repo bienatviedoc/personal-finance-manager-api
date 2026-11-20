@@ -1,0 +1,37 @@
+using Pfm.Domain.Transactions;
+
+namespace Pfm.Application.Transactions;
+
+/// <summary>
+/// The signed-in user's transactions. A deleted one is in none of the answers, except to the request that is
+/// retried with its idempotency key. Changes are saved through <see cref="Abstractions.IUnitOfWork"/>.
+/// </summary>
+public interface ITransactionRepository
+{
+    /// <summary>
+    /// Up to <paramref name="take"/> transactions, newest date first and, within a date, last recorded first,
+    /// starting after <paramref name="after"/>.
+    /// </summary>
+    Task<IReadOnlyList<Transaction>> ListAsync(int take, TransactionCursor? after, CancellationToken cancellationToken);
+
+    /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
+    Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The transaction a request with this idempotency key recorded, deleted since or not, with that request's
+    /// fingerprint; null when none did.
+    /// </summary>
+    Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
+
+    /// <summary>Every transaction of the user, deleted or not.</summary>
+    Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
+
+    /// <summary>The user's transactions flagged not converted, deleted or not: a deleted one can be recovered.</summary>
+    Task<IReadOnlyList<Transaction>> ListNotConvertedAsync(CancellationToken cancellationToken);
+
+    /// <summary>Every user, signed in or not, who has a transaction flagged not converted.</summary>
+    Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken);
+
+    /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
+    void Add(Transaction transaction, IdempotentRequest? request);
+}

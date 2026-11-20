@@ -70,6 +70,7 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
         var reset = await users.ResetPasswordAsync(user, token, newPassword);
         if (reset.Succeeded)
         {
+            await ClearFailedSignInsAsync(user);
             return true;
         }
 
@@ -79,7 +80,61 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
             : throw new InvalidOperationException($"Resetting the password failed: {string.Join(", ", reset.Errors.Select(error => error.Code))}");
     }
 
-    private static UserDetails? Details(User? user) => user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed, user.Locale);
+    // Changing the password changes the security stamp, which ends every session.
+    public async Task<bool> ChangePasswordAsync(Guid userId, string currentPassword, string newPassword)
+    {
+        if (await users.FindByIdAsync(userId.ToString()) is not { } user)
+        {
+            return false;
+        }
+
+        var changed = await users.ChangePasswordAsync(user, currentPassword, newPassword);
+        if (changed.Succeeded)
+        {
+            return true;
+        }
+
+        // The use case checks the new password first, so the current one is the only thing left to refuse.
+        return changed.Errors.All(error => error.Code == nameof(IdentityErrorDescriber.PasswordMismatch))
+            ? false
+            : throw new InvalidOperationException($"Changing the password failed: {string.Join(", ", changed.Errors.Select(error => error.Code))}");
+    }
+
+    // Identity counts the failures and starts the lock when they reach the limit set in AddUsers.
+    public async Task RecordFailedSignInAsync(Guid userId)
+    {
+        if (await users.FindByIdAsync(userId.ToString()) is { } user)
+        {
+            await users.AccessFailedAsync(user);
+        }
+    }
+
+    public async Task<bool> IsLockedOutAsync(Guid userId) =>
+        await users.FindByIdAsync(userId.ToString()) is { } user && await users.IsLockedOutAsync(user);
+
+    public async Task ClearFailedSignInsAsync(Guid userId)
+    {
+        if (await users.FindByIdAsync(userId.ToString()) is { } user)
+        {
+            await ClearFailedSignInsAsync(user);
+        }
+    }
+
+    private async Task ClearFailedSignInsAsync(User user)
+    {
+        if (user.AccessFailedCount > 0)
+        {
+            await users.ResetAccessFailedCountAsync(user);
+        }
+
+        if (user.LockoutEnd is not null)
+        {
+            await users.SetLockoutEndDateAsync(user, null);
+        }
+    }
+
+    private static UserDetails? Details(User? user) =>
+        user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed, user.Locale, user.TwoFactorEnabled);
 }
 
 /// <summary>Identity's password validators, configured in <see cref="InfrastructureServices.AddUsers"/>.</summary>

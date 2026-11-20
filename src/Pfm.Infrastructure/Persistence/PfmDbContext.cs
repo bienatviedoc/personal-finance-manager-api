@@ -36,11 +36,43 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         // Trigram indexes back free-text search on payee and note.
         modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(PfmDbContext).Assembly);
+        ModuleReferences.Configure(modelBuilder);
 
         IsolateUserOwnedData(modelBuilder);
     }
 
-    Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken) => SaveChangesAsync(cancellationToken);
+    async Task IUnitOfWork.SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException exception)
+        {
+            throw new ConcurrentChangeException(exception);
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
+        {
+            throw new AlreadyExistsException(exception);
+        }
+        catch (Exception exception) when (RefusedAfterAConcurrentSave(exception))
+        {
+            throw new ConcurrentChangeException(exception);
+        }
+    }
+
+    /// <summary>
+    /// Whether the database refused the save because a transaction no longer has its account's currency, its
+    /// user's base currency or a category of its kind: another request changed one of them since this one read
+    /// it. The base currency is checked
+    /// at commit, where the error arrives as it is, not inside a <see cref="DbUpdateException"/>.
+    /// </summary>
+    private static bool RefusedAfterAConcurrentSave(Exception exception) =>
+        (exception as Npgsql.PostgresException ?? exception.InnerException as Npgsql.PostgresException)
+            is { SqlState: Npgsql.PostgresErrorCodes.ForeignKeyViolation, ConstraintName: var constraint }
+        && ModuleReferences.IsBrokenByAConcurrentSave(constraint);
+
+    void IUnitOfWork.DiscardChanges() => ChangeTracker.Clear();
 
     async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginTransactionAsync(CancellationToken cancellationToken) =>
         new Transaction(await Database.BeginTransactionAsync(cancellationToken));

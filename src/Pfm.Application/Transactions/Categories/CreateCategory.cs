@@ -38,7 +38,7 @@ public sealed class CreateCategoryHandler(
             parent = await categories.FindAsync(parentId, cancellationToken);
             if (parent is null)
             {
-                return Result<CategoryDetails>.Invalid(new Dictionary<string, string[]> { [nameof(command.ParentId)] = ["Choose one of your categories."] });
+                return Result<CategoryDetails>.Invalid(FieldError.On(nameof(command.ParentId), "Choose one of your categories."));
             }
         }
 
