@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain.ExchangeRates;
 
@@ -7,7 +8,8 @@ namespace Pfm.Application.ExchangeRates;
 
 /// <summary>
 /// Fetches the exchange rates of every day since the latest one stored, up to today, and stores them. The
-/// worker runs it each day; no user can (spec section 3, rule 7).
+/// worker runs it each day; no user can (spec section 3, rule 7). When rates arrived, the transactions
+/// flagged not converted are converted with them (decision record 0002).
 /// </summary>
 /// <param name="DaysBackWhenEmpty">
 /// How far back the first fetch goes, while no rate is stored yet, so that amounts dated before the app was
@@ -33,8 +35,8 @@ public sealed class FetchExchangeRatesValidator : AbstractValidator<FetchExchang
 public sealed record ExchangeRatesFetched(int Days);
 
 public sealed class FetchExchangeRatesHandler(
-    IValidator<FetchExchangeRatesCommand> validator, IExchangeRateSource source, IExchangeRateRepository rates, IUnitOfWork unitOfWork,
-    TimeProvider time)
+    IValidator<FetchExchangeRatesCommand> validator, IExchangeRateSource source, IExchangeRateRepository rates,
+    ITransactionConversion transactions, IUnitOfWork unitOfWork, TimeProvider time)
     : CommandHandler<FetchExchangeRatesCommand, ExchangeRatesFetched>(validator)
 {
     protected override async Task<Result<ExchangeRatesFetched>> ExecuteAsync(FetchExchangeRatesCommand command, CancellationToken cancellationToken)
@@ -62,6 +64,11 @@ public sealed class FetchExchangeRatesHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (days.Count > 0)
+        {
+            await transactions.ConvertNotConvertedAsync(cancellationToken);
+        }
+
         return new ExchangeRatesFetched(days.Count);
     }
 }

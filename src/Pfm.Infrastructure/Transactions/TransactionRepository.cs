@@ -32,6 +32,17 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .AsNoTracking()
             .SingleOrDefaultAsync(transaction => EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyKey) == idempotencyKey, cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> ListNotConvertedAsync(CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => transaction.BaseCurrencyAmount == null).ToListAsync(cancellationToken);
+
+    /// <summary>The one query that looks past the user filter: it answers who has such transactions, and none of them.</summary>
+    public async Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().IgnoreQueryFilters()
+            .Where(transaction => transaction.BaseCurrencyAmount == null)
+            .Select(transaction => transaction.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     public void Add(Transaction transaction, string? idempotencyKey) =>
         db.Set<Transaction>().Add(transaction).Property(TransactionConfiguration.IdempotencyKey).CurrentValue = idempotencyKey;
 

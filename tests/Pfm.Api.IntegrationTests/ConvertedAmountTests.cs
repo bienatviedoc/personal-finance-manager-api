@@ -119,6 +119,45 @@ public class ConvertedAmountTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today.AddDays(-1)), await ConvertedAsync(expense.Id));
     }
 
+    [Fact]
+    public async Task When_new_rates_arrive_every_users_transactions_flagged_not_converted_are_converted_deleted_ones_too()
+    {
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        var alicesDollars = await AddAccountAsync(alice, "USD");
+        var today = await AddAsync(alice, alicesDollars, "100", Today);
+        var yesterday = await AddAsync(alice, alicesDollars, "10", Today.AddDays(-1));
+        var deleted = await AddAsync(alice, alicesDollars, "1", Today);
+        (await alice.DeleteAsync($"{Transactions}/{deleted.Id}")).EnsureSuccessStatusCode();
+        var bobs = await AddAsync(bob, await AddAccountAsync(bob, "USD"), "2", Today);
+        Assert.Equal(new Converted(Currency.VND, null, null, null), await ConvertedAsync(today.Id));
+
+        await RatesAreAsync((Today, 26000m));
+
+        Assert.Equal(new Converted(Currency.VND, 2_600_000m, 26000m, Today), await ConvertedAsync(today.Id));
+        Assert.Equal(new Converted(Currency.VND, 26_000m, 26000m, Today), await ConvertedAsync(deleted.Id));
+        Assert.Equal(new Converted(Currency.VND, 52_000m, 26000m, Today), await ConvertedAsync(bobs.Id));
+
+        // Still no rate on or before yesterday.
+        Assert.Equal(new Converted(Currency.VND, null, null, null), await ConvertedAsync(yesterday.Id));
+        Assert.Equal(today with { RowVersion = (await GetAsync(alice, today.Id)).RowVersion }, await GetAsync(alice, today.Id));
+    }
+
+    [Fact]
+    public async Task New_rates_convert_only_what_is_not_converted_and_what_was_converted_stays_as_it_was()
+    {
+        await RatesAreAsync((Today.AddDays(-1), 25000m));
+        var (browser, _) = await api.SignedInAsync();
+        var converted = await AddAsync(browser, await AddAccountAsync(browser, "USD"), "100", Today);
+        var waiting = await AddAsync(browser, await AddAccountAsync(browser, "EUR"), "100", Today);
+
+        await RatesAreAsync((Today, 26000m, 0.8m));
+
+        Assert.Equal(new Converted(Currency.VND, 2_500_000m, 25000m, Today.AddDays(-1)), await ConvertedAsync(converted.Id));
+        Assert.Equal(new Converted(Currency.VND, 3_250_000m, 32500m, Today), await ConvertedAsync(waiting.Id));
+        Assert.Equal(converted.RowVersion, (await GetAsync(browser, converted.Id)).RowVersion);
+    }
+
     private async Task RatesAreAsync(params (DateOnly Date, decimal Dong)[] days)
     {
         foreach (var (date, dong) in days)
