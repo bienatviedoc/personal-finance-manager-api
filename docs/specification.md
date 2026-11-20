@@ -125,7 +125,7 @@ Income and expenses share one transaction screen and one data model; the type to
 
 | ID | Requirement | Priority |
 | --- | --- | --- |
-| CAT-1 | Default category set created on sign-up, in the user's language | Must |
+| CAT-1 | Default category set created on sign-up, in the locale the user registers in | Must |
 | CAT-2 | Create, rename, recolour, re-icon and archive categories, two levels deep | Must |
 | CAT-3 | Merge category A into B, moving all transactions and budgets. Where both have a budget in the same month, the amounts are added | Should |
 
@@ -324,7 +324,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`.
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. The category tree is the exception: `GET /categories` returns all of its `items` at once, because a tree cannot be cut into pages and a user has dozens of categories.
 - Updates send `If-Match` with the row version; a stale version returns `412`.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate.
 - All endpoints require authentication except register, login and password reset.
@@ -362,7 +362,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 
 | Route | Screen | Key elements |
 | --- | --- | --- |
-| `/login`, `/register`, `/reset` | Auth | Forms with inline validation |
+| `/login`, `/register`, `/check-email`, `/verify-email`, `/forgot-password`, `/reset-password` | Auth | Forms with inline validation |
 | `/` | Dashboard | Balance, month summary, budget status, top categories, recent and upcoming |
 | `/transactions` | Transactions | Filter bar, virtualised table, bulk actions, add and edit in a side drawer |
 | `/accounts` | Accounts | Grouped by institution, balances, add account |

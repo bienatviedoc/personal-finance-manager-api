@@ -41,7 +41,8 @@ dotnet run --project src/Pfm.Api
 dotnet test Pfm.slnx
 ```
 
-Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -54,7 +55,7 @@ A modular monolith. Dependencies point inwards, and the architecture tests fail 
 | Project | Responsibility | Depends on |
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects, domain rules. No framework references | Nothing |
-| `Pfm.Application` | Use cases per module; interfaces for persistence, storage, email, clock | Domain |
+| `Pfm.Application` | Use cases per module (commands, validators, handlers); interfaces for persistence, storage, email, clock | Domain |
 | `Pfm.Infrastructure` | EF Core `DbContext` and migrations, the implementations of those interfaces, and the observability setup both hosts share | Application |
 | `Pfm.Api` | Endpoints, OpenAPI, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Background jobs | Application, Infrastructure |
@@ -68,14 +69,77 @@ Code in one module may use another module only through that module's contracts, 
 `Pfm.Application.Contracts.<Module>`. Reaching into another module's own namespaces fails
 `ModuleBoundaryTests`.
 
+Categories belong to `Transactions` (spec section 5), so `Budgets`, `Imports` and `Reports` reach them through
+its contracts.
+
+### Use cases
+
+Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
+input, normalised in its constructor, for example a trimmed email), its FluentValidation validator, and a
+handler deriving from `CommandHandler<TCommand, TOutcome>`. `HandleAsync` runs the validator, then the
+handler's `ExecuteAsync` for a valid command, and answers a `Result<TOutcome>`: either the outcome (an
+enum when there is more than one, `Done` when there is not) or the errors, keyed by command property.
+A use case that acts on one of the user's things by id, query or command, answers null when the user has
+no such thing, and the endpoint answers 404: `EditInstitution` answers `InstitutionDetails?`,
+`ArchiveCategory` answers `Done?`. `UpdateProfile` answers null when nobody is signed in (a 401).
+`AddApplication` registers every handler and validator it finds, so adding a use case is adding its file.
+`UseCaseTests` fails when a command has no validator, or more than one.
+
+An endpoint only maps HTTP to a use case: it builds the command from the request, calls the handler, and
+turns the outcome into a response. Requests and responses are the API's own types (`InstitutionRequest`,
+`CategoryResponse`), never Application ones, so the OpenAPI contract changes only when an endpoint does: a use
+case answers a `…Details` record (`InstitutionDetails`, `CategoryDetails`, `ProfileDetails`) and the endpoint
+maps it to a `…Response`. A list answers an object with its `items`. `ValidationProblems.For` turns errors into Problem Details keyed by
+the request's field names (`Email` becomes `email`).
+
+What a use case needs from outside, it asks for through an interface in its module (a port, such as
+`IUsers`), implemented in `Pfm.Infrastructure`. Application never references ASP.NET Core or EF Core.
+
+A query is one file too, holding the query record (`ListInstitutions`, `GetProfile`, even when it carries
+nothing) and its handler. It has no validator or `Result`: the handler implements `IQueryHandler` and answers
+directly, null when the user has no such thing (a 404). Handlers that
+change data save through `IUnitOfWork` and read the time from `TimeProvider`. Steps that must all happen or none (registering a user and creating their default categories) share one `IUnitOfWork.BeginTransactionAsync`. A broken domain rule (`CategoryRuleViolation`) comes back as an error keyed by the command property at fault. A validator reuses its
+domain type's rules (`Names.IsValid`, `ProfileSettings.IsValidTimeZone`), and the domain type still refuses what
+breaks them. Rules several modules share (a name, a colour, a locale) are in `ValidationRules`.
+
+**Archive, never delete.** `DELETE` on an institution archives it, as it will an account or category: it
+leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
+already uses it can still show it.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
 the browser never holds a token a script could read.
 
+- **Registering** takes an optional `locale` (`en` or `vi`): it is saved as the new user's locale (see the
+  glossary), and their default categories are created in it, in the same transaction as the user. Left out, the
+  user has no locale yet (the SPA follows the browser) and the categories are in English.
+- **Emails** about signing in (verification, already registered, password reset) are written in the user's
+  locale, and in English for a user who has none (`IdentityEmails`).
+
+The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
+reset the password) are in
+`Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...`. They reach
+Identity through ports: `IUsers` (users, passwords, email confirmation tokens), `IPasswordPolicy`
+and `IIdentityEmails`, and `ISessions`, all implemented in `Pfm.Infrastructure.Identity`: `ISessions` is
+`CookieSessions` over the sign-in manager, which a host that signs people in registers with `AddSignIn()` while it
+configures the cookie itself (the API's `AuthenticationSetup`). Every Identity specific, the sign-in manager and
+token providers included, sits in Infrastructure, which is why it references the ASP.NET Core shared framework.
+Hosts that sign no one in, such as the worker, get `NoSessions`. A new identity use case (a password reset, two-factor sign-in) is a new file there, plus a
+method on a port when it needs something Identity does, such as a reset token.
+
 - **Everything requires a signed-in user** unless its endpoint opts out with `AllowAnonymous`. Only
-  registering, signing in, confirming an email address, resending that link, the anti-forgery token, health
-  and OpenAPI are open; a test fails when that list changes.
+  registering, signing in, confirming an email address, resending that link, asking for a password reset,
+  resetting the password, the anti-forgery token, health and OpenAPI are open; a test fails when that list
+  changes.
+- **Password reset:** `POST /api/v1/auth/forgot-password` answers 202 whatever the email, and emails a
+  registered user a link to `/reset-password` in the SPA. An address with no user is emailed as well, to say so:
+  both answers then do the same work, so their timing does not reveal who is registered. `POST /api/v1/auth/reset-password` sets the new
+  password from the link's user id and token. A link works once (resetting changes the security stamp it is
+  bound to, which also ends every session) and lasts an hour (`PasswordResetTokenProvider`, separate from the
+  day that email confirmation links last). A used, expired or tampered link answers 400 with the problem type
+  `urn:pfm:problem:reset-link-invalid`; a password to fix answers a validation problem, and leaves the link
+  usable.
 - **Anti-forgery:** every POST, PUT, PATCH or DELETE under `/api` needs the `X-XSRF-TOKEN` header. Get a token
   from `GET /api/v1/auth/antiforgery`, keep it in memory, and fetch a new one after signing in or out, because
   it is tied to who is signed in.
@@ -121,11 +185,23 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 `IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
-runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user.
+runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
+`IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
+if they were signed in. Registration uses it to create the new user's default categories.
 
 ## Conventions
 
 - **Errors** are RFC 9457 Problem Details, for unhandled exceptions and bare status codes alike.
+- **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
+  left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
+  or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
+  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
+  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
+- **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
+  code (`"VND"`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
+  (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
+  name in camelCase (`"income"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:
 

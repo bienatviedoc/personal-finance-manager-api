@@ -8,6 +8,7 @@ using OpenTelemetry;
 using OpenTelemetry.Trace;
 using Pfm.Application.Abstractions;
 using Pfm.Infrastructure;
+using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Observability;
 using Serilog.Core;
 using Testcontainers.PostgreSql;
@@ -71,19 +72,20 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>A browser (a new one, or the given one) for a new user who has registered and confirmed their email, not yet signed in.</summary>
-    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null)
+    public async Task<(Browser Browser, string Email)> RegisteredAndVerifiedAsync(Browser? browser = null, string? locale = null)
     {
         browser ??= CreateBrowser();
         var email = NewEmail();
-        (await browser.PostAsync("/api/v1/auth/register", new { email, password = Password })).EnsureSuccessStatusCode();
+        object registration = locale is null ? new { email, password = Password } : new { email, password = Password, locale };
+        (await browser.PostAsync("/api/v1/auth/register", registration)).EnsureSuccessStatusCode();
         (await browser.PostAsync("/api/v1/auth/verify-email", VerificationFrom(LastLinkTo(email)))).EnsureSuccessStatusCode();
         return (browser, email);
     }
 
     /// <summary>A browser signed in as a new user: a new one on this API, or the given one (perhaps on another copy of the API).</summary>
-    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? browser = null)
+    public async Task<(Browser Browser, string Email)> SignedInAsync(Browser? browser = null, string? locale = null)
     {
-        (browser, var email) = await RegisteredAndVerifiedAsync(browser);
+        (browser, var email) = await RegisteredAndVerifiedAsync(browser, locale);
         (await browser.PostAsync("/api/v1/auth/login", new { email, password = Password })).EnsureSuccessStatusCode();
         return (browser, email);
     }
@@ -108,6 +110,15 @@ public sealed class PfmApi : IAsyncLifetime
     /// <summary>A second copy of the API that reports errors to the given error tracker.</summary>
     public WebApplicationFactory<Program> ReportingErrorsTo(FakeErrorTracker tracker) =>
         CreateFactory(ConnectionString, Emails, settings: new() { [ObservabilitySetup.ErrorTrackerDsnSetting] = tracker.Dsn });
+
+    /// <summary>A second copy of the API whose password reset links have expired by the time anyone follows them.</summary>
+    public WebApplicationFactory<Program> WhereResetLinksExpireAtOnce()
+    {
+        var factory = CreateFactory(ConnectionString, Emails, configure: services =>
+            services.Configure<PasswordResetTokenProviderOptions>(options => options.TokenLifespan = TimeSpan.Zero));
+        _extraFactories.Add(factory);
+        return factory;
+    }
 
     /// <summary>A browser like <see cref="CreateBrowser"/>, on another copy of the API.</summary>
     public static Browser CreateBrowser(WebApplicationFactory<Program> on) =>
@@ -135,7 +146,7 @@ public sealed class PfmApi : IAsyncLifetime
         await _database.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null) =>
+    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null, Action<IServiceCollection>? configure = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -159,6 +170,8 @@ public sealed class PfmApi : IAsyncLifetime
                     services.ConfigureOpenTelemetryTracerProvider(tracing => tracing.AddProcessor(new SimpleActivityExportProcessor(telemetry.SpanExporter)));
                     services.AddSingleton(telemetry.LogSink);
                 }
+
+                configure?.Invoke(services);
             });
         });
 

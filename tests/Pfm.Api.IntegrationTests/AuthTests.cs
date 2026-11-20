@@ -95,6 +95,26 @@ public class AuthTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Signing_in_with_an_email_that_has_no_user_is_refused_like_a_wrong_password()
+    {
+        var (browser, email) = await api.RegisteredAndVerifiedAsync();
+
+        var unknownEmail = await browser.PostAsync("/api/v1/auth/login", new { email = NewEmail(), password = Password });
+        var wrongPassword = await browser.PostAsync("/api/v1/auth/login", new { email, password = "not the right password" });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, unknownEmail.StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, wrongPassword.StatusCode);
+        Assert.Equal(await ProblemTitleAsync(wrongPassword), await ProblemTitleAsync(unknownEmail));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    private static async Task<string?> ProblemTitleAsync(HttpResponseMessage response)
+    {
+        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return json.RootElement.GetProperty("title").GetString();
+    }
+
+    [Fact]
     public async Task Signing_out_ends_the_session()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -148,6 +168,7 @@ public class AuthTests(PfmApi api)
         var notice = Assert.Single(api.Emails.To(email).Skip(sentBefore));
         Assert.DoesNotContain(CapturedEmails.Links(notice), link => link.AbsolutePath == "/verify-email");
         Assert.Contains(CapturedEmails.Links(notice), link => link.AbsoluteUri == $"{PfmApi.PublicUrl}/login");
+        Assert.Contains(CapturedEmails.Links(notice), link => link.AbsoluteUri == $"{PfmApi.PublicUrl}/forgot-password");
 
         var withNewPassword = await api.CreateBrowser().PostAsync("/api/v1/auth/login", new { email, password = "an attacker's new password" });
         var withOriginalPassword = await browser.PostAsync("/api/v1/auth/login", new { email, password = Password });
@@ -158,13 +179,15 @@ public class AuthTests(PfmApi api)
     [Theory]
     [InlineData("not-an-email", Password, "email")]
     [InlineData("", Password, "email")]
+    [InlineData("   ", Password, "email")]
+    [InlineData("Someone <someone@example.com>", Password, "email")]
     [InlineData("someone@example.com", "too short", "password")]
     public async Task Registering_with_invalid_details_names_the_field_to_fix(string email, string password, string field)
     {
         var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal([field], await ErrorFieldsAsync(response));
+        Assert.Equal([field], await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -175,7 +198,7 @@ public class AuthTests(PfmApi api)
         var response = await api.CreateBrowser().PostAsync("/api/v1/auth/register", new { email, password = "too short" });
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["password"], await ErrorFieldsAsync(response));
+        Assert.Equal(["password"], await response.ErrorFieldsAsync());
     }
 
     [Theory]
@@ -183,8 +206,17 @@ public class AuthTests(PfmApi api)
     [InlineData("/api/v1/auth/register", "{\"email\":null,\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/login", "{}", "email,password")]
     [InlineData("/api/v1/auth/login", "{\"email\":\"someone@example.com\"}", "password")]
+    [InlineData("/api/v1/auth/login", "{\"email\":\"   \",\"password\":\"correct horse battery staple\"}", "email")]
     [InlineData("/api/v1/auth/resend-verification", "{}", "email")]
+    [InlineData("/api/v1/auth/resend-verification", "{\"email\":\"   \"}", "email")]
     [InlineData("/api/v1/auth/verify-email", "{}", "token,userId")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\"}", "token")]
+    [InlineData("/api/v1/auth/verify-email", "{\"userId\":\"00000000-0000-0000-0000-000000000000\",\"token\":\"a-token\"}", "userId")]
+    [InlineData("/api/v1/auth/forgot-password", "{}", "email")]
+    [InlineData("/api/v1/auth/forgot-password", "{\"email\":\"   \"}", "email")]
+    [InlineData("/api/v1/auth/forgot-password", "{\"email\":\"not an email\"}", "email")]
+    [InlineData("/api/v1/auth/reset-password", "{}", "password,token,userId")]
+    [InlineData("/api/v1/auth/reset-password", "{\"userId\":\"0196f3a0-0000-7000-8000-000000000000\",\"token\":\"\",\"password\":\"correct horse battery staple\"}", "token")]
     public async Task A_missing_field_is_named_in_a_bad_request(string path, string body, string fields)
     {
         var browser = api.CreateBrowser();
@@ -192,13 +224,7 @@ public class AuthTests(PfmApi api)
         var response = await browser.PostJsonAsync(path, body);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(fields.Split(','), (await ErrorFieldsAsync(response)).Order());
-    }
-
-    private static async Task<string[]> ErrorFieldsAsync(HttpResponseMessage response)
-    {
-        using var json = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        return [.. json.RootElement.GetProperty("errors").EnumerateObject().Select(error => error.Name)];
+        Assert.Equal(fields.Split(','), await response.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -217,7 +243,7 @@ public class AuthTests(PfmApi api)
     }
 
     [Fact]
-    public void Only_registering_signing_in_and_their_helpers_are_open_to_visitors_who_are_not_signed_in()
+    public void Only_registering_signing_in_resetting_a_password_and_their_helpers_are_open_to_visitors_who_are_not_signed_in()
     {
         var open = api.Services.GetRequiredService<EndpointDataSource>().Endpoints
             .OfType<RouteEndpoint>()
@@ -232,9 +258,11 @@ public class AuthTests(PfmApi api)
                 "* /health/ready",
                 "GET /api/v1/auth/antiforgery",
                 "GET /openapi/{documentName}.json",
+                "POST /api/v1/auth/forgot-password",
                 "POST /api/v1/auth/login",
                 "POST /api/v1/auth/register",
                 "POST /api/v1/auth/resend-verification",
+                "POST /api/v1/auth/reset-password",
                 "POST /api/v1/auth/verify-email",
             ],
             open);
