@@ -343,6 +343,12 @@ already uses it can still show it. An account can be archived at any balance.
   a new budget answers 201 and sends no `If-Match`; a new amount for one that exists answers 200 and names its
   row version like every edit (412 when stale, 428 without). `DELETE` on the same address removes it: a budget
   is really gone, it is not archived. An archived category takes no new budget and keeps the ones it has.
+- **Copying a month** (BUD-4): `POST /budgets/{month}/copy-from/{sourceMonth}` copies, in one action, each budget
+  of the source month into the month with its amount (the SPA copies last month's into the month shown), and
+  answers how many it `copied`. A category already budgeted in the month keeps its budget, and a budget its
+  category no longer takes there is left out: one on an archived category, or one whose parent or subcategory
+  is budgeted in the month (rule 6). A budget set in the month at the same moment makes the copy start again
+  on what was saved (`CopyBudgets`).
 - **Spent is never stored** (spec section 6). `GET /budgets?month=2026-11` works out each budget's `budgeted`,
   `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
   `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
