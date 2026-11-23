@@ -9,8 +9,9 @@ namespace Pfm.Domain.Transactions;
 public static class Spent
 {
     /// <summary>
-    /// Spent in the calendar month, adding up <see cref="Transaction.SpentAmount"/> of the transactions dated
-    /// in it. A refund counts in the month of the refund, whenever the purchase was.
+    /// Spent in the calendar month, adding up what the transactions dated in it spent in these categories
+    /// (<see cref="Transaction.SpentAmountIn"/>): a split transaction adds each line to its own category. A
+    /// refund counts in the month of the refund, whenever the purchase was.
     /// </summary>
     /// <param name="categoryIds">The category and its subcategories.</param>
     /// <param name="year">The year of the budget month.</param>
@@ -20,8 +21,8 @@ public static class Spent
         ArgumentNullException.ThrowIfNull(transactions);
         ArgumentNullException.ThrowIfNull(categoryIds);
         return transactions
-            .Where(transaction => transaction.Date.Year == year && transaction.Date.Month == month && categoryIds.Contains(transaction.CategoryId))
-            .Sum(transaction => transaction.SpentAmount);
+            .Where(transaction => transaction.Date.Year == year && transaction.Date.Month == month)
+            .Sum(transaction => transaction.SpentAmountIn(categoryIds));
     }
 
     /// <summary>

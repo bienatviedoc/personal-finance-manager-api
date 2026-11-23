@@ -17,6 +17,9 @@ namespace Pfm.Application.Transactions;
 /// </param>
 public sealed record IdempotentRequest(string Key, string Fingerprint)
 {
+    /// <summary>An amount however it was written: <c>"250"</c> and <c>"250.00"</c> are one amount.</summary>
+    private const string AmountFormat = "0.############################";
+
     /// <summary>Null when the command names no key. The command has passed its validator.</summary>
     public static IdempotentRequest? Of(CreateTransactionCommand command)
     {
@@ -31,7 +34,7 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
         [
             fields.Type!.Value.ToString(),
             command.AccountId.ToString("N"),
-            fields.Amount!.Value.ToString("0.############################", CultureInfo.InvariantCulture),
+            fields.Amount!.Value.ToString(AmountFormat, CultureInfo.InvariantCulture),
             fields.Date!.Value.ToString("O", CultureInfo.InvariantCulture),
             command.CategoryId.ToString("N"),
             Transaction.Normalised(command.Payee),
@@ -39,6 +42,14 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
 
             // Only a refund adds to what is hashed, so the fingerprints kept before refunds existed still match.
             .. command.IsRefund ? ["refund"] : Array.Empty<string?>(),
+
+            // And only a split adds its lines: a transaction that is not split keeps the fingerprint it had.
+            .. (command.Lines ?? []).SelectMany(line => new[]
+            {
+                line.CategoryId.ToString("N"),
+                line.ParsedAmount!.Value.ToString(AmountFormat, CultureInfo.InvariantCulture),
+                Transaction.Normalised(line.Note),
+            }),
         ];
 
         return new IdempotentRequest(

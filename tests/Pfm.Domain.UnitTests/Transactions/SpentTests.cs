@@ -83,6 +83,53 @@ public class SpentTests
         Assert.Equal(500_000m, Spent.Of([Expense(500_000m, Clothing, new DateOnly(2026, 11, 5)), deleted, notConverted, neverSaved], [Clothing.Id], 2026, 11));
     }
 
+    [Fact]
+    public void A_split_transaction_adds_each_line_to_spent_in_that_lines_category()
+    {
+        var split = Converted(Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 500_000m, new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 320_000m), new SplitLine(Shoes, 150_000m), new SplitLine(Clothing, 30_000m)], null, null, Today, Now));
+        var refunded = Converted(Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 100_000m, new DateOnly(2026, 11, 9),
+            [new SplitLine(Groceries, 60_000m), new SplitLine(Shoes, 40_000m)], null, null, Today, Now, isRefund: true));
+
+        Assert.Equal(320_000m, Spent.Of([split], [Groceries.Id], 2026, 11));
+        Assert.Equal(180_000m, Spent.Of([split], [Clothing.Id, Shoes.Id], 2026, 11));
+        Assert.Equal(150_000m, Spent.Of([split], [Shoes.Id], 2026, 11));
+        Assert.Equal(0m, Spent.Of([split], [Salary.Id], 2026, 11));
+        Assert.Equal(260_000m, Spent.Of([split, refunded], [Groceries.Id], 2026, 11));
+        Assert.Equal(110_000m, Spent.Of([split, refunded], [Shoes.Id], 2026, 11));
+    }
+
+    [Fact]
+    public void The_lines_of_a_split_share_its_converted_amount_as_they_share_its_amount_and_the_shares_sum_exactly_to_it()
+    {
+        // 100 dollars in three equal parts, converted to 2,500,000 đồng, which has no decimals to share a remainder in.
+        var split = Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.USD, 100m, new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 33.33m), new SplitLine(Shoes, 33.33m), new SplitLine(Clothing, 33.34m)], null, null, Today, Now);
+        split.ConvertInto(Currency.VND, 2_500_000m, 25_000m, new DateOnly(2026, 11, 2));
+
+        var shares = new[] { Groceries, Shoes, Clothing }.Select(category => Spent.Of([split], [category.Id], 2026, 11)).ToArray();
+
+        Assert.Equal([833_250m, 833_250m, 833_500m], shares);
+        Assert.Equal(2_500_000m, shares.Sum());
+        Assert.Equal(2_500_000m, Spent.Of([split], [Groceries.Id, Shoes.Id, Clothing.Id], 2026, 11));
+    }
+
+    [Fact]
+    public void A_share_that_does_not_come_out_even_is_rounded_and_the_last_line_takes_what_is_left()
+    {
+        var split = Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 100m, new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 33m), new SplitLine(Shoes, 33m), new SplitLine(Clothing, 34m)], null, null, Today, Now);
+        split.ConvertInto(Currency.USD, 0.05m, 0.0005m, new DateOnly(2026, 11, 2));
+
+        Assert.Equal(
+            [0.02m, 0.02m, 0.01m],
+            new[] { Groceries, Shoes, Clothing }.Select(category => Spent.Of([split], [category.Id], 2026, 11)));
+    }
+
     private static Transaction Expense(decimal amount, Category category, DateOnly date) =>
         Converted(Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date, category, null, null, Today, Now));
 

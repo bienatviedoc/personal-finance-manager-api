@@ -33,6 +33,15 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
     /// </summary>
     public const string CategoryKindIsItsCategorys = "FK_Transactions_Categories_CategoryId_CategoryKind";
 
+    /// <summary>
+    /// A line's category and kind are a category and that category's kind, as
+    /// <see cref="CategoryKindIsItsCategorys"/> holds a transaction's: it covers the lines of a split after the
+    /// first. Added by its migration alone.
+    /// </summary>
+    public const string LineCategoryKindIsItsCategorys = "FK_TransactionLines_Categories_CategoryId_CategoryKind";
+
+    private const string TransactionId = "TransactionId";
+
     public void Configure(EntityTypeBuilder<Transaction> transaction)
     {
         transaction.ToTable("Transactions", table =>
@@ -80,6 +89,28 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Ignore(row => row.SignedAmount);
         transaction.Ignore(row => row.SpentAmount);
         transaction.Ignore(row => row.IsConverted);
+        transaction.Ignore(row => row.IsSplit);
+
+        // Lines are the transaction's own: read with it and saved with it. Only its row version guards them: an
+        // edit of the lines always saves the transaction too (its UpdatedAt), so a stale one saves nothing.
+        transaction.OwnsMany(row => row.Lines, line =>
+        {
+            line.ToTable("TransactionLines", table => table.HasCheckConstraint("CK_TransactionLines_Amount_Positive", "\"Amount\" > 0"));
+            line.WithOwner().HasForeignKey(TransactionId);
+            line.HasKey(row => row.Id);
+            line.Property(row => row.Id).ValueGeneratedNever();
+            line.Property(row => row.CategoryKind).HasConversion<string>().HasMaxLength(10);
+            line.Property(row => row.Amount).HasPrecision(19, 4);
+            line.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
+
+            // A category with transactions is archived, never deleted.
+            line.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
+
+            // What was spent in a category, for the list's filter, budgets and reports (spec section 10).
+            line.HasIndex(nameof(TransactionLine.CategoryId), TransactionId);
+            line.HasIndex(TransactionId, nameof(TransactionLine.Position));
+        });
+        transaction.Navigation(row => row.Lines).HasField("_lines").UsePropertyAccessMode(PropertyAccessMode.Field);
 
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
