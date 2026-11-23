@@ -66,6 +66,7 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<IQuickAddHistory, QuickAddHistory>();
         services.AddScoped<IAttachmentRepository, AttachmentRepository>();
 
         // Like the SPA's address: a host fails at start-up, not at the first upload.
