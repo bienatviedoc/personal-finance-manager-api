@@ -82,6 +82,16 @@ public class DataExportTests(PfmApi api)
             lines.Where(line => line["transactionId"] == split["id"]).OrderBy(line => line["position"], StringComparer.Ordinal)
                 .Select(line => (decimal.Parse(line["amount"], System.Globalization.CultureInfo.InvariantCulture), line["note"])));
         Assert.Single(lines, line => line["transactionId"] == kept["id"] && line["categoryId"] == kept["categoryId"]);
+        // A transfer is its two legs, each on its own account, sharing a transfer id and without a category.
+        var legs = new[] { Row(transactions, 5), Row(transactions, 6) }.OrderByDescending(leg => leg["type"], StringComparer.Ordinal).ToArray();
+        Assert.Equal(["transferOut", "transferIn"], legs.Select(leg => leg["type"]));
+        Assert.Equal(legs[0]["transferId"], legs[1]["transferId"]);
+        Assert.NotEqual("", legs[0]["transferId"]);
+        Assert.Equal(("", kept["transferId"]), (legs[0]["categoryId"], ""));
+        Assert.Equal(kept["accountId"], legs[0]["accountId"]);
+        Assert.NotEqual(kept["accountId"], legs[1]["accountId"]);
+        Assert.All(legs, leg => Assert.Equal((200000m, "For Tet"), (decimal.Parse(leg["amount"], System.Globalization.CultureInfo.InvariantCulture), leg["note"])));
+        Assert.DoesNotContain(lines, line => line["transactionId"] == legs[0]["id"] || line["transactionId"] == legs[1]["id"]);
         // A budget names its category and its budget month by the month's first day.
         var budget = Row(Csv(files["budgets.csv"]), 1);
         Assert.Equal(3000000m, decimal.Parse(budget["amount"], System.Globalization.CultureInfo.InvariantCulture));

@@ -55,16 +55,21 @@ public static class UserErasureFixtures
         })).EnsureSuccessStatusCode();
         (await browser.PutAsync($"/api/v1/budgets/{DateTime.UtcNow:yyyy-MM}/{food}", new { amount = "3000000" })).EnsureSuccessStatusCode();
 
+        // A transfer, recorded last: its two legs are the last two transactions, and have no lines.
+        var savingsId = await BrowserFixtures.AddAccountAsync(browser, "Savings");
+        (await browser.PostAsync("/api/v1/transfers", new { fromAccountId = accountId, toAccountId = savingsId, amount = "200000", date = "2026-11-04", note = "For Tet" }))
+            .EnsureSuccessStatusCode();
+
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
-            ["Accounts"] = 1,
+            ["Accounts"] = 2,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
-            // One line for each transaction, and two for the split.
+            // One line for each income or expense, and two for the split; none for the legs of the transfer.
             ["TransactionLines"] = 5,
-            ["Transactions"] = 4,
+            ["Transactions"] = 6,
         };
     }
 

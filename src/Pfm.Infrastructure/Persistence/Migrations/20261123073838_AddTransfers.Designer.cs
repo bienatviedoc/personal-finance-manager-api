@@ -13,7 +13,7 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261123072553_AddTransfers")]
+    [Migration("20261123073838_AddTransfers")]
     partial class AddTransfers
     {
         /// <inheritdoc />
@@ -524,6 +524,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("text");
 
+                    b.Property<DateTimeOffset?>("DeactivatedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Email")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
@@ -574,6 +577,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DeactivatedAt")
+                        .HasFilter("\"DeactivatedAt\" IS NOT NULL");
 
                     b.HasIndex("NormalizedEmail")
                         .HasDatabaseName("EmailIndex");
