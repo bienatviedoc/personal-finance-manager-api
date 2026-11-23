@@ -152,7 +152,7 @@ public sealed class RecurringRule : IUserOwned
             throw new ArgumentException($"A note is at most {Transaction.MaxNoteLength} characters.", nameof(note));
         }
 
-        if (type is not (TransactionType.Income or TransactionType.Expense))
+        if (!type.IsIncomeOrExpense())
         {
             throw new RecurringRuleViolation(nameof(Type), "A recurring rule is income or an expense.");
         }

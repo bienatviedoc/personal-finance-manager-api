@@ -87,20 +87,21 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions)
     }
 
     /// <summary>
-    /// The database adds up the amounts of each type in each currency; the sign of a type has one definition,
-    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here. Only income and expenses are added
-    /// up: any other type (a leg of a transfer, spec section 3, rule 3) is listed and counted, and is neither.
+    /// The database adds up the amounts of each type in each currency; the signs are applied to those sums here,
+    /// by their one definitions: <see cref="TransactionTypes.Signed"/> for the net, <see cref="Spent.Signed"/>
+    /// for the expenses. Only income and expenses are added up: a leg of a transfer (spec section 3, rule 3) is
+    /// listed and counted, and is neither.
     /// </summary>
     private static FilteredTotal Total(IReadOnlyList<TransactionSum> sums) =>
         new(sums.Sum(sum => sum.Count),
             [.. sums
-                .Where(sum => sum.Type is TransactionType.Income or TransactionType.Expense)
+                .Where(sum => sum.Type.IsIncomeOrExpense())
                 .GroupBy(sum => sum.Currency)
                 .OrderBy(currency => currency.Key)
                 .Select(currency => new CurrencyTotal(
                     currency.Key,
                     currency.Where(sum => sum.Type == TransactionType.Income).Sum(sum => sum.Amount),
-                    -currency.Where(sum => sum.Type == TransactionType.Expense).Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)),
+                    currency.Sum(sum => Spent.Signed(sum.Type, sum.Amount, sum.IsRefund)),
                     currency.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund))))]);
 }
 

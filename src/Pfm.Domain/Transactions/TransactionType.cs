@@ -18,6 +18,9 @@ public static class TransactionTypes
     /// <summary>Whether a transaction of this type is a leg of a transfer, which is neither income nor spending.</summary>
     public static bool IsTransferLeg(this TransactionType type) => type is TransactionType.TransferOut or TransactionType.TransferIn;
 
+    /// <summary>Whether a transaction of this type is income or an expense: the types a user records one at a time, with a category.</summary>
+    public static bool IsIncomeOrExpense(this TransactionType type) => type is TransactionType.Income or TransactionType.Expense;
+
     /// <summary>The kind of category a transaction of this type takes: income for income, expense for an expense. A transfer leg takes none.</summary>
     public static CategoryKind CategoryKind(this TransactionType type) => type switch
     {
