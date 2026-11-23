@@ -46,6 +46,7 @@ public static class InfrastructureServices
 
         services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
+        services.AddScoped<IUserData, UserData>();
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<IAccountRepository, AccountRepository>();
 
@@ -131,6 +132,8 @@ public static class InfrastructureServices
         builder.Services.AddScoped<ITwoFactor, IdentityTwoFactor>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
         builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
+        builder.Services.AddOptions<UserErasureOptions>().BindConfiguration(UserErasureOptions.Section)
+            .Validate(options => options.RunEvery > TimeSpan.Zero, $"{UserErasureOptions.Section}:RunEvery must be longer than no time at all.");
         return builder;
     }
 

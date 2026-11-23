@@ -120,6 +120,47 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
         }
     }
 
+    // The new security stamp ends every session, within the time the host checks it in (see AuthenticationSetup).
+    public async Task DeactivateAsync(Guid userId, DateTimeOffset at)
+    {
+        var user = await users.FindByIdAsync(userId.ToString())
+            ?? throw new InvalidOperationException($"User {userId} does not exist.");
+        user.DeactivatedAt = at;
+        Succeeded(await users.UpdateSecurityStampAsync(user), "Deactivating the user");
+    }
+
+    public async Task ReactivateAsync(Guid userId)
+    {
+        var user = await users.FindByIdAsync(userId.ToString())
+            ?? throw new InvalidOperationException($"User {userId} does not exist.");
+        user.DeactivatedAt = null;
+        Succeeded(await users.UpdateAsync(user), "Reactivating the user");
+    }
+
+    public async Task<IReadOnlyList<Guid>> ListDeactivatedSinceAsync(DateTimeOffset atOrBefore, CancellationToken cancellationToken) =>
+        await users.Users
+            .Where(user => user.DeactivatedAt <= atOrBefore)
+            .OrderBy(user => user.DeactivatedAt)
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+
+    // Identity's tables that hang off the user (tokens, logins, claims) go with them.
+    public async Task EraseAsync(Guid userId)
+    {
+        if (await users.FindByIdAsync(userId.ToString()) is { } user)
+        {
+            Succeeded(await users.DeleteAsync(user), "Erasing the user");
+        }
+    }
+
+    private static void Succeeded(IdentityResult result, string what)
+    {
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"{what} failed: {string.Join(", ", result.Errors.Select(error => error.Code))}");
+        }
+    }
+
     private async Task ClearFailedSignInsAsync(User user)
     {
         if (user.AccessFailedCount > 0)
@@ -134,7 +175,7 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
     }
 
     private static UserDetails? Details(User? user) =>
-        user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed, user.Locale, user.TwoFactorEnabled);
+        user is null ? null : new UserDetails(user.Id, user.Email!, user.EmailConfirmed, user.Locale, user.TwoFactorEnabled, user.DeactivatedAt);
 }
 
 /// <summary>Identity's password validators, configured in <see cref="InfrastructureServices.AddUsers"/>.</summary>
