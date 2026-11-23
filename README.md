@@ -251,6 +251,37 @@ already uses it can still show it. An account can be archived at any balance.
   what keeps an account's currency and a category's kind fixed once it has transactions, and spec rule 7,
   when two requests save at once (see "Optimistic concurrency" below).
 
+### Recurring rules
+
+- **A recurring rule** (`RecurringRule`, in the Transactions module) is a template for income or an expense,
+  never a transfer: a type, an account, an amount, a category, optionally a payee and a note, and a schedule
+  (`RecurringSchedule`): `weekly`, `monthly`, `yearly` or `everyNDays` with an `interval` of 1 to 365 days, from a
+  `startDate` to an optional `endDate`. Its currency is never sent: it is the account's.
+- **Due dates are worked out from the start date**, never from the occurrence before: a monthly rule started on
+  the 31st is due on the last day of a shorter month and on the 31st again after it, and a yearly rule started on
+  29 February is due on the 28th in a year that has none.
+- **The worker posts.** `RecurringPostingJob` runs `RecurringPosting` when the worker starts and every ten
+  minutes (`RecurringRules__PostEvery`): each occurrence due on or before today in its user's time zone becomes a
+  transaction dated on its due date, with the rule's id as its `recurringRuleId`. Occurrences missed while the
+  worker was down are posted by its next run, each with its original due date; so are the ones since a start
+  date in the past.
+- **Through the same rules as a manual transaction.** An occurrence is recorded by `CreateTransaction`, the use
+  case behind `POST /transactions`, so it is converted into the base currency the same way and refused the same
+  way. A rule whose account or category has been archived posts nothing and stays due: the worker logs a warning
+  with how many such rules there are, and the occurrences are posted once the user edits the rule.
+- **Exactly once.** The transaction is saved under an idempotency key made of the rule and the due date, then
+  the rule moves on to its next occurrence (`NextRunDate`), guarded by its row version. Two workers, or a worker
+  that stops in between, cannot post an occurrence twice. A posted transaction the user deletes does not come back.
+- **Nothing is posted for a deactivated user** (`IUserDeactivation`, in `Pfm.Application.Contracts.Identity`). When
+  they cancel the deletion by signing in, what was due meanwhile is posted like any other missed occurrence.
+- **Pause, resume, edit, delete.** `POST /recurring-rules/{id}/pause` stops a rule posting;
+  `POST /recurring-rules/{id}/resume` has it post again from today, skipping what was due meanwhile. `PUT` replaces
+  the template and the schedule: posted transactions stay as they are, and the new schedule carries on after the
+  last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
+  is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
+- Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
+  (REC-4) are still to come.
+
 ### Budgets
 
 - **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st
@@ -458,16 +489,19 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There is one
-exception, and `UserOwnedDataTests` fails when a second appears: `TransactionRepository.UsersWithNotConvertedAsync`
-ignores the filter to answer which users have transactions flagged not converted. It runs for the worker, which
-acts for no user, and answers user ids only, never a row; the worker then acts for each of those users in turn,
-inside the filter. Raw SQL is used only on exchange rates, which belong to no user.
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are two
+exceptions, and `UserOwnedDataTests` fails when a third appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted, and
+`RecurringRuleRepository.UsersWithDueRulesAsync` to answer which users have a recurring rule with an occurrence
+due. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
+acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
+no user.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
 `IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
-if they were signed in. Registration uses it to create the new user's default categories.
+if they were signed in, and so are today's date (`IUserCalendar`) and the base currency (`IBaseCurrency`).
+Registration uses it to create the new user's default categories.
 
 ## Conventions
 
