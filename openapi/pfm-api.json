@@ -1577,6 +1577,20 @@
             }
           },
           {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "schema": {
@@ -2280,6 +2294,52 @@
           "EUR"
         ]
       },
+      "CurrencyTotalResponse": {
+        "required": [
+          "currency",
+          "income",
+          "expenses",
+          "net"
+        ],
+        "type": "object",
+        "properties": {
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "income": {
+            "type": "string"
+          },
+          "expenses": {
+            "type": "string"
+          },
+          "net": {
+            "type": "string"
+          }
+        }
+      },
+      "FilteredTotalResponse": {
+        "required": [
+          "count",
+          "currencies"
+        ],
+        "type": "object",
+        "properties": {
+          "count": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "currencies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CurrencyTotalResponse"
+            }
+          }
+        }
+      },
       "HttpValidationProblemDetails": {
         "type": "object",
         "properties": {
@@ -2667,7 +2727,8 @@
       "TransactionListResponse": {
         "required": [
           "items",
-          "nextCursor"
+          "nextCursor",
+          "total"
         ],
         "type": "object",
         "properties": {
@@ -2682,6 +2743,9 @@
               "null",
               "string"
             ]
+          },
+          "total": {
+            "$ref": "#/components/schemas/FilteredTotalResponse"
           }
         }
       },

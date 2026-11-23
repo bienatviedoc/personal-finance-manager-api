@@ -49,12 +49,15 @@ public static class TransactionEndpoints
     /// <param name="min">The smallest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="max">The largest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="q">Text the payee or the note contains, in upper or lower case; at most 200 characters.</param>
+    /// <param name="sort"><c>date</c> or <c>amount</c>; <c>date</c> when left out.</param>
+    /// <param name="order"><c>asc</c> or <c>desc</c>; <c>desc</c> when left out.</param>
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
-    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before, asked for with the same filters and sort order; left out for the first page.</param>
     private static async Task<Results<Ok<TransactionListResponse>, ValidationProblem>> List(
         ListTransactionsHandler handler, CancellationToken cancellationToken,
         string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? type = null,
-        string? min = null, string? max = null, string? q = null, int limit = Paging.DefaultLimit, string? cursor = null)
+        string? min = null, string? max = null, string? q = null, string? sort = null, string? order = null,
+        int limit = Paging.DefaultLimit, string? cursor = null)
     {
         if (!Paging.IsValidLimit(limit))
         {
@@ -67,13 +70,20 @@ public static class TransactionEndpoints
             return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
         }
 
+        var asked = new TransactionListParameters();
         var filter = new TransactionFilter(
-            DateText.Read(from), DateText.Read(to), Guid.TryParse(accountId, out var account) ? account : null,
-            Guid.TryParse(categoryId, out var category) ? category : null, EnumText<TransactionType>.Read(type),
-            AmountText.TryParse(min, out var smallest) ? smallest : null, AmountText.TryParse(max, out var largest) ? largest : null,
-            string.IsNullOrWhiteSpace(q) ? null : q.Trim());
-        var list = await handler.HandleAsync(new ListTransactions(filter, TransactionSort.NewestFirst, limit, after), cancellationToken);
-        return TypedResults.Ok(new TransactionListResponse([.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor));
+            asked.Date(nameof(from), from), asked.Date(nameof(to), to), asked.Id(nameof(accountId), accountId), asked.Id(nameof(categoryId), categoryId),
+            asked.OneOf<TransactionType>(nameof(type), type), asked.Amount(nameof(min), min), asked.Amount(nameof(max), max), asked.Search(nameof(q), q));
+        var sorted = new TransactionSort(
+            asked.OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, asked.OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc);
+        if (asked.Refused.Count > 0)
+        {
+            return TypedResults.ValidationProblem(asked.Refused);
+        }
+
+        var list = await handler.HandleAsync(new ListTransactions(filter, sorted, limit, after), cancellationToken);
+        return TypedResults.Ok(new TransactionListResponse(
+            [.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor, FilteredTotalResponse.From(list.Total)));
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
@@ -182,4 +192,66 @@ public sealed record TransactionResponse(
 }
 
 /// <summary>A page of transactions. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>
-public sealed record TransactionListResponse(IReadOnlyList<TransactionResponse> Items, string? NextCursor);
+/// <param name="Total">What every transaction that passed the filters comes to, whichever page this is.</param>
+public sealed record TransactionListResponse(IReadOnlyList<TransactionResponse> Items, string? NextCursor, FilteredTotalResponse Total);
+
+/// <summary>The total of the transactions that passed the filters of a list, on every page of it.</summary>
+/// <param name="Count">How many transactions passed.</param>
+/// <param name="Currencies">Their amounts added up in each currency they are in. Currencies are never added together.</param>
+public sealed record FilteredTotalResponse(int Count, IReadOnlyList<CurrencyTotalResponse> Currencies)
+{
+    public static FilteredTotalResponse From(FilteredTotal total) => new(total.Count, [.. total.Currencies.Select(CurrencyTotalResponse.From)]);
+}
+
+/// <summary>The filtered transactions in one currency, added up.</summary>
+/// <param name="Income">The income among them, a decimal string.</param>
+/// <param name="Expenses">The expenses among them, a decimal string that is not negative.</param>
+/// <param name="Net">Each amount with the sign of its type, added up: income minus expenses.</param>
+public sealed record CurrencyTotalResponse(Currency Currency, string Income, string Expenses, string Net)
+{
+    public static CurrencyTotalResponse From(CurrencyTotal total) =>
+        new(total.Currency, AmountJson.Text(total.Income), AmountJson.Text(total.Expenses), AmountJson.Text(total.Net));
+}
+
+/// <summary>
+/// Reads the filters and sort order of a list of transactions from its query string, and keeps a message for
+/// each one it cannot read, under the parameter's name.
+/// </summary>
+internal sealed class TransactionListParameters
+{
+    public Dictionary<string, string[]> Refused { get; } = [];
+
+    public DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
+
+    public Guid? Id(string name, string? text) => Read(name, text, Guid.TryParse(text, out var id) ? id : (Guid?)null, "Send an id.");
+
+    public TEnum? OneOf<TEnum>(string name, string? text)
+        where TEnum : struct, Enum =>
+        Read(name, text, EnumText<TEnum>.Read(text), $"Choose one of: {string.Join(", ", EnumText<TEnum>.Names)}.");
+
+    /// <summary>A transaction's amount is above zero, so a negative one bounds nothing.</summary>
+    public decimal? Amount(string name, string? text) =>
+        Read(name, text, AmountText.TryParse(text, out var amount) && amount >= 0 ? amount : (decimal?)null, "Enter an amount that is not negative, such as 125000.00.");
+
+    /// <summary>The text to search for, trimmed; nothing but spaces searches for nothing.</summary>
+    public string? Search(string name, string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var search = text.Trim();
+        return Read(name, search, search.Length <= TransactionFilter.MaxSearchLength ? search : null, $"Search for at most {TransactionFilter.MaxSearchLength} characters.");
+    }
+
+    private T? Read<T>(string name, string? text, T? read, string message)
+    {
+        if (text is not null && read is null)
+        {
+            Refused[name] = [message];
+        }
+
+        return read;
+    }
+}

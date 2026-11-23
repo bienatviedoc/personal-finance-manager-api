@@ -78,14 +78,31 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .Replace("%", LikeEscape + "%", StringComparison.Ordinal)
             .Replace("_", LikeEscape + "_", StringComparison.Ordinal);
 
-    private static IQueryable<Transaction> Sorted(IQueryable<Transaction> transactions, TransactionSort sort) =>
-        transactions.OrderByDescending(transaction => transaction.Date).ThenByDescending(transaction => transaction.Id);
+    /// <summary>Transactions of one date, or one amount, in the order they were recorded: ids are UUID v7.</summary>
+    private static IQueryable<Transaction> Sorted(IQueryable<Transaction> transactions, TransactionSort sort) => sort switch
+    {
+        { By: TransactionSortBy.Date, Order: SortOrder.Desc } =>
+            transactions.OrderByDescending(transaction => transaction.Date).ThenByDescending(transaction => transaction.Id),
+        { By: TransactionSortBy.Date } =>
+            transactions.OrderBy(transaction => transaction.Date).ThenBy(transaction => transaction.Id),
+        { Order: SortOrder.Desc } =>
+            transactions.OrderByDescending(transaction => transaction.Amount).ThenByDescending(transaction => transaction.Id),
+        _ => transactions.OrderBy(transaction => transaction.Amount).ThenBy(transaction => transaction.Id),
+    };
 
     /// <summary>What comes after the cursor in the order of <paramref name="sort"/>.</summary>
-    private static IQueryable<Transaction> After(IQueryable<Transaction> transactions, TransactionSort sort, TransactionCursor? after) =>
-        after is null
-            ? transactions
-            : transactions.Where(transaction => transaction.Date < after.Date || (transaction.Date == after.Date && transaction.Id < after.Id));
+    private static IQueryable<Transaction> After(IQueryable<Transaction> transactions, TransactionSort sort, TransactionCursor? after) => (after, sort) switch
+    {
+        (null, _) => transactions,
+        (_, { By: TransactionSortBy.Date, Order: SortOrder.Desc }) => transactions.Where(transaction =>
+            transaction.Date < after.Date || (transaction.Date == after.Date && transaction.Id < after.Id)),
+        (_, { By: TransactionSortBy.Date }) => transactions.Where(transaction =>
+            transaction.Date > after.Date || (transaction.Date == after.Date && transaction.Id > after.Id)),
+        (_, { Order: SortOrder.Desc }) => transactions.Where(transaction =>
+            transaction.Amount < after.Amount || (transaction.Amount == after.Amount && transaction.Id < after.Id)),
+        _ => transactions.Where(transaction =>
+            transaction.Amount > after.Amount || (transaction.Amount == after.Amount && transaction.Id > after.Id)),
+    };
 
     public Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt == null, cancellationToken);
