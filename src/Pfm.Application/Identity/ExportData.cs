@@ -75,7 +75,7 @@ public sealed class ExportDataHandler(
         return new DataExport($"personal-finance-manager-{today:yyyy-MM-dd}.zip", buffer.ToArray());
     }
 
-    /// <summary>The same names and values <c>GET /me</c> answers, and whether two-factor sign-in is on.</summary>
+    /// <summary>The names and values of the settings <c>GET /me</c> answers, and whether two-factor sign-in is on.</summary>
     private static Dictionary<string, object?> Profile(UserDetails user, ProfileDetails profile) => new()
     {
         ["id"] = profile.Id,
@@ -83,6 +83,7 @@ public sealed class ExportDataHandler(
         ["baseCurrency"] = profile.BaseCurrency.ToString(),
         ["timeZone"] = profile.TimeZone,
         ["locale"] = profile.Locale?.Tag(),
+        ["budgetWarningPercent"] = profile.BudgetWarningPercent,
         ["twoFactorSignIn"] = user.TwoFactorEnabled,
     };
 

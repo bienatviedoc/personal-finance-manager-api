@@ -53,11 +53,13 @@ public static class UserErasureFixtures
             type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart",
             lines = new object[] { new { categoryId = food, amount = "320000", note = "Rice" }, new { categoryId = streetFood, amount = "180000" } },
         })).EnsureSuccessStatusCode();
+        (await browser.PutAsync($"/api/v1/budgets/{DateTime.UtcNow:yyyy-MM}/{food}", new { amount = "3000000" })).EnsureSuccessStatusCode();
 
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
             ["Accounts"] = 1,
+            ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
             // One line for each transaction, and two for the split.

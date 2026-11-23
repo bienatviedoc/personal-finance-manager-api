@@ -93,12 +93,42 @@ public class ProfileTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_user_is_warned_at_80_percent_of_a_budget_until_they_choose_another_threshold()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        Assert.Equal(80, (await browser.Http.GetFromJsonAsync<BudgetSettings>("/api/v1/me"))!.BudgetWarningPercent);
+
+        var patched = await browser.PatchAsync("/api/v1/me", new { budgetWarningPercent = 90 });
+        await browser.PatchAsync("/api/v1/me", new { locale = "en" });
+
+        Assert.Equal(90, (await patched.Content.ReadFromJsonAsync<BudgetSettings>())!.BudgetWarningPercent);
+        Assert.Equal(90, (await browser.Http.GetFromJsonAsync<BudgetSettings>("/api/v1/me"))!.BudgetWarningPercent);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("101")]
+    [InlineData("-80")]
+    public async Task A_budget_warning_threshold_that_is_not_from_1_to_100_percent_is_refused(string percent)
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await browser.PatchJsonAsync("/api/v1/me", $$"""{ "budgetWarningPercent": {{percent}} }""");
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["budgetWarningPercent"], await response.ErrorFieldsAsync());
+        Assert.Equal(80, (await browser.Http.GetFromJsonAsync<BudgetSettings>("/api/v1/me"))!.BudgetWarningPercent);
+    }
+
+    [Fact]
     public async Task A_visitor_who_is_not_signed_in_cannot_change_a_profile()
     {
         var response = await api.CreateBrowser().PatchAsync("/api/v1/me", new { baseCurrency = "EUR" });
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
+
+    private sealed record BudgetSettings(int BudgetWarningPercent);
 
     private sealed record Profile(Guid Id, string Email, string BaseCurrency, string TimeZone, string? Locale);
 }

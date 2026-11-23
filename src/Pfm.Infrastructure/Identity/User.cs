@@ -25,4 +25,7 @@ public sealed class User : IdentityUser<Guid>
     /// See <see cref="Deactivation"/> for what happens after.
     /// </summary>
     public DateTimeOffset? DeactivatedAt { get; set; }
+
+    /// <summary>The share of a budget, in whole percent, at which its state becomes a warning.</summary>
+    public int BudgetWarningPercent { get; set; } = ProfileSettings.Default.BudgetWarningPercent;
 }
