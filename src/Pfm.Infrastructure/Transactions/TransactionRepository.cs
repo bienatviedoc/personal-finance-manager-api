@@ -32,8 +32,51 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             transactions = transactions.Where(transaction => transaction.Date <= to);
         }
 
+        if (filter.AccountId is { } accountId)
+        {
+            transactions = transactions.Where(transaction => transaction.AccountId == accountId);
+        }
+
+        if (filter.CategoryId is { } categoryId)
+        {
+            transactions = transactions.Where(transaction =>
+                transaction.CategoryId == categoryId
+                || db.Set<Category>().Any(category => category.Id == transaction.CategoryId && category.ParentId == categoryId));
+        }
+
+        if (filter.Type is { } type)
+        {
+            transactions = transactions.Where(transaction => transaction.Type == type);
+        }
+
+        if (filter.Min is { } min)
+        {
+            transactions = transactions.Where(transaction => transaction.Amount >= min);
+        }
+
+        if (filter.Max is { } max)
+        {
+            transactions = transactions.Where(transaction => transaction.Amount <= max);
+        }
+
+        if (filter.Search is { } search)
+        {
+            // ILIKE with the text between wildcards is what the trigram index on the two columns answers.
+            var containing = $"%{EscapedForLike(search)}%";
+            transactions = transactions.Where(transaction =>
+                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape) || EF.Functions.ILike(transaction.Note!, containing, LikeEscape));
+        }
+
         return transactions;
     }
+
+    private const string LikeEscape = "\\";
+
+    /// <summary>The text as LIKE reads it literally: its own wildcards (%, _) match only themselves.</summary>
+    private static string EscapedForLike(string text) =>
+        text.Replace(LikeEscape, LikeEscape + LikeEscape, StringComparison.Ordinal)
+            .Replace("%", LikeEscape + "%", StringComparison.Ordinal)
+            .Replace("_", LikeEscape + "_", StringComparison.Ordinal);
 
     private static IQueryable<Transaction> Sorted(IQueryable<Transaction> transactions, TransactionSort sort) =>
         transactions.OrderByDescending(transaction => transaction.Date).ThenByDescending(transaction => transaction.Id);

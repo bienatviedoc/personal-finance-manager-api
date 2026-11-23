@@ -43,11 +43,18 @@ public static class TransactionEndpoints
 
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="accountId">One of the user's accounts: only its transactions are listed.</param>
+    /// <param name="categoryId">One of the user's categories: only transactions on it or on one of its subcategories are listed.</param>
+    /// <param name="type"><c>income</c> or <c>expense</c>.</param>
+    /// <param name="min">The smallest amount listed, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="max">The largest amount listed, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="q">Text the payee or the note contains, in upper or lower case; at most 200 characters.</param>
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
     /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
     private static async Task<Results<Ok<TransactionListResponse>, ValidationProblem>> List(
         ListTransactionsHandler handler, CancellationToken cancellationToken,
-        string? from = null, string? to = null, int limit = Paging.DefaultLimit, string? cursor = null)
+        string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? type = null,
+        string? min = null, string? max = null, string? q = null, int limit = Paging.DefaultLimit, string? cursor = null)
     {
         if (!Paging.IsValidLimit(limit))
         {
@@ -60,7 +67,11 @@ public static class TransactionEndpoints
             return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
         }
 
-        var filter = new TransactionFilter(DateText.Read(from), DateText.Read(to));
+        var filter = new TransactionFilter(
+            DateText.Read(from), DateText.Read(to), Guid.TryParse(accountId, out var account) ? account : null,
+            Guid.TryParse(categoryId, out var category) ? category : null, EnumText<TransactionType>.Read(type),
+            AmountText.TryParse(min, out var smallest) ? smallest : null, AmountText.TryParse(max, out var largest) ? largest : null,
+            string.IsNullOrWhiteSpace(q) ? null : q.Trim());
         var list = await handler.HandleAsync(new ListTransactions(filter, TransactionSort.NewestFirst, limit, after), cancellationToken);
         return TypedResults.Ok(new TransactionListResponse([.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor));
     }
