@@ -19,7 +19,7 @@ public static class TransactionEndpoints
         var transactions = api.MapGroup("/transactions").WithTags("Transactions").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         transactions.MapGet("/", List).WithName("ListTransactions")
-            .WithDescription("The user's transactions, newest date first and, within a date, last recorded first. A deleted transaction is never listed.");
+            .WithDescription("The user's transactions, newest date first and, within a date, last recorded first. A deleted transaction is never listed. The two legs of a transfer are listed like any transaction, each on its own account, with the transferId they share.");
         transactions.MapGet("/quick-add", QuickAdd).WithName("GetQuickAdd")
             .WithDescription("What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before.");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
@@ -28,11 +28,11 @@ public static class TransactionEndpoints
             .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. An expense flagged isRefund is a refund and raises the balance. Send lines in place of categoryId to split it across categories: lines that do not sum exactly to the amount are refused. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing, and a different transaction sent with a key already used answers 422.")
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         transactions.MapPut("/{id:guid}", Edit).WithName("EditTransaction")
-            .WithDescription("Changes a transaction; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
+            .WithDescription("Changes income or an expense; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428. A leg of a transfer is refused on its type: edit the transfer under /transfers.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         transactions.MapDelete("/{id:guid}", Delete).WithName("DeleteTransaction")
-            .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once.");
+            .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once. Deleting a leg of a transfer deletes the whole transfer, the other leg with it.");
 
         return api;
     }
@@ -191,7 +191,10 @@ public sealed record TransactionRequest(
 /// <param name="Note">What this part was for; at most 1000 characters.</param>
 public sealed record TransactionLineRequest(Guid CategoryId, string Amount, string? Note = null);
 
-/// <summary>A transaction.</summary>
+/// <summary>A transaction: income, an expense, or one of the two legs of a transfer.</summary>
+/// <param name="Type"><c>transferOut</c> and <c>transferIn</c> are the legs of a transfer, which is neither income nor spending.</param>
+/// <param name="CategoryId">Null for a leg of a transfer, which has no category.</param>
+/// <param name="TransferId">For a leg of a transfer, the transfer it belongs to: read, edit and delete it under <c>/transfers/{transferId}</c>. Null for income and expenses.</param>
 /// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign, except that a refund raises the balance.</param>
 /// <param name="IsRefund">Whether the expense is a refund: money coming back, which raises the account's balance and lowers spent in its category.</param>
 /// <param name="Currency">The currency of the transaction's account.</param>
@@ -200,13 +203,14 @@ public sealed record TransactionLineRequest(Guid CategoryId, string Amount, stri
 /// <param name="Lines">One line with the whole amount, or, for a split transaction, its lines in the order they were entered; their amounts sum exactly to <paramref name="Amount"/>.</param>
 /// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
 public sealed record TransactionResponse(
-    Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid CategoryId, string? Payee, string? Note,
-    string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId)
+    Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
+    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
-            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture), transaction.IsRefund,
-            [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))], transaction.RecurringRuleId);
+            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion.ToString(CultureInfo.InvariantCulture),
+            transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
+            transaction.RecurringRuleId);
 }
 
 /// <summary>What quick add starts a new transaction from.</summary>

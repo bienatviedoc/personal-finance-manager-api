@@ -316,6 +316,24 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_transfer_never_counts_as_spent_from_either_account()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "5000000");
+        var savings = await AddAccountAsync(browser, "Savings");
+        var food = await CategoryAsync(browser, "Food & drink");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SpendAsync(browser, everyday, "Food & drink", "120000", Today);
+
+        var transfer = await browser.PostAsync(
+            "/api/v1/transfers", new { fromAccountId = everyday, toAccountId = savings, amount = "2000000", date = Today.ToString("yyyy-MM-dd") });
+
+        Assert.Equal(HttpStatusCode.Created, transfer.StatusCode);
+        Assert.Equal(("120000.00", "2880000.00", 4), Progress(await BudgetAsync(browser, ThisMonth, food)));
+        Assert.Equal("120000.00", (await MonthAsync(browser, ThisMonth)).Totals.Spent);
+    }
+
+    [Fact]
     public async Task Income_never_counts_as_spent()
     {
         var (browser, _) = await api.SignedInAsync();

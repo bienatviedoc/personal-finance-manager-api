@@ -42,11 +42,14 @@ public sealed record TransactionLineInput(Guid CategoryId, string? Amount, strin
     public decimal? ParsedAmount { get; } = AmountText.TryParse(Amount, out var parsed) ? parsed : null;
 }
 
-/// <summary>A transaction command's values, read: null where one was left out or is not what it should be.</summary>
+/// <summary>
+/// A transaction command's values, read: null where one was left out or is not what it should be. A leg of a
+/// transfer is not a type to send: transfers are recorded as transfers.
+/// </summary>
 public sealed record TransactionFields(TransactionType? Type, decimal? Amount, DateOnly? Date)
 {
     public static TransactionFields Read(string? type, string? amount, string? date) =>
-        new(EnumText<TransactionType>.Read(type), AmountText.TryParse(amount, out var parsed) ? parsed : null, DateText.Read(date));
+        new(EnumText<TransactionType>.Read(type) is { } known && !known.IsTransferLeg() ? known : null, AmountText.TryParse(amount, out var parsed) ? parsed : null, DateText.Read(date));
 }
 
 /// <summary>
@@ -56,12 +59,16 @@ public sealed record TransactionFields(TransactionType? Type, decimal? Amount, D
 /// </summary>
 internal static class TransactionRules
 {
+    /// <summary>The types a transaction recorded on its own can have, as they are sent.</summary>
+    private static readonly string[] TypesToSend =
+        [.. EnumText<TransactionType>.Names.Where(name => !EnumText<TransactionType>.Read(name)!.Value.IsTransferLeg())];
+
     public static void TransactionFieldRules<T>(this AbstractValidator<T> validator)
         where T : ITransactionCommand
     {
         validator.RuleFor(command => command.Type)
             .Must((command, _) => command.Parsed.Type is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", EnumText<TransactionType>.Names)}.");
+            .WithMessage($"Choose one of: {string.Join(", ", TypesToSend)}.");
         validator.RuleFor(command => command.AccountId).Required();
         validator.RuleFor(command => command.Amount)
             .Must((command, _) => command.Parsed.Amount is > 0)

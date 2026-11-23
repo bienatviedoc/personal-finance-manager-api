@@ -215,6 +215,20 @@ already uses it can still show it. An account can be archived at any balance.
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
   only happen until the base currency locks (rule 12; see Budgets below).
+- **A transfer is two linked transactions** (rules 3 and 4, [decision record 0001](docs/adr/0001-transfer-is-two-linked-transactions.md)):
+  `POST /transfers` records a `transferOut` leg on the source account and a `transferIn` leg on the destination,
+  sharing a `TransferId`, in one save. `Transfer` (`Pfm.Domain.Transactions`) is the only way to record, edit or
+  delete a leg, so the two always change together; it is not a table of its own, and the repository pairs the two
+  rows back into it (`FindTransferAsync`). A leg has no category and no payee, and counts in its account's balance
+  like any transaction, so a transfer moves both balances and is neither income nor spending: whatever adds up
+  income or expenses goes by type and never sees a leg. Between accounts in one currency there is one `amount`;
+  between currencies the request also carries `toAmount`, what arrived, and the rate between the two is never
+  looked up. (Each leg's own amount is still converted into the base currency like any transaction's.)
+  `GET`, `PUT` and `DELETE /transfers/{id}` go by the transfer id, which each leg carries as `transferId` in the
+  transaction list. The transfer's row version is its Transfer out leg's. `DELETE /transactions/{id}` on a leg
+  deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
+  `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
+  one transfer, never one of each.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.

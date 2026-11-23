@@ -5,7 +5,7 @@ namespace Pfm.Application.Transactions;
 /// <summary>What the signed-in user's transactions say about how they record one. A deleted transaction says nothing.</summary>
 public interface IQuickAddHistory
 {
-    /// <summary>The accounts the user has transactions on, the one recorded on last first. A user has dozens, not thousands.</summary>
+    /// <summary>The accounts the user has income or expenses on, the one recorded on last first; a transfer between two accounts does not count. A user has dozens, not thousands.</summary>
     Task<IReadOnlyList<Guid>> AccountsLastUsedFirstAsync(CancellationToken cancellationToken);
 
     /// <summary>

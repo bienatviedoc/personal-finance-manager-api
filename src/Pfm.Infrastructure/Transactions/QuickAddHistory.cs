@@ -12,7 +12,8 @@ internal sealed class QuickAddHistory(PfmDbContext db) : IQuickAddHistory
 
     public async Task<IReadOnlyList<Guid>> AccountsLastUsedFirstAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>()
-            .Where(transaction => transaction.DeletedAt == null)
+            // Income and expenses only: a transfer is not what quick add records, and its two legs are on two accounts at once.
+            .Where(transaction => transaction.DeletedAt == null && transaction.TransferId == null)
             .GroupBy(transaction => transaction.AccountId)
             .Select(onAccount => new { AccountId = onAccount.Key, LastRecorded = onAccount.Max(transaction => transaction.CreatedAt) })
             .OrderByDescending(account => account.LastRecorded)

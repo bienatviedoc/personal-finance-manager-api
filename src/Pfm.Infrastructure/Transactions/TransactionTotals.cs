@@ -13,7 +13,8 @@ namespace Pfm.Infrastructure.Transactions;
 internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending
 {
     /// <summary>
-    /// Income − expenses + refunds of each account (spec section 3, rule 2), leaving out deleted transactions.
+    /// Income − expenses + refunds + transfers in − transfers out of each account (spec section 3, rule 2),
+    /// leaving out deleted transactions.
     /// The database adds up the amounts of each type, refunds apart; the sign of a type has one definition,
     /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
     /// </summary>

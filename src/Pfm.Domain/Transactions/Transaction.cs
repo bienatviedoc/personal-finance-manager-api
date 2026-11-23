@@ -1,11 +1,12 @@
 namespace Pfm.Domain.Transactions;
 
 /// <summary>
-/// One movement of money on one account on one calendar date: income or an expense. Its amount is
-/// positive and its type gives the sign; its currency is its account's. The one exception to the type
-/// giving the sign is a refund: an expense flagged as money coming back, which raises the balance. Deleting
-/// it is soft: it leaves lists and balances at once and stays recoverable. It has one line, with its category
-/// and whole amount, or is split across several, which sum exactly to its amount (spec section 3, rule 5).
+/// One movement of money on one account on one calendar date: income, an expense, or a leg of a
+/// <see cref="Transfer"/>. Its amount is positive and its type gives the sign; its currency is its account's.
+/// The one exception to the type giving the sign is a refund: an expense flagged as money coming back, which
+/// raises the balance. Deleting it is soft: it leaves lists and balances at once and stays recoverable. Income
+/// or an expense has one line, with its category and whole amount, or is split across several, which sum
+/// exactly to its amount (spec section 3, rule 5). A leg of a transfer has no line and no category.
 /// </summary>
 /// <remarks>
 /// Its amount is converted into the user's base currency once, at the exchange rate of its date, and never
@@ -17,6 +18,9 @@ public sealed class Transaction : IUserOwned
     public const int MaxPayeeLength = 200;
 
     public const int MaxNoteLength = 1000;
+
+    /// <summary>What a leg of a transfer has for lines.</summary>
+    private static readonly IReadOnlyList<SplitLine> NoLines = [];
 
     /// <summary>A split has at least this many lines: with one, the transaction is not split.</summary>
     public const int MinSplitLines = 2;
@@ -65,10 +69,16 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public BaseCurrencyConversion? Conversion { get; private set; }
 
-    /// <summary>The category of the first line: the transaction's only category unless it is split.</summary>
-    public Guid CategoryId { get; private set; }
+    /// <summary>
+    /// The category of the first line: the transaction's only category unless it is split. A leg of a transfer
+    /// has none: it is neither income nor spending.
+    /// </summary>
+    public Guid? CategoryId { get; private set; }
 
-    /// <summary>One line, or several when the transaction is split, in the order they were entered.</summary>
+    /// <summary>The transfer this transaction is a leg of, shared with the other leg; null for income and expenses.</summary>
+    public Guid? TransferId { get; private set; }
+
+    /// <summary>One line, or several when the transaction is split, in the order they were entered; none for a leg of a transfer.</summary>
     public IReadOnlyList<TransactionLine> Lines => [.. _lines.OrderBy(line => line.Position)];
 
     /// <summary>Whether the transaction is split across several lines, each with its own category.</summary>
@@ -97,12 +107,16 @@ public sealed class Transaction : IUserOwned
 
     public bool IsDeleted => DeletedAt is not null;
 
+    /// <summary>Whether this is one of the two legs of a transfer, which change and are deleted only together.</summary>
+    public bool IsTransferLeg => TransferId is not null;
+
     /// <summary>Whether the amount has been converted into the base currency. Once it has, it stays as converted.</summary>
     public bool IsConverted => Conversion is { IsConverted: true };
 
     /// <summary>
     /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
-    /// opening balance plus this of each of its transactions: income − expenses + refunds (spec section 3, rule 2).
+    /// opening balance plus this of each of its transactions: income − expenses + refunds + transfers in −
+    /// transfers out (spec section 3, rule 2).
     /// </summary>
     public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount, IsRefund);
 
@@ -165,10 +179,27 @@ public sealed class Transaction : IUserOwned
         DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(category);
+        GuardRecordedOnItsOwn(type);
         var transaction = new Transaction(now);
         transaction.Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
         return transaction;
     }
+
+    /// <summary>
+    /// One leg of a transfer, for <see cref="Transfer"/> alone to record: a leg never exists without the other.
+    /// </summary>
+    internal static Transaction RecordLeg(
+        Guid transferId, TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today,
+        DateTimeOffset now)
+    {
+        var leg = new Transaction(now) { TransferId = transferId };
+        leg.Set(type, accountId, currency, amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+        return leg;
+    }
+
+    /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
+    internal void EditLeg(Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
+        Set(Type, accountId, currency, amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
 
     /// <summary>Records a transaction split across several categories.</summary>
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
@@ -183,6 +214,7 @@ public sealed class Transaction : IUserOwned
         DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(lines);
+        GuardRecordedOnItsOwn(type);
         var transaction = new Transaction(now);
         transaction.Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
         return transaction;
@@ -202,6 +234,8 @@ public sealed class Transaction : IUserOwned
     {
         ArgumentNullException.ThrowIfNull(category);
         GuardNotDeleted();
+        GuardNotALeg();
+        GuardRecordedOnItsOwn(type);
         Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
     }
 
@@ -219,6 +253,8 @@ public sealed class Transaction : IUserOwned
     {
         ArgumentNullException.ThrowIfNull(lines);
         GuardNotDeleted();
+        GuardNotALeg();
+        GuardRecordedOnItsOwn(type);
         Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
     }
 
@@ -230,10 +266,31 @@ public sealed class Transaction : IUserOwned
         }
     }
 
+    private void GuardNotALeg()
+    {
+        if (IsTransferLeg)
+        {
+            throw new InvalidOperationException("A leg of a transfer changes only with its transfer, so the other leg changes with it.");
+        }
+    }
+
+    private static void GuardRecordedOnItsOwn(TransactionType type)
+    {
+        if (type.IsTransferLeg())
+        {
+            throw new TransactionRuleViolation(nameof(Type), "A transfer is recorded as a transfer, both legs together.");
+        }
+    }
+
     /// <summary>Says which recurring rule posted the transaction, once: it is the occurrence of that rule due on its date.</summary>
-    /// <exception cref="InvalidOperationException">Another rule already posted it.</exception>
+    /// <exception cref="InvalidOperationException">Another rule already posted it, or it is a leg of a transfer: a rule posts income and expenses only.</exception>
     public void PostedBy(Guid recurringRuleId)
     {
+        if (IsTransferLeg)
+        {
+            throw new InvalidOperationException("A recurring rule posts income and expenses, never a leg of a transfer.");
+        }
+
         if (recurringRuleId == Guid.Empty)
         {
             throw new ArgumentException("A transaction is posted by a recurring rule.", nameof(recurringRuleId));
@@ -293,7 +350,17 @@ public sealed class Transaction : IUserOwned
     private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
     public void Delete(DateTimeOffset now)
+    {
+        GuardNotALeg();
+        DeleteWhateverItIs(now);
+    }
+
+    /// <summary>Deletes a leg, for <see cref="Transfer"/> alone, which deletes the other leg with it.</summary>
+    internal void DeleteLeg(DateTimeOffset now) => DeleteWhateverItIs(now);
+
+    private void DeleteWhateverItIs(DateTimeOffset now)
     {
         if (IsDeleted)
         {
@@ -352,7 +419,12 @@ public sealed class Transaction : IUserOwned
             throw new TransactionRuleViolation(nameof(Date), "A transaction's date cannot be in the future.");
         }
 
-        GuardLines(type, currency, amount, lines, split);
+        // A leg of a transfer is what every transaction is, an amount moved on an account on a date, and no more:
+        // it has no lines.
+        if (!type.IsTransferLeg())
+        {
+            GuardLines(type, currency, amount, lines, split);
+        }
 
         if (isRefund && type != TransactionType.Expense)
         {
@@ -371,7 +443,7 @@ public sealed class Transaction : IUserOwned
         Amount = amount;
         IsRefund = isRefund;
         Date = date;
-        CategoryId = lines[0].Category.Id;
+        CategoryId = lines.Count > 0 ? lines[0].Category.Id : null;
         Payee = Normalised(payee);
         Note = Normalised(note);
         UpdatedAt = now;
