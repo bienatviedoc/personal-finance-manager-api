@@ -379,6 +379,48 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(new[] { groceries, transport }.Order(), (await MonthAsync(browser, ThisMonth)).Items.Select(budget => budget.CategoryId).Order());
     }
 
+    [Theory]
+    [InlineData("2026-13", "2026-10", "month")]
+    [InlineData("2026-11", "october", "sourceMonth")]
+    [InlineData("2026-11", "2026-11", "sourceMonth")]
+    public async Task A_copy_needs_two_different_budget_months(string month, string sourceMonth, string field)
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await CopyAsync(browser, month, sourceMonth);
+
+        Assert.Equal([field], await response.ErrorFieldsAsync());
+    }
+
+    [Fact]
+    public async Task A_user_copies_only_their_own_budgets_and_needs_to_be_signed_in()
+    {
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        await SetAsync(bob, LastMonth, await CategoryAsync(bob, "Food & drink"), "3000000");
+
+        Assert.Equal(0, await CopiedAsync(await CopyAsync(alice, ThisMonth, LastMonth)));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await CopyAsync(api.CreateBrowser(), ThisMonth, LastMonth)).StatusCode);
+        Assert.Empty((await MonthAsync(bob, ThisMonth)).Items);
+    }
+
+    [Fact]
+    public async Task A_budget_set_in_the_month_while_copying_is_kept_and_the_rest_are_copied()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        var fuel = await CategoryAsync(browser, "Fuel");
+        await SetAsync(browser, LastMonth, food, "3000000");
+        await SetAsync(browser, LastMonth, fuel, "400000");
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Budgets.Budget>(async () => await SetAsync(browser, ThisMonth, food, "1000000"));
+
+        var response = await CopyAsync(browser, ThisMonth, LastMonth);
+
+        Assert.Equal(1, await CopiedAsync(response));
+        Assert.Equal("1000000.00", (await BudgetAsync(browser, ThisMonth, food)).Budgeted);
+        Assert.Equal("400000.00", (await BudgetAsync(browser, ThisMonth, fuel)).Budgeted);
+    }
+
     // Spent (the calculation of section 6).
 
     [Fact]

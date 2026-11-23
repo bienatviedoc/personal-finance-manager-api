@@ -24,7 +24,8 @@ public sealed class CopyBudgetsValidator : AbstractValidator<CopyBudgetsCommand>
     public CopyBudgetsValidator()
     {
         RuleFor(command => command.Month).IsBudgetMonth(command => command.ParsedMonth);
-        RuleFor(command => command.SourceMonth).IsBudgetMonth(command => command.ParsedSourceMonth);
+        RuleFor(command => command.SourceMonth).IsBudgetMonth(command => command.ParsedSourceMonth)
+            .Must((command, _) => command.ParsedSourceMonth != command.ParsedMonth).WithMessage("Copy from another month.");
     }
 }
 
@@ -32,12 +33,34 @@ public sealed class CopyBudgetsValidator : AbstractValidator<CopyBudgetsCommand>
 /// <param name="Copied">How many budgets the month gained.</param>
 public sealed record CopyBudgetsOutcome(int Copied);
 
+/// <summary>
+/// Copies each budget of the source month whose category takes a new budget in the month: one that has none
+/// there yet, is not archived, and whose parent or subcategory has none there either (spec section 3, rule 6).
+/// The rest are left as they are, and the outcome counts only what was copied.
+/// </summary>
+/// <remarks>
+/// A budget set in the month by another request while copying makes the copy start again on what was saved,
+/// so that budget is kept as it was set.
+/// </remarks>
 public sealed class CopyBudgetsHandler(
     IValidator<CopyBudgetsCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IBaseCurrency baseCurrency, IUnitOfWork unitOfWork,
     TimeProvider clock)
     : CommandHandler<CopyBudgetsCommand, CopyBudgetsOutcome>(validator)
 {
-    protected override async Task<Result<CopyBudgetsOutcome>> ExecuteAsync(CopyBudgetsCommand command, CancellationToken cancellationToken)
+    protected override Task<Result<CopyBudgetsOutcome>> ExecuteAsync(CopyBudgetsCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync(async () =>
+        {
+            try
+            {
+                return await CopyAsync(command, cancellationToken);
+            }
+            catch (AlreadyExistsException meanwhile)
+            {
+                throw new ConcurrentChangeException(meanwhile);
+            }
+        });
+
+    private async Task<Result<CopyBudgetsOutcome>> CopyAsync(CopyBudgetsCommand command, CancellationToken cancellationToken)
     {
         var (month, sourceMonth) = (command.ParsedMonth!.Value, command.ParsedSourceMonth!.Value);
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));
