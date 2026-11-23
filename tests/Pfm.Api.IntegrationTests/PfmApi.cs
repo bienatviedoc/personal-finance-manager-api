@@ -149,6 +149,34 @@ public sealed class PfmApi : IAsyncLifetime
     }
 
     /// <summary>
+    /// A second copy of the API whose clock is this far ahead: what the API answers that much later. Asking
+    /// again for the same time answers the same copy.
+    /// </summary>
+    public WebApplicationFactory<Program> After(TimeSpan time)
+    {
+        if (!_later.TryGetValue(time, out var factory))
+        {
+            factory = CreateFactory(ConnectionString, Emails, configure: services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(new LaterTime(time));
+            });
+            _later[time] = factory;
+            _extraFactories.Add(factory);
+        }
+
+        return factory;
+    }
+
+    private readonly Dictionary<TimeSpan, WebApplicationFactory<Program>> _later = [];
+
+    /// <summary>The real clock, read this far ahead.</summary>
+    private sealed class LaterTime(TimeSpan ahead) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + ahead;
+    }
+
+    /// <summary>
     /// A second copy of the API where a client gets only this many attempts at the auth endpoints in each window.
     /// The copy the tests share allows so many that no test meets the limit by accident.
     /// </summary>

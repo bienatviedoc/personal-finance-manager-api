@@ -116,7 +116,11 @@ public static class IdentityEndpoints
         };
     }
 
-    private static async Task<Results<NoContent, ProblemHttpResult, ValidationProblem>> SignIn(
+    /// <summary>
+    /// Answers 204, or 200 with <c>deletionCancelled</c> when the user had asked to be deleted: signing in within
+    /// 30 days cancels that, and the user should be told.
+    /// </summary>
+    private static async Task<Results<NoContent, Ok<SignInResponse>, ProblemHttpResult, ValidationProblem>> SignIn(
         SignInRequest request, SignInHandler signIn, CancellationToken cancellationToken)
     {
         var result = await signIn.HandleAsync(new SignInCommand(request.Email, request.Password, request.TwoFactorCode, request.RecoveryCode), cancellationToken);
@@ -128,6 +132,7 @@ public static class IdentityEndpoints
         return result.Outcome switch
         {
             SignInOutcome.SignedIn => TypedResults.NoContent(),
+            SignInOutcome.SignedInAndDeletionCancelled => TypedResults.Ok(new SignInResponse(DeletionCancelled: true)),
             SignInOutcome.EmailNotConfirmed => TypedResults.Problem(
                 statusCode: StatusCodes.Status403Forbidden,
                 type: EmailNotVerified,
@@ -174,3 +179,6 @@ public sealed record ResetPasswordRequest(Guid UserId, string Token, string Pass
 /// <param name="RecoveryCode">One of the user's recovery codes, in place of <paramref name="TwoFactorCode"/>. It works once.</param>
 public sealed record SignInRequest(string Email, string Password, string? TwoFactorCode = null, string? RecoveryCode = null);
 
+/// <summary>What signing in answers when there is something to tell the user; otherwise it answers 204.</summary>
+/// <param name="DeletionCancelled">The user had asked to be deleted, and signing in has cancelled that.</param>
+public sealed record SignInResponse(bool DeletionCancelled);

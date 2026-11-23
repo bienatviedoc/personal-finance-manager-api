@@ -55,12 +55,31 @@ public interface IUsers
 
     /// <summary>Starts the count of wrong attempts again, once the user has signed in.</summary>
     Task ClearFailedSignInsAsync(Guid userId);
+
+    /// <summary>
+    /// Marks the user as deactivated at this moment and ends every session they have. Nothing of theirs is
+    /// erased.
+    /// </summary>
+    Task DeactivateAsync(Guid userId, DateTimeOffset at);
+
+    /// <summary>Cancels the user's deletion: they are a user like any other again.</summary>
+    Task ReactivateAsync(Guid userId);
+
+    /// <summary>The users deactivated at or before this moment, longest ago first.</summary>
+    Task<IReadOnlyList<Guid>> ListDeactivatedSinceAsync(DateTimeOffset atOrBefore, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Erases the user themselves: their email address, password, two-factor key and recovery codes. What they
+    /// own is erased first, through <see cref="Abstractions.IUserData"/>.
+    /// </summary>
+    Task EraseAsync(Guid userId);
 }
 
 /// <summary>What the sign-in use cases need to know about a user.</summary>
 /// <param name="Locale">The locale emails to the user are written in; null when they have not chosen one.</param>
 /// <param name="TwoFactorEnabled">Whether signing in also takes a code from the user's authenticator app.</param>
-public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed, Locale? Locale, bool TwoFactorEnabled);
+/// <param name="DeactivatedAt">When the user asked to be deleted; null unless they are a deactivated user.</param>
+public sealed record UserDetails(Guid Id, string Email, bool EmailConfirmed, Locale? Locale, bool TwoFactorEnabled, DateTimeOffset? DeactivatedAt = null);
 
 /// <summary>
 /// The result of creating a user: the user, or why not. <see cref="EmailTaken"/> is set when another

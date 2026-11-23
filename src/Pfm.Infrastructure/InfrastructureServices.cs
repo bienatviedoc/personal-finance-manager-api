@@ -44,6 +44,7 @@ public static class InfrastructureServices
 
         services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
+        services.AddScoped<IUserData, UserData>();
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<IAccountRepository, AccountRepository>();
 

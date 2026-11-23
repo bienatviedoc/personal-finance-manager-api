@@ -19,4 +19,10 @@ public sealed class User : IdentityUser<Guid>
     public string TimeZone { get; set; } = ProfileSettings.Default.TimeZone;
 
     public Locale? Locale { get; set; } = ProfileSettings.Default.Locale;
+
+    /// <summary>
+    /// When the user asked to be deleted; null for a user who has not, or who cancelled by signing in again.
+    /// See <see cref="Deactivation"/> for what happens after.
+    /// </summary>
+    public DateTimeOffset? DeactivatedAt { get; set; }
 }
