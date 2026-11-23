@@ -402,6 +402,31 @@ already uses it can still show it. An account can be archived at any balance.
 - Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
   Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
+### Reports
+
+- **Every report takes the same filters** (spec section 7): `from` and `to`, the report period (both required,
+  both included, `to` on or after `from`, from 1900 on), `accountId`, `categoryId` (the category and its
+  subcategories) and `compare`. `ReportParameters` (`Pfm.Api.Reports`) reads them into a `ReportFilter`
+  (`Pfm.Application.Reports`), naming each one it cannot read in a validation problem; an id the user has nothing
+  under reports nothing. A report added later takes them the same way.
+- **The previous period** (`ReportPeriod.Previous`, `Pfm.Domain.Reports`) is as many whole months before a period
+  of whole calendar months, so March is compared with February and a year with the year before, and as many days
+  before any other.
+- **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
+  left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ICategoryLookup`)
+  and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
+  definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
+  counts in its own, and income and transfers never count. Each item has its `share` of the total, to one
+  decimal (none when the total is not above zero), ranked by spent. At the top every top-level category stands for
+  itself and its subcategories (`SpendingBreakdown`); with `parentId`, each of that category's subcategories stands
+  for itself and the category for what was spent on it directly. `drillsInto` says what choosing an item shows
+  next: `subcategories` (ask again with `parentId`) or `transactions`. `GET /reports/spending-by-category/transactions`
+  lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
+  category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
+  `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;

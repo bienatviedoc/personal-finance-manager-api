@@ -41,7 +41,7 @@ An expense transaction flagged as money coming back, which raises the account ba
 _Avoid_: Negative expense, reversal, income (for money returned)
 
 **Spent**:
-The total of a category's expenses in a budget month, minus its refunds, in the base currency. It is always derived from transactions and can be negative.
+The total of a category's expenses in a budget month (or a report period), minus its refunds, in the base currency. It is always derived from transactions and can be negative.
 _Avoid_: Actual, used, consumed
 
 **Attachment**:
@@ -111,3 +111,7 @@ _Avoid_: Language (as a separate setting), culture
 **Budget month**:
 The calendar month, from the 1st, that a budget applies to.
 _Avoid_: Period, cycle, salary month
+
+**Report period**:
+The dates a report covers, from one calendar date to another, both included. It is compared with the previous period: as many whole months before it when it is whole calendar months, otherwise as many days.
+_Avoid_: Range (in the interface), window, budget month (for a report)
