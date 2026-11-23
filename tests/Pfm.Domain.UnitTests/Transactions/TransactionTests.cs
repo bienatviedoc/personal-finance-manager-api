@@ -178,6 +178,56 @@ public class TransactionTests
     }
 
     [Fact]
+    public void A_refund_is_an_expense_that_raises_the_account_balance()
+    {
+        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 1_000_000m, new DateOnly(2026, 11, 1), Monday);
+        var shoes = Spend(800_000m);
+        var refund = Refund(300_000m);
+
+        Assert.Equal((TransactionType.Expense, true, 300_000m), (refund.Type, refund.IsRefund, refund.Amount));
+        Assert.False(shoes.IsRefund);
+        Assert.Equal(300_000m, refund.SignedAmount);
+        Assert.Equal(500_000m, account.BalanceWith(shoes.SignedAmount + refund.SignedAmount));
+    }
+
+    [Fact]
+    public void A_deleted_refund_leaves_the_balance()
+    {
+        var refund = Refund(300_000m);
+
+        refund.Delete(Monday);
+
+        Assert.Equal(0m, refund.SignedAmount);
+    }
+
+    [Fact]
+    public void Only_an_expense_can_be_flagged_as_a_refund()
+    {
+        var violation = Assert.Throws<TransactionRuleViolation>(() =>
+            Transaction.Record(TransactionType.Income, Everyday, Currency.VND, 10m, Today, Salary, null, null, Today, Monday, isRefund: true));
+
+        Assert.Equal(nameof(Transaction.IsRefund), violation.Property);
+    }
+
+    [Fact]
+    public void An_edit_can_flag_an_expense_as_a_refund_or_take_the_flag_away_and_neither_converts_it_again()
+    {
+        var transaction = Spend(125_000m);
+        transaction.ConvertInto(Currency.USD, 5m, 0.00004m, Today);
+
+        transaction.Edit(TransactionType.Expense, Everyday, Currency.VND, 125_000m, Today, Groceries, null, null, Today, Tuesday, isRefund: true);
+        Assert.Equal((true, 125_000m, true), (transaction.IsRefund, transaction.SignedAmount, transaction.IsConverted));
+
+        transaction.Edit(TransactionType.Expense, Everyday, Currency.VND, 125_000m, Today, Groceries, null, null, Today, Tuesday);
+        Assert.Equal((false, -125_000m, true), (transaction.IsRefund, transaction.SignedAmount, transaction.IsConverted));
+
+        Assert.Equal(
+            nameof(Transaction.IsRefund),
+            Assert.Throws<TransactionRuleViolation>(() =>
+                transaction.Edit(TransactionType.Income, Everyday, Currency.VND, 125_000m, Today, Salary, null, null, Today, Tuesday, isRefund: true)).Property);
+    }
+
+    [Fact]
     public void A_deleted_transaction_leaves_the_balance_at_once_and_deleting_it_again_changes_nothing()
     {
         var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 1_000_000m, new DateOnly(2026, 11, 1), Monday);
@@ -449,4 +499,7 @@ public class TransactionTests
 
     private static Transaction Spend(decimal amount, DateOnly? date = null, Category? category = null) =>
         Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date ?? Today, category ?? Groceries, null, null, Today, Monday);
+
+    private static Transaction Refund(decimal amount, DateOnly? date = null, Category? category = null) =>
+        Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date ?? Today, category ?? Groceries, null, null, Today, Monday, isRefund: true);
 }

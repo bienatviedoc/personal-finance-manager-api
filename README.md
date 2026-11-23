@@ -181,6 +181,14 @@ already uses it can still show it. An account can be archived at any balance.
   its lines, which is how a category knows it has transactions. `Transaction.CategoryId` stays as the category of
   the first line, for what shows one category for a transaction; anything that adds up amounts by category
   (budgets, reports) reads the lines. A line has no `UserId` or timestamps: they are its transaction's.
+- **A refund** is an expense sent with `isRefund: true`: money coming back from a purchase. It is the one
+  exception to the type giving the sign (rule 2): it raises the account's balance, and it lowers spent in its
+  category instead of counting as income. Only an expense can be one; income sent with the flag is refused on
+  `isRefund`, by `Transaction` and by a check constraint. An edit can set the flag or take it away.
+- **Spent** (spec section 6) is `Spent.Of` in `Pfm.Domain.Transactions`: a category's expenses in a month minus
+  its refunds, in the base currency, each transaction adding its `SpentAmount`. A refund counts in the month of
+  the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
+  are left out. No endpoint answers spent yet: the budget screen (#28) does.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).

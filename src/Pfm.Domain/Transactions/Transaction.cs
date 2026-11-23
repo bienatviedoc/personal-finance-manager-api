@@ -2,9 +2,10 @@ namespace Pfm.Domain.Transactions;
 
 /// <summary>
 /// One movement of money on one account on one calendar date: income or an expense. Its amount is
-/// positive and its type gives the sign; its currency is its account's. Deleting it is soft: it leaves
-/// lists and balances at once and stays recoverable. It has one line, with its category and whole amount, or
-/// is split across several, which sum exactly to its amount (spec section 3, rule 5).
+/// positive and its type gives the sign; its currency is its account's. The one exception to the type
+/// giving the sign is a refund: an expense flagged as money coming back, which raises the balance. Deleting
+/// it is soft: it leaves lists and balances at once and stays recoverable. It has one line, with its category
+/// and whole amount, or is split across several, which sum exactly to its amount (spec section 3, rule 5).
 /// </summary>
 /// <remarks>
 /// Its amount is converted into the user's base currency once, at the exchange rate of its date, and never
@@ -43,8 +44,14 @@ public sealed class Transaction : IUserOwned
 
     public TransactionType Type { get; private set; }
 
-    /// <summary>Always greater than zero; <see cref="Type"/> gives the sign.</summary>
+    /// <summary>Always greater than zero; <see cref="Type"/> gives the sign, and <see cref="IsRefund"/> turns an expense's round.</summary>
     public decimal Amount { get; private set; }
+
+    /// <summary>
+    /// Whether the expense is a refund: money coming back from a purchase, which raises the account balance
+    /// and lowers spent in its category instead of counting as income. Only an expense can be one.
+    /// </summary>
+    public bool IsRefund { get; private set; }
 
     /// <summary>Copied from the account the transaction is on.</summary>
     public Currency Currency { get; private set; }
@@ -89,9 +96,46 @@ public sealed class Transaction : IUserOwned
 
     /// <summary>
     /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
-    /// opening balance plus this of each of its transactions: income − expenses (spec section 3, rule 2).
+    /// opening balance plus this of each of its transactions: income − expenses + refunds (spec section 3, rule 2).
     /// </summary>
-    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
+    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount, IsRefund);
+
+    /// <summary>
+    /// What the transaction does to spent in its category, in the base currency: an expense adds its converted
+    /// amount and a refund takes its own away (spec section 6). Nothing for income, once deleted, or while
+    /// not converted, which is left out of totals (spec section 3, rule 7).
+    /// </summary>
+    public decimal SpentAmount => !IsDeleted && Conversion is { Amount: { } converted } ? Spent.Signed(Type, converted, IsRefund) : 0;
+
+    /// <summary>
+    /// The part of <see cref="SpentAmount"/> that is spent in these categories: what the lines on them come to.
+    /// A split's lines share its converted amount as they share its amount, each share rounded to the base
+    /// currency's decimals and the last line taking what is left, so the shares sum exactly to it.
+    /// </summary>
+    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds)
+    {
+        ArgumentNullException.ThrowIfNull(categoryIds);
+        var spent = SpentAmount;
+        if (spent == 0)
+        {
+            return 0;
+        }
+
+        var decimals = Conversion!.BaseCurrency.DecimalPlaces();
+        var lines = Lines;
+        var (left, inThese) = (spent, 0m);
+        for (var position = 0; position < lines.Count; position++)
+        {
+            var share = position == lines.Count - 1 ? left : decimal.Round(spent * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
+            left -= share;
+            if (categoryIds.Contains(lines[position].CategoryId))
+            {
+                inThese += share;
+            }
+        }
+
+        return inThese;
+    }
 
     public static bool IsValidPayee(string? payee) => payee is null || payee.Trim().Length <= MaxPayeeLength;
 
@@ -109,13 +153,14 @@ public sealed class Transaction : IUserOwned
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
     /// <param name="category">One of the user's categories that is not archived, of the kind the type takes.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public static Transaction Record(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(category);
         var transaction = new Transaction(now);
-        transaction.Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now);
+        transaction.Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
         return transaction;
     }
 
@@ -126,13 +171,14 @@ public sealed class Transaction : IUserOwned
     /// kind the type takes, and together exactly <paramref name="amount"/>.
     /// </param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public static Transaction RecordSplit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(lines);
         var transaction = new Transaction(now);
-        transaction.Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now);
+        transaction.Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
         return transaction;
     }
 
@@ -143,13 +189,14 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     /// <param name="currency">The currency of the account the transaction is now on.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public void Edit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(category);
         GuardNotDeleted();
-        Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now);
+        Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
     }
 
     /// <summary>
@@ -159,13 +206,14 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     /// <param name="currency">The currency of the account the transaction is now on.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public void EditSplit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(lines);
         GuardNotDeleted();
-        Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now);
+        Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
     }
 
     private void GuardNotDeleted()
@@ -239,7 +287,7 @@ public sealed class Transaction : IUserOwned
     /// </param>
     private void Set(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, bool split, string? payee,
-        string? note, DateOnly today, DateTimeOffset now)
+        string? note, DateOnly today, DateTimeOffset now, bool isRefund)
     {
         if (!Enum.IsDefined(type))
         {
@@ -283,6 +331,11 @@ public sealed class Transaction : IUserOwned
 
         GuardLines(type, currency, amount, lines, split);
 
+        if (isRefund && type != TransactionType.Expense)
+        {
+            throw new TransactionRuleViolation(nameof(IsRefund), "Only an expense can be a refund.");
+        }
+
         // What was converted is no longer what the transaction says: it is converted again, at its date's rate.
         if (amount != Amount || date != Date || accountId != AccountId)
         {
@@ -293,6 +346,7 @@ public sealed class Transaction : IUserOwned
         AccountId = accountId;
         Currency = currency;
         Amount = amount;
+        IsRefund = isRefund;
         Date = date;
         CategoryId = lines[0].Category.Id;
         Payee = Normalised(payee);

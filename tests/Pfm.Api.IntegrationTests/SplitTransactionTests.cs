@@ -235,6 +235,19 @@ public class SplitTransactionTests(PfmApi api)
         Assert.Empty((await PageAsync(browser)).Items);
     }
 
+    [Fact]
+    public async Task A_refund_can_be_split_and_raises_the_balance_by_its_whole_amount()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var request = await ASplitAsync(browser, "500000", "320000", "180000");
+        request["isRefund"] = true;
+
+        var refund = await RecordAsync(browser, request);
+
+        Assert.Equal(2, refund.Lines.Length);
+        Assert.Equal("500000.00", await BalanceAsync(browser, (Guid)request["accountId"]!));
+    }
+
     /// <summary>An expense on a new account, split between Groceries and Shopping.</summary>
     private static async Task<Dictionary<string, object?>> ASplitAsync(Browser browser, string amount, string groceries, string shopping, Guid? account = null) =>
         new()

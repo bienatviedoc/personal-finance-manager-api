@@ -27,6 +27,8 @@ internal interface ITransactionCommand
 
     /// <summary>The lines of a split, which then names no category of its own; null for a transaction that is not split.</summary>
     IReadOnlyList<TransactionLineInput>? Lines { get; }
+    /// <summary>Whether the expense is a refund. Only an expense can be one, which the transaction itself checks.</summary>
+    bool IsRefund { get; }
 
     TransactionFields Parsed { get; }
 }

@@ -30,7 +30,7 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
         }
 
         var fields = command.Parsed;
-        string?[] transaction =
+        string?[] asked =
         [
             fields.Type!.Value.ToString(),
             command.AccountId.ToString("N"),
@@ -39,18 +39,21 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
             command.CategoryId.ToString("N"),
             Transaction.Normalised(command.Payee),
             Transaction.Normalised(command.Note),
+
+            // Only a refund adds to what is hashed, so the fingerprints kept before refunds existed still match.
+            .. command.IsRefund ? ["refund"] : Array.Empty<string?>(),
+
+            // And only a split adds its lines: a transaction that is not split keeps the fingerprint it had.
+            .. (command.Lines ?? []).SelectMany(line => new[]
+            {
+                line.CategoryId.ToString("N"),
+                line.ParsedAmount!.Value.ToString(AmountFormat, CultureInfo.InvariantCulture),
+                Transaction.Normalised(line.Note),
+            }),
         ];
 
-        // A transaction that is not split keeps the fingerprint it had before there were lines.
-        var lines = (command.Lines ?? []).SelectMany(line => new[]
-        {
-            line.CategoryId.ToString("N"),
-            line.ParsedAmount!.Value.ToString(AmountFormat, CultureInfo.InvariantCulture),
-            Transaction.Normalised(line.Note),
-        });
-        var asked = JsonSerializer.Serialize(transaction.Concat(lines));
-
-        return new IdempotentRequest(command.IdempotencyKey, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(asked))));
+        return new IdempotentRequest(
+            command.IdempotencyKey, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(asked)))));
     }
 }
 

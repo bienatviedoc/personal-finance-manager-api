@@ -13,7 +13,7 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261123025801_AddTransactionLines")]
+    [Migration("20261123030818_AddTransactionLines")]
     partial class AddTransactionLines
     {
         /// <inheritdoc />
@@ -352,6 +352,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsRefund")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Note")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -426,6 +429,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
                             t.HasCheckConstraint("CK_Transactions_Converted_Or_Not", "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Transactions_Refund_Is_Expense", "NOT \"IsRefund\" OR \"Type\" = 'Expense'");
                         });
                 });
 
