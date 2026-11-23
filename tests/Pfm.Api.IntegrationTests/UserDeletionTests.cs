@@ -1,7 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Pfm.Application.Contracts.Transactions;
+using Pfm.Application.Identity;
+using Pfm.Application.Transactions.Attachments;
 using Pfm.Domain;
 using Pfm.Infrastructure.Persistence;
 
@@ -164,6 +168,44 @@ public class UserDeletionTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.NotFound, (await anyone.GetAsync(leavingsFile)).StatusCode);
         Assert.Equal(UserErasureFixtures.Receipt, await anyone.GetByteArrayAsync(stayingsFile));
+    }
+
+    [Fact]
+    public async Task A_user_who_cannot_be_erased_holds_up_no_other_and_the_failure_is_reported()
+    {
+        var (stuck, _) = await api.SignedInAsync();
+        var stuckId = await IdOfAsync(stuck);
+        await UserErasureFixtures.OwnSomethingOfEveryKindAsync(stuck);
+        var (leaving, _) = await api.SignedInAsync();
+        var leavingId = await IdOfAsync(leaving);
+        await UserErasureFixtures.OwnSomethingOfEveryKindAsync(leaving);
+        await stuck.PostAsync(Deletion, new { password = PfmApi.Password });
+        await leaving.PostAsync(Deletion, new { password = PfmApi.Password });
+        await using var storageFailsForOne = api.After(TimeSpan.FromDays(31)).WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddScoped<IAttachmentFiles>(provider => new FailingFor(stuckId, ActivatorUtilities.CreateInstance<AttachmentFiles>(provider)))));
+
+        await using var scope = storageFailsForOne.Services.CreateAsyncScope();
+        var failed = await Assert.ThrowsAsync<AggregateException>(() =>
+            scope.ServiceProvider.GetRequiredService<EraseDeactivatedUsersHandler>().HandleAsync(new EraseDeactivatedUsersCommand()));
+
+        Assert.Contains(stuckId.ToString(), Assert.Single(failed.InnerExceptions).Message, StringComparison.Ordinal);
+        Assert.Empty(await api.RowsOwnedByAsync(leavingId));
+        Assert.NotEmpty(await api.RowsOwnedByAsync(stuckId));
+
+        // Storage is back: the next run erases them.
+        await api.EraseDeactivatedUsersAsync(after: TimeSpan.FromDays(31));
+        Assert.Empty(await api.RowsOwnedByAsync(stuckId));
+    }
+
+    /// <summary>Attachment files whose storage fails for one user, and works for everyone else.</summary>
+    private sealed class FailingFor(Guid failingUserId, IAttachmentFiles files) : IAttachmentFiles
+    {
+        public Task<IReadOnlyList<AttachmentFile>> ListAsync(CancellationToken cancellationToken) => files.ListAsync(cancellationToken);
+
+        public Task<Stream?> OpenAsync(AttachmentFile file, CancellationToken cancellationToken) => files.OpenAsync(file, cancellationToken);
+
+        public Task DeleteEverythingOfAsync(Guid userId, CancellationToken cancellationToken) =>
+            userId == failingUserId ? throw new IOException("Storage is down for this user.") : files.DeleteEverythingOfAsync(userId, cancellationToken);
     }
 
     /// <summary>A signed URL of the one file the user attached, which works for the minutes the test takes.</summary>

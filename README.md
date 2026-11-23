@@ -483,7 +483,8 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   they attached are deleted from object storage first, everything under the user's prefix
   (`users/{user}/attachments/`): storage is no part of the transaction, and should the rows then fail to go, the
   next run finds the user again with no file left to delete. So the worker needs the same `Storage__...`
-  settings as the API.
+  settings as the API. A user who cannot be erased holds up no other: the run erases the rest, then fails with
+  every user it could not erase, which the job logs, and the next run tries them again.
 - **Every kind of user data is covered without being named.** Both the export and the erasure go through
   `IUserData` (`Pfm.Application.Abstractions`), implemented by `Persistence/UserData` over every `IUserOwned`
   entity in the model, inside the user filter: the export reads each table's columns as stored (all but the
