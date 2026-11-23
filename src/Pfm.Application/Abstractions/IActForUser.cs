@@ -7,5 +7,8 @@ namespace Pfm.Application.Abstractions;
 /// </summary>
 public interface IActForUser
 {
+    /// <summary>The user the flow acts for now; null while it acts for nobody.</summary>
+    Guid? UserId { get; }
+
     IDisposable ActFor(Guid userId);
 }

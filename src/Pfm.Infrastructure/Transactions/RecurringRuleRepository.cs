@@ -30,8 +30,9 @@ internal sealed class RecurringRuleRepository(PfmDbContext db) : IRecurringRuleR
             .ToListAsync(cancellationToken);
 
     /// <summary>
-    /// Looks past the user filter, the second exception the README names under "User-owned data": it runs for
-    /// no user, and answers who has such rules and none of them. <c>UserOwnedDataTests</c> lists it.
+    /// One of the two queries that look past the user filter, the exceptions the README names under "User-owned
+    /// data": it runs for no user, and answers who has such rules and none of them. <c>UserOwnedDataTests</c>
+    /// fails when another appears.
     /// </summary>
     public async Task<IReadOnlyList<Guid>> UsersWithDueRulesAsync(DateOnly date, CancellationToken cancellationToken) =>
         await db.Set<RecurringRule>().IgnoreQueryFilters()

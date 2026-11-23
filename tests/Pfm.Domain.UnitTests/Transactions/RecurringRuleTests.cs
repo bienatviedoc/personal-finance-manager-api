@@ -157,6 +157,21 @@ public class RecurringRuleTests
         Assert.Equal(Date("2026-11-05"), rule.NextRunDate);
     }
 
+    [Fact]
+    public void A_transaction_posted_by_a_rule_links_back_to_it_and_to_no_other()
+    {
+        var rule = PayRent(MonthlyFromThe5th);
+        var transaction = Transaction.Record(
+            rule.Type, rule.AccountId, Currency.VND, rule.Amount, Date("2026-11-05"), Rent, rule.Payee, rule.Note, today: Date("2026-11-16"), Now);
+        Assert.Null(transaction.RecurringRuleId);
+
+        transaction.PostedBy(rule.Id);
+
+        Assert.Equal(rule.Id, transaction.RecurringRuleId);
+        Assert.Throws<InvalidOperationException>(() => transaction.PostedBy(Guid.CreateVersion7()));
+        Assert.Throws<ArgumentException>(() => transaction.PostedBy(Guid.Empty));
+    }
+
     private static RecurringRule PayRent(RecurringSchedule schedule) =>
         RecurringRule.Create(TransactionType.Expense, Everyday, Currency.VND, 9_000_000m, Rent, "Landlord", null, schedule, Now);
 

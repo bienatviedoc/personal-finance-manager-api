@@ -38,6 +38,7 @@ public static class ApplicationServices
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<TransactionContext>();
         services.AddScoped<RecurringRuleContext>();
+        services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
