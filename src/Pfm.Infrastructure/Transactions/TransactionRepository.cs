@@ -154,13 +154,23 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         await db.Set<Transaction>().Where(transaction => transaction.Conversion!.Amount == null).ToListAsync(cancellationToken);
 
     /// <summary>
-    /// One of the two queries that look past the user filter, the exceptions the README names under "User-owned
+    /// One of the queries that look past the user filter, the exceptions the README names under "User-owned
     /// data": it runs for no user, and answers who has such transactions and none of them.
     /// <c>UserOwnedDataTests</c> fails when another appears.
     /// </summary>
     public async Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().IgnoreQueryFilters()
             .Where(transaction => transaction.Conversion!.Amount == null)
+            .Select(transaction => transaction.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Another query that looks past the user filter, for the integrity check, which runs for no user: it
+    /// answers who has transactions and none of them.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> UsersWithTransactionsAsync(CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().IgnoreQueryFilters()
             .Select(transaction => transaction.UserId)
             .Distinct()
             .ToListAsync(cancellationToken);

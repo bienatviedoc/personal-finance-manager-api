@@ -336,6 +336,28 @@ already uses it can still show it. An account can be archived at any balance.
 - Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
   (REC-4) are still to come.
 
+### Integrity check
+
+- **Every night the worker checks that the numbers still add up** (spec sections 4 and 10). `IntegrityCheckJob`
+  runs `IntegrityCheck` when the worker starts and every day after that (`IntegrityCheck__RunEvery`,
+  `1.00:00:00`). It acts for each user who has transactions in turn and hands everything they have, deleted
+  transactions included, to `TransactionIntegrity.Check` (`Pfm.Domain.Transactions`), which answers the drift:
+  - **`split`**: a transaction whose lines do not sum to its amount;
+  - **`transfer`**: a transfer id that is not on exactly two legs, or legs on one account, one deleted and the
+    other not, of different amounts between accounts in one currency, or on different dates (`TransferDrift`);
+  - **`balance`**: an account whose balance as the account list works it out (the `SUM` behind
+    `IAccountTransactions`) is not what its transactions come to added up one at a time.
+- **Nothing is corrected.** Each drift is logged as a warning naming the user and the rows to look at (the
+  transaction, the transfer and its legs, or the account) with the amounts that disagree. Every run ends with
+  one line saying how many transactions of how many users it checked and how much drift it found. A run that
+  fails is logged as an error and reported like any failed job; the next one checks everything again.
+- **Metrics** (meter `Pfm.Worker.IntegrityCheck`): `pfm.integrity_check.runs`, a counter of runs by `result`
+  (`consistent`, `drift` or `failed`); `pfm.integrity_check.last_run`, when the last run of each `result` ended
+  (Unix seconds); and `pfm.integrity_check.drift`, how much drift of each `kind` the last run that finished found.
+  A stale `last_run` for `consistent` and `drift` both means the check has stopped running.
+- The domain's rules and the database's constraints keep all of this from happening; tests break the rows in
+  the database to see each drift found (`IntegrityCheckTests`).
+
 ### Budgets
 
 - **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st
@@ -343,6 +365,12 @@ already uses it can still show it. An account can be archived at any balance.
   a new budget answers 201 and sends no `If-Match`; a new amount for one that exists answers 200 and names its
   row version like every edit (412 when stale, 428 without). `DELETE` on the same address removes it: a budget
   is really gone, it is not archived. An archived category takes no new budget and keeps the ones it has.
+- **Copying a month** (BUD-4): `POST /budgets/{month}/copy-from/{sourceMonth}` copies, in one action, each budget
+  of the source month into the month with its amount (the SPA copies last month's into the month shown), and
+  answers how many it `copied`. A category already budgeted in the month keeps its budget, and a budget its
+  category no longer takes there is left out: one on an archived category, or one whose parent or subcategory
+  is budgeted in the month (rule 6). A budget set in the month at the same moment makes the copy start again
+  on what was saved (`CopyBudgets`).
 - **Spent is never stored** (spec section 6). `GET /budgets?month=2026-11` works out each budget's `budgeted`,
   `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
   `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
@@ -578,10 +606,11 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are two
-exceptions, and `UserOwnedDataTests` fails when a third appears: `TransactionRepository.UsersWithNotConvertedAsync`
-ignores the filter to answer which users have transactions flagged not converted, and
-`RecurringRuleRepository.UsersWithDueRulesAsync` to answer which users have a recurring rule with an occurrence
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are three
+exceptions, and `UserOwnedDataTests` fails when a fourth appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted,
+`TransactionRepository.UsersWithTransactionsAsync` which users have any transaction (for the integrity check), and
+`RecurringRuleRepository.UsersWithDueRulesAsync` which users have a recurring rule with an occurrence
 due. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
