@@ -872,6 +872,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                             b1.HasKey("Id");
 
+                            b1.HasIndex("Note")
+                                .HasDatabaseName("IX_TransactionLines_Note_Trigrams");
+
+                            NpgsqlIndexBuilderExtensions.HasMethod(b1.HasIndex("Note"), "gin");
+                            NpgsqlIndexBuilderExtensions.HasOperators(b1.HasIndex("Note"), new[] { "gin_trgm_ops" });
+
                             b1.HasIndex("CategoryId", "TransactionId");
 
                             b1.HasIndex("TransactionId", "Position");

@@ -62,6 +62,24 @@ public class TransactionListTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Searching_finds_a_split_by_the_note_of_any_of_its_lines()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var (groceries, household) = (await CategoryAsync(browser, "Groceries"), await CategoryAsync(browser, "Household"));
+        var response = await browser.PostAsync(Transactions, new
+        {
+            type = "expense", accountId = everyday, amount = "150", date = "2026-11-02", payee = "Co.opmart",
+            lines = new object[] { new { categoryId = groceries, amount = "100" }, new { categoryId = household, amount = "50", note = "Light bulbs" } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await AddAsync(browser, "expense", everyday, "7", note: "milk");
+
+        Assert.Equal(["150.00"], await AmountsAsync(browser, "?q=BULB"));
+        Assert.Equal(new TotalBody(1, [new CurrencyTotalBody("VND", "0.00", "150.00", "-150.00")]), (await ListAsync(browser, "?q=bulb")).Total, TotalBody.Comparer);
+    }
+
+    [Fact]
     public async Task Searching_finds_the_text_anywhere_in_the_payee_or_the_note_whatever_its_case()
     {
         var (browser, _) = await api.SignedInAsync();

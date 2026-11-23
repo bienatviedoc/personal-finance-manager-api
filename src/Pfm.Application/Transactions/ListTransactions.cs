@@ -24,7 +24,7 @@ public sealed record ListTransactions(
 /// <param name="CategoryId">A category: transactions with a line on it or on one of its subcategories are listed, so a split is found by each of its categories.</param>
 /// <param name="Min">The smallest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Max">The largest amount listed, in whatever currency the transaction is in.</param>
-/// <param name="Search">Text the payee or the note contains, in upper or lower case.</param>
+/// <param name="Search">Text the payee, the note or the note of any line contains, in upper or lower case.</param>
 public sealed record TransactionFilter(
     DateOnly? From = null, DateOnly? To = null, Guid? AccountId = null, Guid? CategoryId = null, TransactionType? Type = null,
     decimal? Min = null, decimal? Max = null, string? Search = null)

@@ -83,10 +83,13 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
 
         if (filter.Search is { } search)
         {
-            // ILIKE with the text between wildcards is what the trigram index on the two columns answers.
+            // ILIKE with the text between wildcards is what the trigram indexes on the payee and the notes answer.
+            // A line has a note of its own (spec section 10), so a split is found by any of its lines' notes too.
             var containing = $"%{EscapedForLike(search)}%";
             transactions = transactions.Where(transaction =>
-                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape) || EF.Functions.ILike(transaction.Note!, containing, LikeEscape));
+                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape)
+                || EF.Functions.ILike(transaction.Note!, containing, LikeEscape)
+                || transaction.Lines.Any(line => EF.Functions.ILike(line.Note!, containing, LikeEscape)));
         }
 
         return transactions;

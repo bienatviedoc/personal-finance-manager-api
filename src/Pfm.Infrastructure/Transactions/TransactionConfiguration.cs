@@ -118,6 +118,12 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             // What was spent in a category, for the list's filter, budgets and reports (spec section 10).
             line.HasIndex(nameof(TransactionLine.CategoryId), TransactionId);
             line.HasIndex(TransactionId, nameof(TransactionLine.Position));
+
+            // Search finds a split by the note of any of its lines, through their trigrams like the transaction's.
+            line.HasIndex(row => row.Note)
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops")
+                .HasDatabaseName("IX_TransactionLines_Note_Trigrams");
         });
         transaction.Navigation(row => row.Lines).HasField("_lines").UsePropertyAccessMode(PropertyAccessMode.Field);
 
@@ -128,7 +134,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.HasIndex(row => new { row.UserId, row.Date, row.Id }).IsDescending(false, true, true);
         transaction.HasIndex(row => new { row.UserId, row.AccountId, row.Date });
 
-        // Search: text anywhere in the payee or the note, found through their trigrams (spec section 10).
+        // Search: text anywhere in the payee or the note, found through their trigrams (spec section 10); the lines' notes have their own.
         transaction.HasIndex(row => new { row.Payee, row.Note })
             .HasMethod("gin")
             .HasOperators("gin_trgm_ops", "gin_trgm_ops")

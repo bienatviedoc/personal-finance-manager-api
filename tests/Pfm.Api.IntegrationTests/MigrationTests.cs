@@ -39,15 +39,16 @@ public class MigrationTests(PfmApi api)
     }
 
     [Theory]
-    [InlineData("""btree ("UserId", "Date" DESC, "Id" DESC)""")]
-    [InlineData("""gin ("Payee" gin_trgm_ops, "Note" gin_trgm_ops)""")]
-    public async Task The_transaction_list_and_its_search_are_backed_by_the_indexes_the_specification_names(string index)
+    [InlineData("Transactions", """btree ("UserId", "Date" DESC, "Id" DESC)""")]
+    [InlineData("Transactions", """gin ("Payee" gin_trgm_ops, "Note" gin_trgm_ops)""")]
+    [InlineData("TransactionLines", """gin ("Note" gin_trgm_ops)""")]
+    public async Task The_transaction_list_and_its_search_are_backed_by_the_indexes_the_specification_names(string table, string index)
     {
         await using var scope = api.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PfmDbContext>();
 
         var indexes = await db.Database
-            .SqlQuery<string>($"SELECT indexdef AS \"Value\" FROM pg_indexes WHERE tablename = 'Transactions'")
+            .SqlQuery<string>($"SELECT indexdef AS \"Value\" FROM pg_indexes WHERE tablename = {table}")
             .ToListAsync();
 
         Assert.Contains(indexes, definition => definition.EndsWith($"USING {index}", StringComparison.Ordinal));

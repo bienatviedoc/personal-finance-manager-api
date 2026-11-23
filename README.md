@@ -236,7 +236,7 @@ already uses it can still show it. An account can be archived at any balance.
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
   (amounts, both included, compared in whatever currency each transaction is in) and `q`, text found anywhere in
-  the payee or the note whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
+  the payee, the note or the note of any line whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
   date first when left out, and within a date or an amount the last recorded first (first when ascending). One
   the list cannot read is a validation problem naming it; an id the user has nothing under lists nothing.
   A `nextCursor` belongs to the filters and sort order it was answered for.
@@ -249,7 +249,8 @@ already uses it can still show it. An account can be archived at any balance.
   `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`), over the
   lines when filtered by a category, the type's sign applied by `TransactionTypes.Signed`.
 - **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
-  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two. A test pins both.
+  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two, and over each line's `Note`, answered by a
+  trigram GIN index on `TransactionLines`. A test pins all three.
 - **Quick add** (spec TXN-8). `GET /transactions/quick-add` answers what a new transaction starts from:
   `lastAccountId`, the account the user recorded on last (by when it was recorded, not its date), and, given a
   `payee` and optionally a `type`, `suggestedCategoryId`: the category most of their transactions with that
