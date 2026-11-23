@@ -499,6 +499,22 @@ public class TransferTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_transfer_does_not_change_the_account_quick_add_starts_a_new_transaction_from()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "5000");
+        var savings = await AddAccountAsync(browser, "Savings");
+        var cash = await AddAccountAsync(browser, "Cash");
+        (await browser.PostAsync(Transactions, new { type = "expense", accountId = cash, amount = "100", date = "2026-11-02", categoryId = await CategoryAsync(browser, "Groceries") }))
+            .EnsureSuccessStatusCode();
+
+        await TransferAsync(browser, everyday, savings, "2000");
+
+        var quickAdd = (await browser.Http.GetFromJsonAsync<QuickAddBody>($"{Transactions}/quick-add"))!;
+        Assert.Equal(cash, quickAdd.LastAccountId);
+    }
+
+    [Fact]
     public async Task An_accounts_currency_is_fixed_once_a_transfer_goes_through_it()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -575,6 +591,8 @@ public class TransferTests(PfmApi api)
         (await browser.Http.GetFromJsonAsync<LegList>(Transactions))!.Items;
 
     private sealed record Identified(Guid Id);
+
+    private sealed record QuickAddBody(Guid? LastAccountId);
 
     private sealed record AccountBody(string RowVersion);
 
