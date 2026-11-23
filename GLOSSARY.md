@@ -36,6 +36,10 @@ _Avoid_: Negative expense, reversal, income (for money returned)
 The total of a category's expenses in a budget month, minus its refunds, in the base currency. It is always derived from transactions and can be negative.
 _Avoid_: Actual, used, consumed
 
+**Attachment**:
+A receipt kept with a transaction: a JPEG, PNG or PDF file of at most 5 MB that the user can open again later. Removing it deletes the file.
+_Avoid_: Document, upload, file (for the thing attached)
+
 **Category**:
 What a transaction was for, at most two levels deep (Food > Groceries). Its kind is either income or expense, shared with its parent and fixed once it has transactions.
 _Avoid_: Type (for the kind), group, label
