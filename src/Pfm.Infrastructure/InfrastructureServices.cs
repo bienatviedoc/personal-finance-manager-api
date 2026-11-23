@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Budgets;
 using Pfm.Application.Accounts;
 using Pfm.Application.Accounts.Institutions;
 using Pfm.Application.Contracts.Transactions;
@@ -12,6 +13,7 @@ using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Accounts;
+using Pfm.Infrastructure.Budgets;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
@@ -73,6 +75,8 @@ public static class InfrastructureServices
         services.AddObjectStorage(validateOnStart: !IsGeneratingOpenApiDocument);
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
+        services.AddScoped<ICategorySpending, TransactionTotals>();
+        services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddExchangeRates();
 
         return services;

@@ -13,8 +13,8 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261123031724_AddAttachments")]
-    partial class AddAttachments
+    [Migration("20261123031644_AddBudgets")]
+    partial class AddBudgets
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -232,6 +232,63 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Institutions", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Budgets.Budget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CategoryKind")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasComputedColumnSql("'Expense'", true);
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("UserId", "Month");
+
+                    b.HasIndex("UserId", "CategoryId", "Month")
+                        .IsUnique();
+
+                    b.ToTable("Budgets", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Budgets_Amount_Not_Negative", "\"Amount\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Pfm.Domain.ExchangeRates.ExchangeRate", b =>
                 {
                     b.Property<string>("From")
@@ -254,57 +311,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasKey("From", "To", "Date");
 
                     b.ToTable("ExchangeRates", (string)null);
-                });
-
-            modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ContentType")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("FileName")
-                        .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("character varying(255)");
-
-                    b.Property<long>("Size")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("StorageKey")
-                        .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("TransactionId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("StorageKey")
-                        .IsUnique();
-
-                    b.HasIndex("TransactionId");
-
-                    b.HasIndex("UserId", "TransactionId", "Id");
-
-                    b.ToTable("Attachments", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Attachments_Size", "\"Size\" > 0 AND \"Size\" <= 5242880");
-                        });
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Category", b =>
@@ -499,6 +505,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(3)
                         .HasColumnType("character varying(3)");
 
+                    b.Property<int>("BudgetWarningPercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(80);
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .HasColumnType("text");
@@ -564,7 +575,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("Id", "BaseCurrency")
                         .IsUnique();
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Users_BudgetWarningPercent_1_To_100", "\"BudgetWarningPercent\" BETWEEN 1 AND 100");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
@@ -602,11 +616,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
-            modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
+            modelBuilder.Entity("Pfm.Domain.Budgets.Budget", b =>
                 {
-                    b.HasOne("Pfm.Domain.Transactions.Transaction", null)
+                    b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
-                        .HasForeignKey("TransactionId")
+                        .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

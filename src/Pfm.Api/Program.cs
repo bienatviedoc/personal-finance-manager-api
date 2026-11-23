@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Pfm.Api;
 using Pfm.Api.Accounts;
+using Pfm.Api.Budgets;
 using Pfm.Api.Identity;
 using Pfm.Api.Transactions;
 using Pfm.Application;
@@ -86,7 +87,8 @@ app.MapGroup("/api/v1")
     .MapAccountEndpoints()
     .MapCategoryEndpoints()
     .MapTransactionEndpoints()
-    .MapAttachmentEndpoints();
+    .MapAttachmentEndpoints()
+    .MapBudgetEndpoints();
 
 app.Run();
 
