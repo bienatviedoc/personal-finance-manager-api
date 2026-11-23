@@ -13,7 +13,7 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261123074749_AddTransactionSearchIndex")]
+    [Migration("20261123075344_AddTransactionSearchIndex")]
     partial class AddTransactionSearchIndex
     {
         /// <inheritdoc />
@@ -311,6 +311,57 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasKey("From", "To", "Date");
 
                     b.ToTable("ExchangeRates", (string)null);
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("TransactionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique();
+
+                    b.HasIndex("TransactionId");
+
+                    b.HasIndex("UserId", "TransactionId", "Id");
+
+                    b.ToTable("Attachments", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Attachments_Size", "\"Size\" > 0 AND \"Size\" <= 5242880");
+                        });
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Category", b =>
@@ -729,6 +780,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
+                {
+                    b.HasOne("Pfm.Domain.Transactions.Transaction", null)
+                        .WithMany()
+                        .HasForeignKey("TransactionId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });

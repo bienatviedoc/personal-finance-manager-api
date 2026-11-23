@@ -25,11 +25,48 @@ public class DataExportTests(PfmApi api)
         Assert.Equal("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
-        Assert.Equal(["README.txt", "accounts.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "recurring-rules.csv", "transaction-lines.csv", "transactions.csv"], files.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(
+            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "recurring-rules.csv", "transaction-lines.csv", "transactions.csv"],
+            files.Keys.Where(file => !file.StartsWith("attachments/", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
             owned,
             files.Where(file => file.Key.EndsWith(".csv", StringComparison.Ordinal)).ToDictionary(file => TableOf(file.Key), file => Csv(file.Value).Count - 1));
+    }
+
+    [Fact]
+    public async Task The_files_a_user_attached_are_in_the_export_each_named_by_its_attachment_and_its_own_name()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await UserErasureFixtures.OwnSomethingOfEveryKindAsync(browser);
+
+        var files = await FilesAsync(await browser.GetAsync(Export));
+
+        var attachment = Row(Csv(files["attachments.csv"]), 1);
+        Assert.Equal((UserErasureFixtures.ReceiptName, "application/pdf"), (attachment["fileName"], attachment["contentType"]));
+        var file = Assert.Single(files, file => file.Key.StartsWith("attachments/", StringComparison.Ordinal));
+        Assert.Equal($"attachments/{attachment["id"]}-{UserErasureFixtures.ReceiptName}", file.Key);
+        Assert.Equal(Encoding.UTF8.GetString(UserErasureFixtures.Receipt), file.Value);
+        Assert.Contains("attachments/", files["README.txt"]);
+    }
+
+    [Fact]
+    public async Task The_attachments_of_a_deleted_transaction_are_exported_like_the_transaction_and_a_removed_one_is_not()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var accountId = await BrowserFixtures.AddAccountAsync(browser, "Everyday");
+        var groceries = await BrowserFixtures.CategoryAsync(browser, "Groceries");
+        var recorded = await browser.PostAsync("/api/v1/transactions", new { type = "expense", accountId, amount = "45000", date = "2026-11-02", categoryId = groceries });
+        var transaction = (await recorded.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        var kept = await browser.PostFileAsync($"/api/v1/transactions/{transaction}/attachments", "kept.pdf", UserErasureFixtures.Receipt);
+        var removed = await browser.PostFileAsync($"/api/v1/transactions/{transaction}/attachments", "removed.pdf", UserErasureFixtures.Receipt);
+        (await browser.DeleteAsync($"/api/v1/attachments/{(await removed.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString()}")).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/transactions/{transaction}")).EnsureSuccessStatusCode();
+
+        var files = await FilesAsync(await browser.GetAsync(Export));
+
+        var keptId = (await kept.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetString();
+        Assert.Equal([$"attachments/{keptId}-kept.pdf"], files.Keys.Where(file => file.StartsWith("attachments/", StringComparison.Ordinal)));
     }
 
     [Fact]
