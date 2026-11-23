@@ -17,7 +17,7 @@ public class BudgetProgressTests
     private static Budget BudgetOf(decimal amount, BudgetCategory? category = null) => Budget.Set(category ?? Food, November, amount, Currency.VND, [], Now);
 
     private static BudgetProgress Progress(decimal budgeted, decimal spent, int warningPercent = 80) =>
-        BudgetProgress.Of(BudgetOf(budgeted), Food, [new CategorySpending(Food.Id, spent, NotConverted: 0)], warningPercent);
+        BudgetProgress.Of(BudgetOf(budgeted), Food, [new CategorySpending(Food.Id, spent, NotConverted: [])], warningPercent);
 
     // Roll-up (spec section 3, rule 6).
 
@@ -26,7 +26,7 @@ public class BudgetProgressTests
     {
         CategorySpending[] spending =
         [
-            new(Food.Id, 200_000m, 0), new(GroceriesId, 1_250_000m, 0), new(RestaurantsId, 400_000m, 0), new(Transport.Id, 90_000m, 0),
+            new(Food.Id, 200_000m, []), new(GroceriesId, 1_250_000m, []), new(RestaurantsId, 400_000m, []), new(Transport.Id, 90_000m, []),
         ];
 
         var food = BudgetProgress.Of(BudgetOf(3_000_000m), Food, spending, warningPercent: 80);
@@ -37,7 +37,7 @@ public class BudgetProgressTests
     [Fact]
     public void A_budget_on_a_subcategory_counts_only_what_was_spent_in_it()
     {
-        CategorySpending[] spending = [new(Food.Id, 200_000m, 0), new(GroceriesId, 1_250_000m, 0), new(RestaurantsId, 400_000m, 0)];
+        CategorySpending[] spending = [new(Food.Id, 200_000m, []), new(GroceriesId, 1_250_000m, []), new(RestaurantsId, 400_000m, [])];
 
         var groceries = BudgetProgress.Of(BudgetOf(2_000_000m, Groceries), Groceries, spending, warningPercent: 80);
 
@@ -47,7 +47,7 @@ public class BudgetProgressTests
     [Fact]
     public void With_nothing_spent_the_whole_budget_remains()
     {
-        var food = BudgetProgress.Of(BudgetOf(3_000_000m), Food, [new CategorySpending(Transport.Id, 90_000m, 0)], warningPercent: 80);
+        var food = BudgetProgress.Of(BudgetOf(3_000_000m), Food, [new CategorySpending(Transport.Id, 90_000m, [])], warningPercent: 80);
 
         Assert.Equal((0m, 3_000_000m, BudgetState.OnTrack, 0), (food.Spent, food.Remaining, food.State, food.PercentSpent));
     }
@@ -63,12 +63,32 @@ public class BudgetProgressTests
     [Fact]
     public void Spent_adds_up_amounts_as_they_were_converted_into_the_base_currency_and_leaves_out_and_counts_those_not_converted()
     {
-        // Groceries holds 40 USD converted at its date's rate of 25,000 with 250,000 VND; Restaurants one expense in VND and two waiting for a rate.
-        CategorySpending[] spending = [new(GroceriesId, 1_000_000m + 250_000m, NotConverted: 0), new(RestaurantsId, 400_000m, NotConverted: 2), new(Food.Id, 0m, NotConverted: 1)];
+        // Groceries holds 40 USD converted at its date's rate of 25,000, with 250,000 VND; Restaurants one expense in VND and two waiting for a rate.
+        var (waiting, alsoWaiting, onFoodItself) = (Guid.CreateVersion7(), Guid.CreateVersion7(), Guid.CreateVersion7());
+        CategorySpending[] spending =
+        [
+            new(GroceriesId, 1_000_000m + 250_000m, NotConverted: []), new(RestaurantsId, 400_000m, NotConverted: [waiting, alsoWaiting]),
+            new(Food.Id, 0m, NotConverted: [onFoodItself]),
+        ];
 
         var food = BudgetProgress.Of(BudgetOf(3_000_000m), Food, spending, warningPercent: 80);
 
         Assert.Equal((1_650_000m, 3), (food.Spent, food.NotConverted));
+    }
+
+    [Fact]
+    public void A_split_expense_that_is_not_converted_is_one_expense_however_many_of_the_categories_its_lines_are_in()
+    {
+        var split = Guid.CreateVersion7();
+        CategorySpending[] spending = [new(GroceriesId, 0m, NotConverted: [split]), new(RestaurantsId, 0m, NotConverted: [split]), new(Transport.Id, 0m, NotConverted: [split])];
+        BudgetProgress[] month =
+        [
+            BudgetProgress.Of(BudgetOf(3_000_000m), Food, spending, 80),
+            BudgetProgress.Of(BudgetOf(500_000m, Transport), Transport, spending, 80),
+        ];
+
+        Assert.Equal([1, 1], month.Select(budget => budget.NotConverted));
+        Assert.Equal(1, BudgetTotals.Of(month).NotConverted);
     }
 
     // The three states (BUD-3).
@@ -142,7 +162,7 @@ public class BudgetProgressTests
     [Fact]
     public void Totals_add_up_budgeted_spent_and_remaining_over_every_budget_of_the_month()
     {
-        CategorySpending[] spending = [new(GroceriesId, 1_250_000m, 1), new(Transport.Id, 650_000m, 0)];
+        CategorySpending[] spending = [new(GroceriesId, 1_250_000m, [Guid.CreateVersion7()]), new(Transport.Id, 650_000m, [])];
         BudgetProgress[] month =
         [
             BudgetProgress.Of(BudgetOf(3_000_000m), Food, spending, 80),

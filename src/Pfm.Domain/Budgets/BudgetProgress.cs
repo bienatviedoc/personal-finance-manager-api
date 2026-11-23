@@ -17,18 +17,21 @@ public enum BudgetState
 /// What the expenses of one category in a budget month come to in the base currency, minus its refunds. Each
 /// amount is as it was converted at the exchange rate of its transaction's date (decision record 0002).
 /// </summary>
-/// <param name="NotConverted">How many of the category's expenses are not converted, and so are left out of <paramref name="Spent"/>.</param>
-public sealed record CategorySpending(Guid CategoryId, decimal Spent, int NotConverted);
+/// <param name="NotConverted">
+/// The category's expenses that are not converted, and so are left out of <paramref name="Spent"/>, each by its
+/// transaction's id: a split transaction is one expense in every category its lines are in.
+/// </param>
+public sealed record CategorySpending(Guid CategoryId, decimal Spent, IReadOnlyCollection<Guid> NotConverted);
 
 /// <summary>
 /// A budget against what was spent in its month: budgeted, spent, remaining and the state. Spent is derived
 /// from transactions every time and can be negative; it is never clamped to zero (spec section 6).
 /// </summary>
-/// <param name="NotConverted">How many expenses are left out of spent because no exchange rate exists on or before their date yet.</param>
-public sealed record BudgetProgress(Budget Budget, decimal Spent, int NotConverted, BudgetState State)
+/// <param name="NotConvertedExpenses">The expenses left out of spent because no exchange rate exists on or before their date yet, by transaction id.</param>
+public sealed record BudgetProgress(Budget Budget, decimal Spent, IReadOnlySet<Guid> NotConvertedExpenses, BudgetState State)
 {
-    /// <summary>The warning threshold a new user starts with (spec BUD-3).</summary>
-    public const int DefaultWarningPercent = 80;
+    /// <summary>How many expenses are left out of spent because they are not converted.</summary>
+    public int NotConverted => NotConvertedExpenses.Count;
 
     public decimal Budgeted => Budget.Amount;
 
@@ -68,7 +71,7 @@ public sealed record BudgetProgress(Budget Budget, decimal Spent, int NotConvert
 
         var counted = spending.Where(of => of.CategoryId == category.Id || category.SubcategoryIds.Contains(of.CategoryId)).ToList();
         var spent = counted.Sum(of => of.Spent);
-        return new BudgetProgress(budget, spent, counted.Sum(of => of.NotConverted), StateOf(budget.Amount, spent, warningPercent));
+        return new BudgetProgress(budget, spent, counted.SelectMany(of => of.NotConverted).ToHashSet(), StateOf(budget.Amount, spent, warningPercent));
     }
 
     /// <summary>
@@ -82,10 +85,10 @@ public sealed record BudgetProgress(Budget Budget, decimal Spent, int NotConvert
 }
 
 /// <summary>The budgets of one budget month added up (spec BUD-2).</summary>
-/// <param name="NotConverted">How many expenses are left out of <paramref name="Spent"/> because they are not converted.</param>
+/// <param name="NotConverted">How many expenses are left out of <paramref name="Spent"/> because they are not converted, each counted once.</param>
 public sealed record BudgetTotals(decimal Budgeted, decimal Spent, decimal Remaining, int NotConverted)
 {
     public static BudgetTotals Of(IReadOnlyCollection<BudgetProgress> budgets) =>
         new(budgets.Sum(budget => budget.Budgeted), budgets.Sum(budget => budget.Spent), budgets.Sum(budget => budget.Remaining),
-            budgets.Sum(budget => budget.NotConverted));
+            budgets.SelectMany(budget => budget.NotConvertedExpenses).Distinct().Count());
 }

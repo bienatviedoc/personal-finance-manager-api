@@ -329,6 +329,70 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_refund_lowers_spent_in_its_category_which_can_go_below_zero_and_is_never_clamped()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var shopping = await CategoryAsync(browser, "Shopping");
+        var transport = await CategoryAsync(browser, "Transport");
+        await SetAsync(browser, ThisMonth, shopping, "1000000");
+        await SetAsync(browser, ThisMonth, transport, "500000");
+        await SpendAsync(browser, everyday, "Clothes", "800000", Today);
+
+        await RefundAsync(browser, everyday, "Clothes", "300000", Today);
+        Assert.Equal(("500000.00", "500000.00", 50), Progress(await BudgetAsync(browser, ThisMonth, shopping)));
+
+        await RefundAsync(browser, everyday, "Shopping", "700000", Today);
+        await RefundAsync(browser, everyday, "Transport", "50000", Today);
+        var month = await MonthAsync(browser, ThisMonth);
+        Assert.Equal(("-200000.00", "1200000.00", -20), Progress(month.Items.Single(budget => budget.CategoryId == shopping)));
+        Assert.Equal(("-50000.00", "550000.00", "onTrack"), (month.Items.Single(budget => budget.CategoryId == transport).Spent, month.Items.Single(budget => budget.CategoryId == transport).Remaining, month.Items.Single(budget => budget.CategoryId == transport).State));
+        Assert.Equal(new TotalsBody("1500000.00", "-250000.00", "1750000.00", 0), month.Totals);
+    }
+
+    [Fact]
+    public async Task A_split_expense_counts_each_line_in_its_own_category()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var food = await CategoryAsync(browser, "Food & drink");
+        var household = await CategoryAsync(browser, "Household");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SetAsync(browser, ThisMonth, household, "1000000");
+
+        await SplitAsync(browser, everyday, "900000", Today, ("Groceries", "500000"), ("Coffee", "100000"), ("Household", "250000"), ("Transport", "50000"));
+
+        var month = await MonthAsync(browser, ThisMonth);
+        Assert.Equal("600000.00", month.Items.Single(budget => budget.CategoryId == food).Spent);
+        Assert.Equal("250000.00", month.Items.Single(budget => budget.CategoryId == household).Spent);
+        Assert.Equal("850000.00", month.Totals.Spent);
+    }
+
+    [Fact]
+    public async Task A_split_expense_in_another_currency_shares_its_converted_amount_among_its_lines_and_is_one_expense_while_not_converted()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var food = await CategoryAsync(browser, "Food & drink");
+        var transport = await CategoryAsync(browser, "Transport");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SetAsync(browser, ThisMonth, transport, "1000000");
+        await SplitAsync(browser, dollars, "10", FirstOfThisMonth, ("Groceries", "3.33"), ("Coffee", "3.33"), ("Transport", "3.34"));
+
+        var waiting = await MonthAsync(browser, ThisMonth);
+        Assert.Equal([1, 1], waiting.Items.Select(budget => budget.NotConverted));
+        Assert.Equal(("0.00", 1), (waiting.Totals.Spent, waiting.Totals.NotConverted));
+
+        // 10 USD at 25,001 is 250,010 VND: 83,253 for each of the first two lines, and the last takes what is left.
+        await RatesAreAsync((FirstOfThisMonth.AddDays(-1), 25001m));
+
+        var converted = await MonthAsync(browser, ThisMonth);
+        Assert.Equal("166506.00", converted.Items.Single(budget => budget.CategoryId == food).Spent);
+        Assert.Equal("83504.00", converted.Items.Single(budget => budget.CategoryId == transport).Spent);
+        Assert.Equal(("250010.00", 0), (converted.Totals.Spent, converted.Totals.NotConverted));
+    }
+
+    [Fact]
     public async Task Spending_in_a_subcategory_counts_toward_a_budget_on_its_parent()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -617,11 +681,27 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
     private static Task<Guid> SpendAsync(Browser browser, Guid accountId, string category, string amount, DateOnly date) =>
         RecordAsync(browser, "expense", accountId, category, amount, date);
 
-    private static async Task<Guid> RecordAsync(Browser browser, string type, Guid accountId, string category, string amount, DateOnly date)
+    private static Task<Guid> RefundAsync(Browser browser, Guid accountId, string category, string amount, DateOnly date) =>
+        RecordAsync(browser, "expense", accountId, category, amount, date, isRefund: true);
+
+    /// <summary>Records one expense split across categories, each line with its part of the amount.</summary>
+    private static async Task SplitAsync(Browser browser, Guid accountId, string amount, DateOnly date, params (string Category, string Amount)[] lines)
+    {
+        var parts = new List<object>();
+        foreach (var line in lines)
+        {
+            parts.Add(new { categoryId = await CategoryAsync(browser, line.Category), amount = line.Amount });
+        }
+
+        var response = await browser.PostAsync("/api/v1/transactions", new { type = "expense", accountId, amount, date = date.ToString("yyyy-MM-dd"), lines = parts });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    private static async Task<Guid> RecordAsync(Browser browser, string type, Guid accountId, string category, string amount, DateOnly date, bool isRefund = false)
     {
         var response = await browser.PostAsync("/api/v1/transactions", new
         {
-            type, accountId, amount, date = date.ToString("yyyy-MM-dd"), categoryId = await CategoryAsync(browser, category),
+            type, accountId, amount, date = date.ToString("yyyy-MM-dd"), categoryId = await CategoryAsync(browser, category), isRefund,
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;

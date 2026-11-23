@@ -60,5 +60,5 @@ internal static class ModuleReferences
     /// <summary>Whether the constraint a save broke is one of those that another request's save can break.</summary>
     public static bool IsBrokenByAConcurrentSave(string? constraintName) =>
         constraintName is TransactionCurrencyIsItsAccounts or TransactionBaseCurrencyIsItsUsers or TransactionConfiguration.CategoryKindIsItsCategorys
-            or BudgetCurrencyIsItsUsersBaseCurrency or BudgetCategoryIsAnExpenseCategory;
+            or TransactionConfiguration.LineCategoryKindIsItsCategorys or BudgetCurrencyIsItsUsersBaseCurrency or BudgetCategoryIsAnExpenseCategory;
 }

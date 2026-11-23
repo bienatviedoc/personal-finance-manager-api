@@ -7,8 +7,8 @@ namespace Pfm.Application.Budgets;
 
 /// <summary>
 /// Works out a budget month: each budget against what was spent in its category that month. Spent is asked
-/// of Transactions every time and never stored, so a late edit or import corrects the budget by itself
-/// (spec section 6).
+/// of Transactions every time, by its own definition of it (expenses minus refunds, a split by its lines),
+/// and never stored, so a late edit or import corrects the budget by itself (spec section 6).
 /// </summary>
 public sealed class BudgetMonthReader(
     IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBaseCurrency baseCurrency, IBudgetWarningThreshold warningThreshold)
