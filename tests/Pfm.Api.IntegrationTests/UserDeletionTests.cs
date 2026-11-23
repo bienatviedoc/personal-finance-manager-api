@@ -1,5 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Pfm.Domain;
+using Pfm.Infrastructure.Persistence;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -184,6 +188,33 @@ public class UserDeletionTests(PfmApi api)
 
         Assert.Equal(owned, await api.RowsOwnedByAsync(stayingId));
         Assert.Equal(HttpStatusCode.OK, (await staying.GetAsync("/api/v1/me")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Every_table_holds_rows_a_user_owns_or_is_known_to_hold_none()
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        var model = scope.ServiceProvider.GetRequiredService<PfmDbContext>().Model;
+
+        var notUserOwned = model.GetEntityTypes()
+            .Where(entity => !typeof(IUserOwned).IsAssignableFrom(entity.ClrType))
+            .Select(entity => entity.GetTableName()!)
+            .Distinct()
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        // A user-owned table is exported and erased without being named anywhere. A table that is not must be
+        // argued for here: it holds nothing of one user's, or what it holds leaves another way.
+        Assert.Equal(
+            [
+                "DataProtectionKeys", // The keys that sign cookies and emailed links: the app's, not a user's.
+                "ExchangeRates", // Shared by every user.
+                "UserClaims", // These three go with their user when the user is erased;
+                "UserLogins", // the tokens are the authenticator key and recovery codes, which are secrets
+                "UserTokens", // and so not exported.
+                "Users", // Exported as profile.json, and erased last.
+            ],
+            notUserOwned);
     }
 
     private static Task<HttpResponseMessage> SignInAsync(Browser browser, string email) =>

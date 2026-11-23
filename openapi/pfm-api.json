@@ -58,6 +58,29 @@
         }
       }
     },
+    "/api/v1/export/all.zip": {
+      "get": {
+        "tags": [
+          "Export"
+        ],
+        "operationId": "ExportData",
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/me/deletion": {
       "post": {
         "tags": [
@@ -2919,6 +2942,9 @@
   "tags": [
     {
       "name": "Identity"
+    },
+    {
+      "name": "Export"
     },
     {
       "name": "Institutions"
