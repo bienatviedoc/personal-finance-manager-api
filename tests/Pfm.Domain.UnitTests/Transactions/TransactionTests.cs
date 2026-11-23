@@ -11,6 +11,7 @@ public class TransactionTests
     private static readonly Guid Everyday = Guid.CreateVersion7();
     private static readonly Category Salary = Category.Create("Salary", CategoryKind.Income, "briefcase", Color.Parse("#16a34a"), Monday);
     private static readonly Category Groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
+    private static readonly Category Household = Category.Create("Household", CategoryKind.Expense, "home", Color.Parse("#ea580c"), Monday);
 
     [Fact]
     public void A_recorded_transaction_holds_what_was_entered_in_the_currency_of_its_account()
@@ -305,6 +306,147 @@ public class TransactionTests
     }
 
     /// <summary>An expense in VND on the everyday account, recorded on Monday.</summary>
+    [Fact]
+    public void A_transaction_that_is_not_split_has_one_line_with_its_category_and_whole_amount()
+    {
+        var transaction = Spend(125_000m);
+
+        var line = Assert.Single(transaction.Lines);
+        Assert.Equal((Groceries.Id, 125_000m, null), (line.CategoryId, line.Amount, line.Note));
+        Assert.False(transaction.IsSplit);
+    }
+
+    [Fact]
+    public void A_transaction_can_be_split_across_several_categories_each_line_with_an_amount_and_an_optional_note()
+    {
+        var transaction = Split(500_000m, new SplitLine(Groceries, 320_000m, "  food "), new SplitLine(Household, 180_000m, "  "));
+
+        Assert.True(transaction.IsSplit);
+        Assert.Equal(500_000m, transaction.Amount);
+        Assert.Equal(
+            [(Groceries.Id, 320_000m, "food"), (Household.Id, 180_000m, null)],
+            transaction.Lines.Select(line => (line.CategoryId, line.Amount, line.Note)));
+        Assert.Equal(Groceries.Id, transaction.CategoryId);
+    }
+
+    [Theory]
+    [InlineData("320000", "179999")]
+    [InlineData("320000", "180001")]
+    [InlineData("500000", "500000")]
+    public void The_lines_of_a_split_must_sum_exactly_to_the_transaction_amount(string first, string second)
+    {
+        var violation = Assert.Throws<TransactionRuleViolation>(() =>
+            Split(500_000m, new SplitLine(Groceries, Amount(first)), new SplitLine(Household, Amount(second))));
+
+        Assert.Equal(nameof(Transaction.Lines), violation.Property);
+    }
+
+    [Fact]
+    public void Lines_that_sum_to_the_amount_to_the_last_decimal_are_a_split()
+    {
+        var transaction = Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.USD, 100m,
+            Today, [new SplitLine(Groceries, 33.33m), new SplitLine(Household, 33.33m), new SplitLine(Groceries, 33.34m)], null, null, Today, Monday);
+
+        Assert.Equal(100m, transaction.Lines.Sum(line => line.Amount));
+        Assert.Equal(3, transaction.Lines.Count);
+    }
+
+    [Theory]
+    [InlineData("0", "500000")]
+    [InlineData("-1", "500001")]
+    [InlineData("0.5", "499999.5")]
+    public void Every_line_of_a_split_has_an_amount_above_zero_that_fits_the_currency(string first, string second)
+    {
+        var violation = Assert.Throws<TransactionRuleViolation>(() =>
+            Split(500_000m, new SplitLine(Groceries, Amount(first)), new SplitLine(Household, Amount(second))));
+
+        Assert.Equal("Lines[0].Amount", violation.Property);
+    }
+
+    [Fact]
+    public void A_split_has_at_least_two_lines_and_at_most_fifty()
+    {
+        var one = Assert.Throws<TransactionRuleViolation>(() => Split(500_000m, new SplitLine(Groceries, 500_000m)));
+        var many = Assert.Throws<TransactionRuleViolation>(() =>
+            Split(51m, [.. Enumerable.Range(0, 51).Select(_ => new SplitLine(Groceries, 1m))]));
+
+        Assert.Equal(nameof(Transaction.Lines), one.Property);
+        Assert.Equal(nameof(Transaction.Lines), many.Property);
+        Assert.Equal(50, Split(50m, [.. Enumerable.Range(0, 50).Select(_ => new SplitLine(Groceries, 1m))]).Lines.Count);
+    }
+
+    [Fact]
+    public void Every_line_of_a_split_takes_a_category_of_the_kind_the_transactions_type_takes()
+    {
+        var violation = Assert.Throws<TransactionRuleViolation>(() =>
+            Split(500_000m, new SplitLine(Groceries, 320_000m), new SplitLine(Salary, 180_000m)));
+
+        Assert.Equal("Lines[1].CategoryId", violation.Property);
+    }
+
+    [Fact]
+    public void A_split_takes_no_archived_category_but_an_edit_keeps_the_ones_its_lines_already_have()
+    {
+        var gym = Category.Create("Gym", CategoryKind.Expense, "dumbbell", Color.Parse("#ea580c"), Monday);
+        var old = Category.Create("Old", CategoryKind.Expense, "archive", Color.Parse("#ea580c"), Monday);
+        var transaction = Split(500_000m, new SplitLine(Groceries, 320_000m), new SplitLine(gym, 180_000m));
+        gym.Archive([], Monday);
+        old.Archive([], Monday);
+
+        transaction.EditSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 500_000m, Today, [new SplitLine(gym, 200_000m), new SplitLine(Groceries, 300_000m)], null, null, Today, Tuesday);
+
+        Assert.Equal([(gym.Id, 200_000m), (Groceries.Id, 300_000m)], transaction.Lines.Select(line => (line.CategoryId, line.Amount)));
+        Assert.Equal("Lines[1].CategoryId", Assert.Throws<TransactionRuleViolation>(() => Split(10m, new SplitLine(Groceries, 5m), new SplitLine(gym, 5m))).Property);
+        Assert.Equal(
+            "Lines[0].CategoryId",
+            Assert.Throws<TransactionRuleViolation>(() => transaction.EditSplit(
+                TransactionType.Expense, Everyday, Currency.VND, 500_000m, Today, [new SplitLine(old, 200_000m), new SplitLine(Groceries, 300_000m)], null, null, Today, Tuesday)).Property);
+    }
+
+    [Fact]
+    public void An_edit_can_split_a_transaction_and_make_a_split_one_category_again()
+    {
+        var transaction = Spend(500_000m);
+
+        transaction.EditSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 500_000m, Today, [new SplitLine(Groceries, 320_000m), new SplitLine(Household, 180_000m)], null, null, Today, Tuesday);
+        Assert.True(transaction.IsSplit);
+
+        transaction.Edit(TransactionType.Expense, Everyday, Currency.VND, 450_000m, Today, Household, null, null, Today, Tuesday);
+
+        var line = Assert.Single(transaction.Lines);
+        Assert.Equal((Household.Id, 450_000m, Household.Id), (line.CategoryId, line.Amount, transaction.CategoryId));
+        Assert.False(transaction.IsSplit);
+    }
+
+    [Fact]
+    public void A_refused_edit_of_a_split_leaves_its_lines_as_they_were()
+    {
+        var transaction = Split(500_000m, new SplitLine(Groceries, 320_000m), new SplitLine(Household, 180_000m));
+
+        Assert.Throws<TransactionRuleViolation>(() => transaction.EditSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 600_000m, Today, [new SplitLine(Groceries, 320_000m), new SplitLine(Household, 180_000m)], null, null, Today, Tuesday));
+
+        Assert.Equal((500_000m, 2, Monday), (transaction.Amount, transaction.Lines.Count, transaction.UpdatedAt));
+    }
+
+    [Theory]
+    [InlineData("500000", "320000,180000", "0")]
+    [InlineData("500000", "320000", "180000")]
+    [InlineData("500000", "320000,200000", "-20000")]
+    [InlineData("100", "33.33,33.33", "33.34")]
+    public void What_remains_to_split_is_the_amount_minus_its_lines(string amount, string lines, string remaining)
+    {
+        Assert.Equal(Amount(remaining), Transaction.RemainingToSplit(Amount(amount), lines.Split(',').Select(Amount)));
+    }
+
+    private static decimal Amount(string text) => decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+
+    private static Transaction Split(decimal amount, params SplitLine[] lines) =>
+        Transaction.RecordSplit(TransactionType.Expense, Everyday, Currency.VND, amount, Today, lines, null, null, Today, Monday);
+
     private static Transaction Spend(decimal amount, DateOnly? date = null, Category? category = null) =>
         Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date ?? Today, category ?? Groceries, null, null, Today, Monday);
 }
