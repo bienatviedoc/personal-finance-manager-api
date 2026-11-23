@@ -294,7 +294,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Account` | InstitutionId?, Name, Type, Currency, OpeningBalance, OpeningDate, CreditLimit?, Last4?, IsArchived | Currency immutable once transactions exist |
 | `Category` | ParentId?, Name, Kind (Income or Expense), Icon, Color, IsArchived | Max depth 2, enforced in domain |
 | `Transaction` | AccountId, Type, Amount, Currency, Date, BaseCurrency, BaseCurrencyAmount?, ExchangeRate?, ExchangeRateDate?, Payee, Note, IsRefund, TransferId?, RecurringRuleId?, ImportBatchId?, ReconciliationId?, RowVersion | Amount > 0. Currency copied from account. The amount converted once into the user's base currency (rule 7), with the rate used and the day that rate is of; the three are null together while the transaction is not converted |
-| `TransactionLine` | TransactionId, CategoryId, Amount, Note | One line normally, several for a split. Lines sum to the transaction amount |
+| `TransactionLine` | TransactionId, Position, CategoryId, Amount, Note | One line normally, several for a split, in the order entered. Lines sum to the transaction amount. Owned by its transaction: no `UserId` or timestamps of its own |
 | `Tag`, `TransactionTag` | Name; TransactionId + TagId | Many to many |
 | `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage |
 | `Budget` | CategoryId?, Month (first day), Amount | Null category means the overall monthly budget. Unique on (UserId, CategoryId, Month) |
