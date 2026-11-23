@@ -1,9 +1,9 @@
 namespace Pfm.Domain.Transactions;
 
 /// <summary>
-/// One movement of money on one account on one calendar date: income or an expense. Its amount is
-/// positive and its type gives the sign; its currency is its account's. Deleting it is soft: it leaves
-/// lists and balances at once and stays recoverable.
+/// One movement of money on one account on one calendar date: income, an expense, or a leg of a
+/// <see cref="Transfer"/>. Its amount is positive and its type gives the sign; its currency is its account's.
+/// Deleting it is soft: it leaves lists and balances at once and stays recoverable.
 /// </summary>
 /// <remarks>
 /// Its amount is converted into the user's base currency once, at the exchange rate of its date, and never
@@ -50,7 +50,11 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public BaseCurrencyConversion? Conversion { get; private set; }
 
-    public Guid CategoryId { get; private set; }
+    /// <summary>What the income or expense was for. A transfer leg has none: it is neither income nor spending.</summary>
+    public Guid? CategoryId { get; private set; }
+
+    /// <summary>The transfer this transaction is a leg of, shared with the other leg; null for income and expenses.</summary>
+    public Guid? TransferId { get; private set; }
 
     /// <summary>Who was paid, or who paid; null when not entered.</summary>
     public string? Payee { get; private set; }
@@ -69,12 +73,16 @@ public sealed class Transaction : IUserOwned
 
     public bool IsDeleted => DeletedAt is not null;
 
+    /// <summary>Whether this is one of the two legs of a transfer, which change and are deleted only together.</summary>
+    public bool IsTransferLeg => TransferId is not null;
+
     /// <summary>Whether the amount has been converted into the base currency. Once it has, it stays as converted.</summary>
     public bool IsConverted => Conversion is { IsConverted: true };
 
     /// <summary>
     /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
-    /// opening balance plus this of each of its transactions: income − expenses (spec section 3, rule 2).
+    /// opening balance plus this of each of its transactions: income − expenses + transfers in − transfers out
+    /// (spec section 3, rule 2).
     /// </summary>
     public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
 
@@ -93,6 +101,7 @@ public sealed class Transaction : IUserOwned
         DateOnly today, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(category);
+        GuardRecordedOnItsOwn(type);
         if (category.IsArchived)
         {
             throw new TransactionRuleViolation(nameof(CategoryId), "An archived category takes no new transactions.");
@@ -104,11 +113,28 @@ public sealed class Transaction : IUserOwned
     }
 
     /// <summary>
+    /// One leg of a transfer, for <see cref="Transfer"/> alone to record: a leg never exists without the other.
+    /// </summary>
+    internal static Transaction RecordLeg(
+        Guid transferId, TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today,
+        DateTimeOffset now)
+    {
+        var leg = new Transaction(now) { TransferId = transferId };
+        leg.SetMovement(type, accountId, currency, amount, date, payee: null, note, today, now);
+        return leg;
+    }
+
+    /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
+    internal void EditLeg(Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
+        SetMovement(Type, accountId, currency, amount, date, payee: null, note, today, now);
+
+    /// <summary>
     /// Changes the transaction, to another account (whose currency it then takes) if need be. It may keep
     /// a category that has since been archived, but not move to one.
     /// </summary>
     /// <param name="currency">The currency of the account the transaction is now on.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <exception cref="InvalidOperationException">The transaction is deleted, or is a leg of a transfer, which is edited as a transfer.</exception>
     public void Edit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
         DateOnly today, DateTimeOffset now)
@@ -119,6 +145,8 @@ public sealed class Transaction : IUserOwned
             throw new InvalidOperationException("A deleted transaction cannot be edited.");
         }
 
+        GuardNotALeg();
+        GuardRecordedOnItsOwn(type);
         if (category.IsArchived && category.Id != CategoryId)
         {
             throw new TransactionRuleViolation(nameof(CategoryId), "An archived category takes no new transactions.");
@@ -173,7 +201,17 @@ public sealed class Transaction : IUserOwned
     private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
     public void Delete(DateTimeOffset now)
+    {
+        GuardNotALeg();
+        DeleteWhateverItIs(now);
+    }
+
+    /// <summary>Deletes a leg, for <see cref="Transfer"/> alone, which deletes the other leg with it.</summary>
+    internal void DeleteLeg(DateTimeOffset now) => DeleteWhateverItIs(now);
+
+    private void DeleteWhateverItIs(DateTimeOffset now)
     {
         if (IsDeleted)
         {
@@ -184,9 +222,41 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
     }
 
+    private void GuardNotALeg()
+    {
+        if (IsTransferLeg)
+        {
+            throw new InvalidOperationException("A leg of a transfer changes only with its transfer, so the other leg changes with it.");
+        }
+    }
+
+    private static void GuardRecordedOnItsOwn(TransactionType type)
+    {
+        if (type.IsTransferLeg())
+        {
+            throw new TransactionRuleViolation(nameof(Type), "A transfer is recorded as a transfer, both legs together.");
+        }
+    }
+
     private void Set(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
         DateOnly today, DateTimeOffset now)
+    {
+        if (Enum.IsDefined(type) && category.Kind != type.CategoryKind())
+        {
+            throw new TransactionRuleViolation(
+                nameof(CategoryId),
+                type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.");
+        }
+
+        SetMovement(type, accountId, currency, amount, date, payee, note, today, now);
+        CategoryId = category.Id;
+    }
+
+    /// <summary>What every transaction is, a leg of a transfer included: an amount moved on an account on a date.</summary>
+    private void SetMovement(
+        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, string? payee, string? note, DateOnly today,
+        DateTimeOffset now)
     {
         if (!Enum.IsDefined(type))
         {
@@ -228,13 +298,6 @@ public sealed class Transaction : IUserOwned
             throw new TransactionRuleViolation(nameof(Date), "A transaction's date cannot be in the future.");
         }
 
-        if (category.Kind != type.CategoryKind())
-        {
-            throw new TransactionRuleViolation(
-                nameof(CategoryId),
-                type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.");
-        }
-
         // What was converted is no longer what the transaction says: it is converted again, at its date's rate.
         if (amount != Amount || date != Date || accountId != AccountId)
         {
@@ -246,7 +309,6 @@ public sealed class Transaction : IUserOwned
         Currency = currency;
         Amount = amount;
         Date = date;
-        CategoryId = category.Id;
         Payee = Normalised(payee);
         Note = Normalised(note);
         UpdatedAt = now;
