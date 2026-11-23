@@ -188,18 +188,16 @@ public sealed class Transaction : IUserOwned
     /// <summary>
     /// One leg of a transfer, for <see cref="Transfer"/> alone to record: a leg never exists without the other.
     /// </summary>
-    internal static Transaction RecordLeg(
-        Guid transferId, TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today,
-        DateTimeOffset now)
+    internal static Transaction RecordLeg(Guid transferId, TransactionType type, LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now)
     {
         var leg = new Transaction(now) { TransferId = transferId };
-        leg.Set(type, accountId, currency, amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+        leg.Set(type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
         return leg;
     }
 
     /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
-    internal void EditLeg(Guid accountId, Currency currency, decimal amount, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
-        Set(Type, accountId, currency, amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+    internal void EditLeg(LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
+        Set(Type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
 
     /// <summary>Records a transaction split across several categories.</summary>
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
