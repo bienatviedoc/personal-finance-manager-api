@@ -3,6 +3,7 @@ using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 using Pfm.Api;
 using Pfm.Api.Accounts;
+using Pfm.Api.Budgets;
 using Pfm.Api.Identity;
 using Pfm.Api.Transactions;
 using Pfm.Application;
@@ -26,7 +27,7 @@ builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
 builder.Services.AddAuthRateLimit();
 builder.Services.AddPfmJson();
-builder.Services.AddProblemDetails();
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = AttachmentEndpoints.ExplainTooLarge);
 builder.Services.AddOpenApi("v1");
 
 var app = builder.Build();
@@ -82,10 +83,15 @@ app.MapGroup("/api/v1")
     .MapIdentityEndpoints()
     .MapProfileEndpoints()
     .MapSecurityEndpoints()
+    .MapPrivacyEndpoints()
     .MapInstitutionEndpoints()
     .MapAccountEndpoints()
     .MapCategoryEndpoints()
-    .MapTransactionEndpoints();
+    .MapTransactionEndpoints()
+    .MapTransferEndpoints()
+    .MapAttachmentEndpoints()
+    .MapRecurringRuleEndpoints()
+    .MapBudgetEndpoints();
 
 app.Run();
 

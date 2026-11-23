@@ -10,8 +10,14 @@ namespace Pfm.Application.Transactions;
 /// another account, it takes that account's currency. A changed amount, date or account is converted into
 /// the base currency again; any other edit leaves the converted amount as it is (decision record 0002).
 /// </summary>
+/// <param name="IsRefund">Whether the expense is a refund. Only an expense can be one.</param>
+/// <param name="Lines">
+/// The lines of a split, which replace the ones the transaction had; <paramref name="CategoryId"/> is then
+/// left empty. Null makes a split transaction one category again.
+/// </param>
 public sealed record EditTransactionCommand(
-    Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note)
+    Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note,
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null)
     : ITransactionCommand
 {
     public TransactionFields Parsed { get; } = TransactionFields.Read(Type, Amount, Date);
@@ -36,7 +42,8 @@ public sealed record EditTransactionOutcome(TransactionDetails? Edited)
 
 /// <summary>
 /// Answers the edited transaction; null when the user has no transaction with that id, or deleted it. It
-/// may stay on an account or category that has since been archived, but not move to one.
+/// may stay on an account or category that has since been archived, but not move to one. A leg of a transfer
+/// is refused on its type: it is edited through its transfer, which changes the other leg with it.
 /// </summary>
 public sealed class EditTransactionHandler(
     IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
@@ -65,6 +72,12 @@ public sealed class EditTransactionHandler(
             return (EditTransactionOutcome?)null;
         }
 
+        if (transaction.IsTransferLeg)
+        {
+            return Result<EditTransactionOutcome?>.Invalid(FieldError.On(
+                nameof(EditTransactionCommand.Type), "This transaction is a leg of a transfer. Edit the transfer, which changes both legs together."));
+        }
+
         if (transaction.RowVersion != command.RowVersion)
         {
             return EditTransactionOutcome.Stale;
@@ -80,9 +93,18 @@ public sealed class EditTransactionHandler(
         var fields = command.Parsed;
         try
         {
-            transaction.Edit(
-                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                command.Note, against.Today, clock.GetUtcNow());
+            if (against.Split is { } lines)
+            {
+                transaction.EditSplit(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, lines, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            }
+            else
+            {
+                transaction.Edit(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            }
         }
         catch (TransactionRuleViolation violation)
         {

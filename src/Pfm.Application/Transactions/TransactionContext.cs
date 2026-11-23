@@ -20,24 +20,43 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
     /// <param name="currentAccountId">The account the transaction is already on, which it may stay on after the account is archived.</param>
     internal async Task<Result<RecordedAgainst>> ReadAsync(ITransactionCommand command, Guid? currentAccountId, CancellationToken cancellationToken)
     {
-        var account = await accounts.FindAsync(command.AccountId, cancellationToken);
-        if (account is null || (account.IsArchived && account.Id != currentAccountId))
+        if (await accounts.FindChoosableAsync(command.AccountId, currentAccountId, cancellationToken) is not { } account)
         {
-            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.AccountId), "Choose one of your accounts that is not archived."));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.AccountId), Choices.NotAnAccount));
         }
 
-        var category = await categories.FindAsync(command.CategoryId, cancellationToken);
+        List<SplitLine>? split = null;
+        if (command.Lines is { } lines)
+        {
+            split = [];
+            foreach (var line in lines)
+            {
+                if (await categories.FindAsync(line.CategoryId, cancellationToken) is not { } itsCategory)
+                {
+                    return Result<RecordedAgainst>.Invalid(FieldError.On(
+                        $"{nameof(ITransactionCommand.Lines)}[{split.Count}].{nameof(TransactionLineInput.CategoryId)}", Choices.NotACategory));
+                }
+
+                split.Add(new SplitLine(itsCategory, line.ParsedAmount!.Value, line.Note));
+            }
+        }
+
+        var category = split is null ? await categories.FindAsync(command.CategoryId, cancellationToken) : split[0].Category;
         if (category is null)
         {
-            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.CategoryId), "Choose one of your categories that is not archived."));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.CategoryId), Choices.NotACategory));
         }
 
-        return new RecordedAgainst(account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken));
+        return new RecordedAgainst(
+            account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken), split);
     }
 }
 
 /// <summary>What a transaction is recorded against.</summary>
 /// <param name="Account">One of the user's accounts; the transaction takes its currency.</param>
 /// <param name="Today">Today's date in the user's time zone.</param>
+/// <param name="Category">The transaction's category; of a split, its first line's.</param>
 /// <param name="BaseCurrency">The currency the transaction's amount is converted into.</param>
-internal sealed record RecordedAgainst(AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency);
+/// <param name="Split">The lines of a split, each with one of the user's categories; null for a transaction that is not split.</param>
+internal sealed record RecordedAgainst(
+    AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency, IReadOnlyList<SplitLine>? Split = null);

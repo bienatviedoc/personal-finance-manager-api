@@ -10,12 +10,17 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users");
+        builder.ToTable("Users", table => table.HasCheckConstraint(
+            "CK_Users_BudgetWarningPercent_1_To_100", "\"BudgetWarningPercent\" BETWEEN 1 AND 100"));
+        builder.Property(user => user.BudgetWarningPercent).HasDefaultValue(Pfm.Domain.Identity.ProfileSettings.DefaultBudgetWarningPercent);
         builder.Property(user => user.BaseCurrency).HasConversion<string>().HasMaxLength(3);
         builder.Property(user => user.TimeZone).HasMaxLength(64);
         builder.Property(user => user.Locale)
             .HasConversion(new ValueConverter<Locale, string>(locale => locale.Tag(), tag => ParseLocale(tag)))
             .HasMaxLength(8);
+
+        // The deactivated users, which the erasure job asks for by how long ago they were deactivated.
+        builder.HasIndex(user => user.DeactivatedAt).HasFilter("\"DeactivatedAt\" IS NOT NULL");
     }
 
     private static Locale ParseLocale(string tag) =>

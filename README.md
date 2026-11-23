@@ -16,6 +16,8 @@ docker compose up --build
 ```
 
 This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080, the worker,
+an object storage emulator for attachments (the [Versity S3 Gateway](https://github.com/versity/versitygw), on
+http://localhost:7070),
 [Mailpit](https://mailpit.axllent.org), which catches every email the API sends: read them at http://localhost:8025,
 and the [Aspire Dashboard](https://aspire.dev/dashboard/standalone/), which shows the logs, traces and metrics of
 the API and worker: http://localhost:18888.
@@ -30,7 +32,7 @@ the API and worker: http://localhost:18888.
 To run the API from source against the Compose database (requires the .NET 10 SDK):
 
 ```bash
-docker compose up -d db
+docker compose up -d db storage
 dotnet run --project src/Pfm.Api -- migrate
 dotnet run --project src/Pfm.Api
 ```
@@ -45,7 +47,7 @@ Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domai
 the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Those tests share one API and all call from one
 address, so its rate limit is set too high to meet; a test of the limit (or of anything else set at start-up)
 runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
-user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running. They start the object storage emulator the same way (`api.Storage`), so a signed URL is fetched for real.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -170,6 +172,27 @@ already uses it can still show it. An account can be archived at any balance.
 - **Income or an expense** on one account, with an amount above zero whose sign is its type (spec section 3,
   rule 2), a category of the kind its type takes, and optionally a payee and a note. Its currency is never sent:
   it is the account's, and follows the transaction to another account.
+- **Lines and splits** (rule 5, TXN-4). Every transaction has lines (`TransactionLine`, table `TransactionLines`):
+  one, with its category and whole amount, or several when it is split. `POST` and `PUT` take `lines` (2 to 50,
+  each a `categoryId`, an `amount` and an optional `note`) in place of `categoryId`; an edit without them makes a
+  split one category again. The lines must sum exactly to the amount: `Transaction` refuses anything else as an
+  error on `lines`, and `Transaction.RemainingToSplit` says how much is left. What is wrong with one line is an
+  error on that line (`lines[1].categoryId`). Every answer lists the `lines`, one for a transaction that is not
+  split. Lines are the transaction's own (an owned collection): read and saved with it, guarded by its row
+  version, and reached in a query through it: `transaction.Lines.Any(line => …)` finds a split through any of
+  its lines, which is how a category knows it has transactions. `Transaction.CategoryId` stays as the category of
+  the first line, for what shows one category for a transaction; anything that adds up amounts by category
+  (budgets, reports) reads the lines. A line has no `UserId` or timestamps: they are its transaction's.
+- **A refund** is an expense sent with `isRefund: true`: money coming back from a purchase. It is the one
+  exception to the type giving the sign (rule 2): it raises the account's balance, and it lowers spent in its
+  category instead of counting as income. Only an expense can be one; income sent with the flag is refused on
+  `isRefund`, by `Transaction` and by a check constraint. An edit can set the flag or take it away.
+- **Spent** (spec section 6) is `Spent.Of` in `Pfm.Domain.Transactions`: a category's expenses in a month minus
+  its refunds, in the base currency, each transaction adding its `SpentAmount`. A split adds each line to its
+  own category (`SpentAmountIn`): the lines share the converted amount as they share the amount, the last
+  taking what rounding leaves. A refund counts in the month of
+  the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
+  are left out. `GET /budgets` answers it (see Budgets below), through `ICategorySpending`.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
@@ -182,7 +205,7 @@ already uses it can still show it. An account can be archived at any balance.
   `BaseCurrencyConversion`, in four columns: `BaseCurrency`, `BaseCurrencyAmount`, `ExchangeRate` and
   `ExchangeRateDate`. Rates that arrive later never change it. An edit
   converts again only when it changes the amount, the date or the account. A transaction in the base currency
-  itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
+  itself needs no rate. Budgets read the converted amount as spent; reports will too.
 - **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
   `BaseCurrencyAmount`. Every fetch, whether it stored new rates or not, asks Transactions, through
   `ITransactionConversion` (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted
@@ -191,16 +214,56 @@ already uses it can still show it. An account can be archived at any balance.
   only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
-  only happen until the base currency locks (rule 12).
+  only happen until the base currency locks (rule 12; see Budgets below).
+- **A transfer is two linked transactions** (rules 3 and 4, [decision record 0001](docs/adr/0001-transfer-is-two-linked-transactions.md)):
+  `POST /transfers` records a `transferOut` leg on the source account and a `transferIn` leg on the destination,
+  sharing a `TransferId`, in one save. `Transfer` (`Pfm.Domain.Transactions`) is the only way to record, edit or
+  delete a leg, so the two always change together; it is not a table of its own, and the repository pairs the two
+  rows back into it (`FindTransferAsync`). A leg has no category and no payee, and counts in its account's balance
+  like any transaction, so a transfer moves both balances and is neither income nor spending: whatever adds up
+  income or expenses goes by type and never sees a leg. Between accounts in one currency there is one `amount`;
+  between currencies the request also carries `toAmount`, what arrived, and the rate between the two is never
+  looked up. (Each leg's own amount is still converted into the base currency like any transaction's.)
+  `GET`, `PUT` and `DELETE /transfers/{id}` go by the transfer id, which each leg carries as `transferId` in the
+  transaction list. The transfer's row version is its Transfer out leg's. `DELETE /transactions/{id}` on a leg
+  deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
+  `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
+  one transfer, never one of each.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
-- **`GET /transactions`** is the newest date first and, within a date, the last recorded first, paged like every
-  list. Filters, search and totals are still to come (#10).
+- **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
+  (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
+  its categories), `type`, `min` and `max`
+  (amounts, both included, compared in whatever currency each transaction is in) and `q`, text found anywhere in
+  the payee, the note or the note of any line whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
+  date first when left out, and within a date or an amount the last recorded first (first when ascending). One
+  the list cannot read is a validation problem naming it; an id the user has nothing under lists nothing.
+  A `nextCursor` belongs to the filters and sort order it was answered for.
+- **`total`**, on the same answer, is of every transaction that passed the filters, whichever page is asked for:
+  their `count`, and for each currency their `income`, `expenses` (minus refunds, so it can go below zero) and
+  `net` (each amount with the sign of its type, a refund adding). Currencies are never added together. Filtered by a
+  category, a transaction counts once and adds only its lines in that category (and its subcategories), as spent
+  does (spec section 6): a split is listed whole, and adds only what it spent there. The legs of a transfer are
+  listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type` takes
+  `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`), over the
+  lines when filtered by a category, the type's sign applied by `TransactionTypes.Signed`.
+- **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
+  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two, and over each line's `Note`, answered by a
+  trigram GIN index on `TransactionLines`. A test pins all three.
+- **Quick add** (spec TXN-8). `GET /transactions/quick-add` answers what a new transaction starts from:
+  `lastAccountId`, the account the user recorded on last (by when it was recorded, not its date), and, given a
+  `payee` and optionally a `type`, `suggestedCategoryId`: the category most of their transactions with that
+  payee have, in any case but never part of one, and of those used equally often the one used last. Each line of
+  a split is a use of its category. Refunds, deleted transactions and archived accounts and categories are passed
+  over. It reads through its own port,
+  `IQuickAddHistory`. Category rules (spec section 9) will take part when they exist.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
   `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
+  A line carries its category's kind (`CategoryKind`) for a foreign key like the transaction's below, so the
+  kind of a category is as fixed for the second line of a split as for the first.
   Two more are named there and added by their migration alone, because the model cannot hold a foreign key to
   columns that change: a transaction's account and currency point at an account and its currency, and its
   user and base currency at a user and their base currency. A third, within the Transactions module
@@ -208,6 +271,108 @@ already uses it can still show it. An account can be archived at any balance.
   column `CategoryKind`, which the database works out from the type) at a category and its kind. They are
   what keeps an account's currency and a category's kind fixed once it has transactions, and spec rule 7,
   when two requests save at once (see "Optimistic concurrency" below).
+
+### Attachments
+
+- **A receipt** is attached to a transaction with `POST /transactions/{id}/attachments`: one file, as the `file`
+  field of a `multipart/form-data` body. `GET` on the same path lists a transaction's attachments, and
+  `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
+  transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
+  The foreign key from an attachment to its transaction restricts deletes (`AttachmentConfiguration`), so the
+  job that will purge deleted transactions after 30 days (spec rule 10) must delete their attachments first:
+  the files from storage, then the rows. Deleting the transaction alone fails, and cascading would leave the
+  files behind with nothing pointing at them.
+- **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
+  (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
+  it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
+  one is a validation problem on `file` saying what can be attached. A request of over 10 MB is cut off before
+  it is read: the server answers 413, a problem whose `detail` is the same message as a file found too large
+  (`AttachmentEndpoints.ExplainTooLarge`).
+- **Files live in private object storage**, behind `IObjectStorage` (`Pfm.Application.Abstractions`): any
+  storage that speaks the S3 API ([decision record 0004](docs/adr/0004-attachments-in-s3-compatible-storage.md)).
+  The key is `users/{user}/attachments/{attachment}`, with nothing the user wrote in it. The upload goes
+  through the API; the browser never writes to storage.
+- **A file is served only through a signed URL.** `GET /attachments/{id}` answers `url` and `expiresAt` for the
+  signed-in user's own attachment, and 404 for anyone else's. The URL needs no sign-in and works for five
+  minutes (`Storage__SignedUrlLifetime`, at most an hour), so the SPA asks for it when the user opens the file
+  and never keeps it. It serves the file `inline` under the user's file name.
+- **Configuration:** `Storage__Bucket` (required: both hosts refuse to start without it), `Storage__Region`
+  (`us-east-1`), and `Storage__AccessKey` with `Storage__SecretKey` (left out, the AWS SDK finds the credentials
+  itself, as from a role). For storage other than Amazon S3, `Storage__ServiceUrl` is its address, and
+  `Storage__PublicUrl` the address browsers reach it at when that differs (Compose: the API calls
+  `http://storage:7070`, the browser `http://localhost:7070`). The bucket must exist and must not be public;
+  nothing in the app creates it or sets its policy.
+
+### Recurring rules
+
+- **A recurring rule** (`RecurringRule`, in the Transactions module) is a template for income or an expense,
+  never a transfer: a type, an account, an amount, a category, optionally a payee and a note, and a schedule
+  (`RecurringSchedule`): `weekly`, `monthly`, `yearly` or `everyNDays` with an `interval` of 1 to 365 days, from a
+  `startDate` to an optional `endDate`. Its currency is never sent: it is the account's.
+- **Due dates are worked out from the start date**, never from the occurrence before: a monthly rule started on
+  the 31st is due on the last day of a shorter month and on the 31st again after it, and a yearly rule started on
+  29 February is due on the 28th in a year that has none.
+- **The worker posts.** `RecurringPostingJob` runs `RecurringPosting` when the worker starts and every ten
+  minutes (`RecurringRules__PostEvery`): each occurrence due on or before today in its user's time zone becomes a
+  transaction dated on its due date, with the rule's id as its `recurringRuleId`. Occurrences missed while the
+  worker was down are posted by its next run, each with its original due date; so are the ones since a start
+  date in the past.
+- **Through the same rules as a manual transaction.** An occurrence is recorded by `CreateTransaction`, the use
+  case behind `POST /transactions`, so it is converted into the base currency the same way and refused the same
+  way. A rule whose account or category has been archived posts nothing and stays due: the worker logs a warning
+  with how many such rules there are, and the occurrences are posted once the user edits the rule.
+- **Exactly once.** The transaction is saved under an idempotency key made of the rule and the due date, then
+  the rule moves on to its next occurrence (`NextRunDate`), guarded by its row version. Two workers, or a worker
+  that stops in between, cannot post an occurrence twice. A posted transaction the user deletes does not come back.
+- **Nothing is posted for a deactivated user** (`IUserDeactivation`, in `Pfm.Application.Contracts.Identity`). When
+  they cancel the deletion by signing in, what was due meanwhile is posted like any other missed occurrence.
+- **Pause, resume, edit, delete.** `POST /recurring-rules/{id}/pause` stops a rule posting;
+  `POST /recurring-rules/{id}/resume` has it post again from today, skipping what was due meanwhile. `PUT` replaces
+  the template and the schedule, from the rule's row version in `If-Match` like every edit (412 when stale, 428
+  without); posting an occurrence, pausing and resuming move the row version on too, so an edit read before
+  any of them is stale: posted transactions stay as they are, and the new schedule carries on after the
+  last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
+  is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
+- Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
+  (REC-4) are still to come.
+
+### Budgets
+
+- **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st
+  (`BudgetMonth`, written `2026-11`), in the user's base currency. `PUT /budgets/{month}/{categoryId}` sets it:
+  a new budget answers 201 and sends no `If-Match`; a new amount for one that exists answers 200 and names its
+  row version like every edit (412 when stale, 428 without). `DELETE` on the same address removes it: a budget
+  is really gone, it is not archived. An archived category takes no new budget and keeps the ones it has.
+- **Spent is never stored** (spec section 6). `GET /budgets?month=2026-11` works out each budget's `budgeted`,
+  `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
+  `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
+  `ICategorySpending` (`Pfm.Application.Contracts.Transactions`). Transactions answers with its own definition of
+  spent (`Transaction.SpentAmountIn`, see Transactions above), adding up the month's expenses as they were
+  converted into the base currency at the exchange rate of each one's own date: a refund is taken away, so spent
+  can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
+  will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
+  date in the user's time zone; left out, `month` is the month it is now there.
+- **Roll-up** (rule 6): spending in a subcategory counts toward a budget on its parent, so a category and its
+  subcategory cannot both have a budget in the same month (`Budget.EnsureCanBeSetOn`); two subcategories of one
+  parent can. Two requests that budget a parent and its subcategory at the same moment cannot see each other
+  before saving, so `SetBudget` reads the month again after saving and takes its budget back when it broke the
+  rule.
+- **States** (BUD-3): `over` above 100% of the budget, `warning` at or above the user's threshold, otherwise
+  `onTrack`. The threshold is the profile setting `budgetWarningPercent` (`PATCH /me`, 1 to 100, 80 until
+  changed). `percentSpent` is rounded down, so it never shows a state the budget is not in yet.
+- **Not converted.** An expense with no exchange rate on or before its date is left out of spent and counted in
+  `notConverted`, on its budget and on the totals, until a rate arrives. A split is one expense, counted once
+  however many of a budget's categories, or of the month's budgets, its lines are in.
+- **The base currency locks once a budget exists** (rule 12,
+  [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)). `GET /me` says so
+  (`baseCurrencyLocked`), and `PATCH /me` refuses another `baseCurrency` by name while the user has a budget;
+  removing every budget unlocks it. A budget keeps the currency it was entered in, and a foreign key points
+  its user and currency at the user and their base currency (`ModuleReferences`), so the database refuses the
+  change, or the budget, when the two are saved at the same moment; the use case is then made again.
+- **A budgeted category stays an expense category**: changing the kind of a category that has a budget, or whose
+  subcategory has one, is refused, and a second foreign key holds that when the two are saved at the same moment.
+- Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
+  Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
 ## Signing in
 
@@ -221,8 +386,8 @@ the browser never holds a token a script could read.
   locale, and in English for a user who has none (`IdentityEmails`).
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
-reset the password, change the password, and set up, turn on, turn off and get recovery codes for two-factor
-sign-in) are in
+reset the password, change the password, set up, turn on, turn off and get recovery codes for two-factor
+sign-in, export the user's data, delete the user and erase deactivated users) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
 `SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
@@ -269,7 +434,7 @@ method on a port when it needs something Identity does, such as a reset token.
   the count again, and a password reset lifts the lock, since whoever holds the link owns the email address.
 - **Rate limiting:** one client address gets 20 attempts a minute across every endpoint that takes a password, a
   code or an emailed link, or that sends email: all of `/api/v1/auth/...` except the anti-forgery token and
-  signing out, plus the password and two-factor changes under `/api/v1/me`. Over that, the answer is 429 Problem
+  signing out, plus the password and two-factor changes and deleting the user under `/api/v1/me`. Over that, the answer is 429 Problem
   Details with `Retry-After`, given before a password is hashed or the database asked. Set it with
   `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
   `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
@@ -290,6 +455,49 @@ method on a port when it needs something Identity does, such as a reset token.
   (a password reset or deactivation).
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
+
+## Export and deleting a user
+
+Spec section 8 (Privacy): a user can take everything the app holds about them, and delete themselves.
+
+- **Export:** `GET /api/v1/export/all.zip` answers a ZIP archive (`ExportData`): `profile.json` (what `GET /me`
+  answers, and whether two-factor sign-in is on), one CSV file for each table of user-owned data
+  (`transactions.csv`, `accounts.csv`, ...) and a `README.txt` that says how to read them. CSV is RFC 4180 in
+  UTF-8 with a byte order mark, so a spreadsheet reads Vietnamese text right; values are written as the API's
+  JSON writes them. Transactions the user deleted are included while they are still held. Secrets (the
+  password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
+  it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
+  object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
+  transactions included. The archive is written to the response as it is made (`AsynchronousBody` takes the few writes a ZIP
+  archive makes synchronously), so the attached files are never all in memory at once.
+- **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
+  (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
+  they have, and the session that asked is signed out at once. Nothing is erased yet.
+- **Cancelling:** signing in within 30 days (`Deactivation.CancellationPeriod`) cancels the deletion.
+  `POST /api/v1/auth/login` then answers 200 with `deletionCancelled: true` in place of its 204, so the SPA can
+  say so. Only a sign-in that gets all the way through cancels: the password alone is not enough for a user who
+  signs in with two factors. After 30 days signing in is refused exactly as a wrong password is, erased yet or
+  not.
+- **Erasing:** the worker's `UserErasureJob` runs `EraseDeactivatedUsers` when it starts and every hour
+  (`UserErasure__RunEvery`): for each user deactivated 30 days ago or more it erases everything they own and
+  then the user, in one transaction per user. The email address is then free to register again. The files
+  they attached are deleted from object storage first, everything under the user's prefix
+  (`users/{user}/attachments/`): storage is no part of the transaction, and should the rows then fail to go, the
+  next run finds the user again with no file left to delete. So the worker needs the same `Storage__...`
+  settings as the API. A user who cannot be erased holds up no other: the run erases the rest, then fails with
+  every user it could not erase, which the job logs, and the next run tries them again.
+- **Every kind of user data is covered without being named.** Both the export and the erasure go through
+  `IUserData` (`Pfm.Application.Abstractions`), implemented by `Persistence/UserData` over every `IUserOwned`
+  entity in the model, inside the user filter: the export reads each table's columns as stored (all but the
+  owner, the row version and computed columns), and the erasure deletes each table's rows, a table before the
+  tables it references. What an entity owns in a table of its own (a transaction's lines) is exported as its
+  own file, read through its owner, and erased with its owner by the database's cascade. So a new user-owned
+  entity is exported and erased as soon as it is in the model. Three
+  things still need a hand, and tests say when: a table that is not user-owned must be argued for in
+  `Every_table_holds_rows_a_user_owns_or_is_known_to_hold_none`; `UserErasureFixtures.OwnSomethingOfEveryKindAsync`
+  must create a row of every user-owned table, or the export test fails; and what a user owns outside the
+  database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`,
+  as attachments have.
 
 ## Hardening
 
@@ -345,16 +553,19 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There is one
-exception, and `UserOwnedDataTests` fails when a second appears: `TransactionRepository.UsersWithNotConvertedAsync`
-ignores the filter to answer which users have transactions flagged not converted. It runs for the worker, which
-acts for no user, and answers user ids only, never a row; the worker then acts for each of those users in turn,
-inside the filter. Raw SQL is used only on exchange rates, which belong to no user.
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are two
+exceptions, and `UserOwnedDataTests` fails when a third appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted, and
+`RecurringRuleRepository.UsersWithDueRulesAsync` to answer which users have a recurring rule with an occurrence
+due. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
+acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
+no user.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
 `IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
-if they were signed in. Registration uses it to create the new user's default categories.
+if they were signed in, and so are today's date (`IUserCalendar`) and the base currency (`IBaseCurrency`).
+Registration uses it to create the new user's default categories.
 
 ## Conventions
 
@@ -362,11 +573,14 @@ if they were signed in. Registration uses it to create the new user's default ca
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
-  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
-- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
-  `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
-  `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
+  budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
+  recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
+  of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
+  `PUT /recurring-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has
@@ -391,7 +605,8 @@ if they were signed in. Registration uses it to create the new user's default ca
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
-  name in camelCase (`"income"`, `"creditCard"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  name in camelCase (`"income"`, `"creditCard"`), never as a number; `EnumText` (`Pfm.Application.UseCases`) is the one place
+  that says so, for the JSON (`JsonSetup`), the export and the commands that read them. Enums are listed
   in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:
@@ -405,7 +620,8 @@ if they were signed in. Registration uses it to create the new user's default ca
 - **OpenAPI**: building `Pfm.Api` rewrites `openapi/pfm-api.json`. Commit it with the change that
   caused it; CI fails when the committed file is out of date.
 - **Configuration**: the database connection string is `ConnectionStrings__Pfm`. `App__PublicUrl` is the SPA's
-  address, which emailed links point to; the API refuses to start without it. Email goes out through
+  address, which emailed links point to; the API refuses to start without it. Attachments are stored as
+  `Storage__...` says (see [Attachments](#attachments)). Email goes out through
   `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password` and `Smtp__From`. Telemetry and error
   reports are configured as described under [Observability](#observability). STARTTLS is required
   (`Smtp__UseStartTls`, on by default); turn it off only for a local catcher such as Mailpit, never with

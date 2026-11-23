@@ -33,16 +33,36 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
     /// </summary>
     public const string CategoryKindIsItsCategorys = "FK_Transactions_Categories_CategoryId_CategoryKind";
 
+    /// <summary>
+    /// A line's category and kind are a category and that category's kind, as
+    /// <see cref="CategoryKindIsItsCategorys"/> holds a transaction's: it covers the lines of a split after the
+    /// first. Added by its migration alone.
+    /// </summary>
+    public const string LineCategoryKindIsItsCategorys = "FK_TransactionLines_Categories_CategoryId_CategoryKind";
+
+    private const string TransactionId = "TransactionId";
+
     public void Configure(EntityTypeBuilder<Transaction> transaction)
     {
         transaction.ToTable("Transactions", table =>
         {
             table.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
+            // Only an expense can be a refund.
+            table.HasCheckConstraint("CK_Transactions_Refund_Is_Expense", "NOT \"IsRefund\" OR \"Type\" = 'Expense'");
+
             // Converted with its rate and the rate's day, or not converted and none of the three.
             table.HasCheckConstraint(
                 "CK_Transactions_Converted_Or_Not",
                 "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+            // The legs of a transfer, and only they, share a transfer id (decision record 0001); a leg is
+            // neither income nor spending, so it has no category.
+            table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_TransferId", "(\"Type\" IN ('TransferOut', 'TransferIn')) = (\"TransferId\" IS NOT NULL)");
+            table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_Category", "\"TransferId\" IS NULL OR \"CategoryId\" IS NULL");
+
+            // A recurring rule posts income and expenses only (spec section 3): never a leg of a transfer.
+            table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_RecurringRule", "\"TransferId\" IS NULL OR \"RecurringRuleId\" IS NULL");
         });
         transaction.HasKey(row => row.Id);
         transaction.Property(row => row.Id).ValueGeneratedNever();
@@ -75,7 +95,37 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.RowVersion).IsRowVersion();
         transaction.Ignore(row => row.IsDeleted);
         transaction.Ignore(row => row.SignedAmount);
+        transaction.Ignore(row => row.SpentAmount);
         transaction.Ignore(row => row.IsConverted);
+        transaction.Ignore(row => row.IsTransferLeg);
+        transaction.Ignore(row => row.IsSplit);
+
+        // Lines are the transaction's own: read with it and saved with it. Only its row version guards them: an
+        // edit of the lines always saves the transaction too (its UpdatedAt), so a stale one saves nothing.
+        transaction.OwnsMany(row => row.Lines, line =>
+        {
+            line.ToTable("TransactionLines", table => table.HasCheckConstraint("CK_TransactionLines_Amount_Positive", "\"Amount\" > 0"));
+            line.WithOwner().HasForeignKey(TransactionId);
+            line.HasKey(row => row.Id);
+            line.Property(row => row.Id).ValueGeneratedNever();
+            line.Property(row => row.CategoryKind).HasConversion<string>().HasMaxLength(10);
+            line.Property(row => row.Amount).HasPrecision(19, 4);
+            line.Property(row => row.Note).HasMaxLength(Transaction.MaxNoteLength);
+
+            // A category with transactions is archived, never deleted.
+            line.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
+
+            // What was spent in a category, for the list's filter, budgets and reports (spec section 10).
+            line.HasIndex(nameof(TransactionLine.CategoryId), TransactionId);
+            line.HasIndex(TransactionId, nameof(TransactionLine.Position));
+
+            // Search finds a split by the note of any of its lines, through their trigrams like the transaction's.
+            line.HasIndex(row => row.Note)
+                .HasMethod("gin")
+                .HasOperators("gin_trgm_ops")
+                .HasDatabaseName("IX_TransactionLines_Note_Trigrams");
+        });
+        transaction.Navigation(row => row.Lines).HasField("_lines").UsePropertyAccessMode(PropertyAccessMode.Field);
 
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
@@ -84,8 +134,17 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.HasIndex(row => new { row.UserId, row.Date, row.Id }).IsDescending(false, true, true);
         transaction.HasIndex(row => new { row.UserId, row.AccountId, row.Date });
 
+        // Search: text anywhere in the payee or the note, found through their trigrams (spec section 10); the lines' notes have their own.
+        transaction.HasIndex(row => new { row.Payee, row.Note })
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops", "gin_trgm_ops")
+            .HasDatabaseName("IX_Transactions_Payee_Note_Trigrams");
+
         // The transactions waiting for an exchange rate, which a fetch of new rates converts.
         transaction.HasIndex(row => row.UserId).HasFilter("\"BaseCurrencyAmount\" IS NULL").HasDatabaseName("IX_Transactions_UserId_NotConverted");
+
+        // Finds the other leg, and a transfer has one leg of each type, never two (spec section 10).
+        transaction.HasIndex(row => new { row.TransferId, row.Type }).IsUnique();
 
         // A retried request cannot record its transaction twice. Rows without a key never collide.
         transaction.HasIndex(nameof(Transaction.UserId), IdempotencyKey).IsUnique();

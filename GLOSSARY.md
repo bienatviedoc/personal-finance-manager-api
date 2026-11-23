@@ -20,6 +20,14 @@ _Avoid_: Wallet, bank account (as the general term), user account
 One movement of money on one account on one calendar date. Its type is Income, Expense, Transfer out or Transfer in.
 _Avoid_: Entry, record, payment
 
+**Split transaction**:
+An income or expense transaction divided across several categories, such as a supermarket bill that is part groceries and part household. Its lines sum exactly to its amount.
+_Avoid_: Itemised transaction, multi-category transaction
+
+**Line**:
+One part of a transaction's amount, with the category it was for and an optional note. A transaction that is not split has one line, with its whole amount.
+_Avoid_: Item, split (for one part), sub-transaction
+
 **Transfer**:
 A movement of a user's own money between two of their accounts, made of two linked transactions: a Transfer out leg and a Transfer in leg. It is neither income nor spending.
 _Avoid_: Transfer transaction, internal payment, move
@@ -35,6 +43,10 @@ _Avoid_: Negative expense, reversal, income (for money returned)
 **Spent**:
 The total of a category's expenses in a budget month, minus its refunds, in the base currency. It is always derived from transactions and can be negative.
 _Avoid_: Actual, used, consumed
+
+**Attachment**:
+A receipt kept with a transaction: a JPEG, PNG or PDF file of at most 5 MB that the user can open again later. Removing it deletes the file.
+_Avoid_: Document, upload, file (for the thing attached)
 
 **Category**:
 What a transaction was for, at most two levels deep (Food > Groceries). Its kind is either income or expense, shared with its parent and fixed once it has transactions.

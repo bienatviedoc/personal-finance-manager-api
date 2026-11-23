@@ -4,17 +4,22 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Budgets;
 using Pfm.Application.Accounts;
 using Pfm.Application.Accounts.Institutions;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
+using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Recurring;
 using Pfm.Infrastructure.Accounts;
+using Pfm.Infrastructure.Budgets;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
+using Pfm.Infrastructure.Storage;
 using Pfm.Infrastructure.Transactions;
 
 namespace Pfm.Infrastructure;
@@ -44,6 +49,7 @@ public static class InfrastructureServices
 
         services.AddScoped<IUserProfiles, UserProfiles>();
         services.AddScoped<IUnitOfWork>(provider => provider.GetRequiredService<PfmDbContext>());
+        services.AddScoped<IUserData, UserData>();
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<IAccountRepository, AccountRepository>();
 
@@ -64,8 +70,16 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<IRecurringRuleRepository, RecurringRuleRepository>();
+        services.AddScoped<IQuickAddHistory, QuickAddHistory>();
+        services.AddScoped<IAttachmentRepository, AttachmentRepository>();
+
+        // Like the SPA's address: a host fails at start-up, not at the first upload.
+        services.AddObjectStorage(validateOnStart: !IsGeneratingOpenApiDocument);
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
+        services.AddScoped<ICategorySpending, TransactionTotals>();
+        services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddExchangeRates();
 
         return services;
@@ -126,6 +140,8 @@ public static class InfrastructureServices
         builder.Services.AddScoped<ITwoFactor, IdentityTwoFactor>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
         builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
+        builder.Services.AddOptions<UserErasureOptions>().BindConfiguration(UserErasureOptions.Section)
+            .Validate(options => options.RunEvery > TimeSpan.Zero, $"{UserErasureOptions.Section}:RunEvery must be longer than no time at all.");
         return builder;
     }
 

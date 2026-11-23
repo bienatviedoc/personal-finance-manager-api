@@ -2,18 +2,26 @@ namespace Pfm.Domain.Transactions;
 
 /// <summary>
 /// What kind of movement a transaction is. Amounts are stored positive and the type gives the sign
-/// (spec section 3, rule 2). No type is zero, so an unset type is never valid. The legs of a transfer
-/// are types too, and arrive with transfers.
+/// (spec section 3, rule 2). No type is zero, so an unset type is never valid. The two legs of a transfer
+/// are types too (decision record 0001): they are recorded only as a <see cref="Transfer"/>, never on their own.
 /// </summary>
 public enum TransactionType
 {
     Income = 1,
     Expense = 2,
+    TransferOut = 3,
+    TransferIn = 4,
 }
 
 public static class TransactionTypes
 {
-    /// <summary>The kind of category a transaction of this type takes: income for income, expense for an expense.</summary>
+    /// <summary>Whether a transaction of this type is a leg of a transfer, which is neither income nor spending.</summary>
+    public static bool IsTransferLeg(this TransactionType type) => type is TransactionType.TransferOut or TransactionType.TransferIn;
+
+    /// <summary>Whether a transaction of this type is income or an expense: the types a user records one at a time, with a category.</summary>
+    public static bool IsIncomeOrExpense(this TransactionType type) => type is TransactionType.Income or TransactionType.Expense;
+
+    /// <summary>The kind of category a transaction of this type takes: income for income, expense for an expense. A transfer leg takes none.</summary>
     public static CategoryKind CategoryKind(this TransactionType type) => type switch
     {
         TransactionType.Income => Transactions.CategoryKind.Income,
@@ -21,11 +29,18 @@ public static class TransactionTypes
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type."),
     };
 
-    /// <summary>The amount as it moves the account's balance: income adds it, an expense takes it away.</summary>
-    public static decimal Signed(this TransactionType type, decimal amount) => type switch
+    /// <summary>
+    /// The amount as it moves the account's balance: income and a transfer in add it, an expense and a transfer
+    /// out take it away, except a refund, an expense that adds it (spec section 3, rule 2).
+    /// </summary>
+    /// <param name="isRefund">Whether the expense is a refund. Only an expense can be one.</param>
+    public static decimal Signed(this TransactionType type, decimal amount, bool isRefund = false) => type switch
     {
-        TransactionType.Income => amount,
-        TransactionType.Expense => -amount,
+        TransactionType.Income or TransactionType.TransferIn or TransactionType.TransferOut when isRefund =>
+            throw new ArgumentException("Only an expense can be a refund.", nameof(isRefund)),
+        TransactionType.Income or TransactionType.TransferIn => amount,
+        TransactionType.TransferOut => -amount,
+        TransactionType.Expense => isRefund ? amount : -amount,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type."),
     };
 }
