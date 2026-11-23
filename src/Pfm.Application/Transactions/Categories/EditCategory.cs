@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -28,12 +29,13 @@ public sealed class EditCategoryValidator : AbstractValidator<EditCategoryComman
 
 /// <summary>
 /// Answers the edited category, or null when the user has no category with that id. A new kind applies to
-/// the category's subcategories too, and is refused once any of them has transactions. The edit names no row
-/// version, so when one of them takes its first transaction before a new kind is saved, it is made again on
-/// what was saved, and refused.
+/// the category's subcategories too, and is refused once any of them has transactions, or a budget: only an
+/// expense category takes one. The edit names no row version, so when one of them takes its first transaction
+/// or budget before a new kind is saved, it is made again on what was saved, and refused.
 /// </summary>
 public sealed class EditCategoryHandler(
-    IValidator<EditCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<EditCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, IUserBudgets budgets,
+    IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<EditCategoryCommand, CategoryDetails?>(validator)
 {
     protected override Task<Result<CategoryDetails?>> ExecuteAsync(EditCategoryCommand command, CancellationToken cancellationToken) =>
@@ -53,7 +55,13 @@ public sealed class EditCategoryHandler(
         {
             if (command.Kind != category.Kind)
             {
-                var hasTransactions = await usage.HasTransactionsAsync([category.Id, .. subcategories.Select(sub => sub.Id)], cancellationToken);
+                Guid[] family = [category.Id, .. subcategories.Select(sub => sub.Id)];
+                if (await budgets.AnyOnAsync(family, cancellationToken))
+                {
+                    return Result<CategoryDetails?>.Invalid(FieldError.On(nameof(command.Kind), "A category's kind cannot change once it has a budget."));
+                }
+
+                var hasTransactions = await usage.HasTransactionsAsync(family, cancellationToken);
                 category.ChangeKind(command.Kind, subcategories, hasTransactions, now);
             }
         }

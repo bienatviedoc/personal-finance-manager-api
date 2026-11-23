@@ -10,7 +10,7 @@ namespace Pfm.Infrastructure.Transactions;
 /// What the user's transactions come to, asked of the database each time: nothing derived from them is
 /// stored (spec section 10).
 /// </summary>
-internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage
+internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending
 {
     /// <summary>
     /// Income − expenses + refunds + transfers in − transfers out of each account (spec section 3, rule 2),
@@ -37,6 +37,31 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// </summary>
     public Task<bool> AnyOnAsync(Guid accountId, CancellationToken cancellationToken) =>
         db.Set<Transaction>().AnyAsync(transaction => transaction.AccountId == accountId, cancellationToken);
+
+    /// <summary>
+    /// What the expenses dated between two days spent in each category, by the domain's own definition
+    /// (<see cref="Transaction.SpentAmountIn"/>): a refund takes its amount away, a split adds each line to its
+    /// own category, and what is deleted or not converted adds nothing. Only the type Expense is read, so
+    /// income and the legs of a transfer never count. A month's expenses are read and added up here, not in
+    /// the database, so that spent has that one definition.
+    /// </summary>
+    public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    {
+        var expenses = await db.Set<Transaction>().AsNoTracking()
+            .Where(transaction => transaction.Type == TransactionType.Expense && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. expenses
+                .SelectMany(expense => expense.Lines.Select(line => line.CategoryId).Distinct().Select(categoryId => (CategoryId: categoryId, Expense: expense)))
+                .GroupBy(spent => spent.CategoryId, spent => spent.Expense)
+                .Select(ofCategory => new CategorySpent(
+                    ofCategory.Key,
+                    ofCategory.Sum(expense => expense.SpentAmountIn([ofCategory.Key])),
+                    [.. ofCategory.Where(expense => !expense.IsConverted).Select(expense => expense.Id)])),
+        ];
+    }
 
     /// <summary>
     /// Whether any line is on one of the categories, so a split counts for the category of each of its lines. A

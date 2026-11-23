@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
@@ -15,7 +16,8 @@ namespace Pfm.Application.Identity;
 /// <param name="BaseCurrency">An ISO 4217 code the app supports, such as <c>VND</c>.</param>
 /// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
 /// <param name="Locale">A language tag: <c>en</c> or <c>vi</c>.</param>
-public sealed record UpdateProfileCommand(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null)
+/// <param name="BudgetWarningPercent">The share of a budget, in whole percent from 1 to 100, at which its state becomes a warning.</param>
+public sealed record UpdateProfileCommand(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null, int? BudgetWarningPercent = null)
 {
     /// <summary>The currency sent; null when none was sent or it is not one the app supports.</summary>
     public Currency? ParsedBaseCurrency { get; } = Currencies.TryParse(BaseCurrency, out var currency) ? currency : null;
@@ -39,6 +41,11 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
             .WithMessage("Choose a time zone such as Asia/Ho_Chi_Minh.");
 
         RuleFor(command => command.Locale).IsLocale(command => command.ParsedLocale);
+
+        RuleFor(command => command.BudgetWarningPercent)
+            .Must(percent => ProfileSettings.IsValidBudgetWarningPercent(percent!.Value))
+            .When(command => command.BudgetWarningPercent is not null)
+            .WithMessage("Enter a whole percentage from 1 to 100.");
     }
 }
 
@@ -47,14 +54,15 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
 /// </summary>
 /// <remarks>
 /// A new base currency has every transaction of the user converted into it, each at the exchange rate of its
-/// own date: the amounts were kept in the old one, and totals are only ever in the base currency. Spec rule 12
-/// (the base currency locks once a budget exists) belongs here once budgets exist; from then on this cannot happen.
+/// own date: the amounts were kept in the old one, and totals are only ever in the base currency. Once the
+/// user has a budget the base currency is locked (spec section 3, rule 12; decision record 0002): a budget is
+/// an amount they entered in it, and is never converted. Another base currency is then refused, naming the field.
 /// The change names no row version, so when the user or one of those transactions is changed by another
-/// request before it is saved, it is made again on what was saved.
+/// request before it is saved, or the user's first budget is set, it is made again on what was saved.
 /// </remarks>
 public sealed class UpdateProfileHandler(
     IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles, ITransactionConversion transactions,
-    IUnitOfWork unitOfWork)
+    IUserBudgets budgets, IUnitOfWork unitOfWork)
     : CommandHandler<UpdateProfileCommand, ProfileDetails?>(validator)
 {
     private static readonly ProfileDetails? NoUser = null;
@@ -70,7 +78,15 @@ public sealed class UpdateProfileHandler(
             var settings = new ProfileSettings(
                 command.ParsedBaseCurrency ?? profile.BaseCurrency,
                 command.TimeZone ?? profile.TimeZone,
-                command.ParsedLocale ?? profile.Locale);
+                command.ParsedLocale ?? profile.Locale,
+                command.BudgetWarningPercent ?? profile.BudgetWarningPercent);
+
+            var isLocked = await budgets.AnyAsync(cancellationToken);
+            if (isLocked && settings.BaseCurrency != profile.BaseCurrency)
+            {
+                return Result<ProfileDetails?>.Invalid(FieldError.On(
+                    nameof(command.BaseCurrency), "The base currency is locked once a budget exists: budgets are amounts entered in it."));
+            }
 
             if (!await profiles.ChangeSettingsAsync(userId, settings, cancellationToken))
             {
@@ -83,6 +99,10 @@ public sealed class UpdateProfileHandler(
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return profile with { BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale };
+            return profile with
+            {
+                BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale,
+                BudgetWarningPercent = settings.BudgetWarningPercent, BaseCurrencyIsLocked = isLocked,
+            };
         });
 }
