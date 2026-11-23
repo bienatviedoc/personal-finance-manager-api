@@ -1,0 +1,47 @@
+using Pfm.Application.Contracts.Accounts;
+using Pfm.Application.UseCases;
+using Pfm.Domain.Transactions;
+
+namespace Pfm.Application.Transactions;
+
+/// <summary>
+/// What quick add starts a new transaction from (spec TXN-8): the account the user recorded on last, and the
+/// category they most often gave <paramref name="Payee"/>.
+/// </summary>
+/// <param name="Type">The type being recorded: only a category of the kind it takes is suggested. Null for a category of either kind.</param>
+/// <param name="Payee">Who is being paid, or is paying, as typed so far; null when nothing is typed yet.</param>
+public sealed record GetQuickAdd(TransactionType? Type = null, string? Payee = null);
+
+/// <param name="LastAccountId">
+/// The account, not archived, that the user recorded a transaction on last; null when they have recorded none.
+/// </param>
+/// <param name="SuggestedCategoryId">
+/// The category, not archived, most often used on the user's transactions with this payee, and of those used
+/// equally often the one used last; null when the payee was never used.
+/// </param>
+public sealed record QuickAddDetails(Guid? LastAccountId, Guid? SuggestedCategoryId);
+
+public sealed class GetQuickAddHandler(IQuickAddHistory history, IAccountLookup accounts) : IQueryHandler
+{
+    public async Task<QuickAddDetails> HandleAsync(GetQuickAdd query, CancellationToken cancellationToken = default)
+    {
+        var suggested = Transaction.Normalised(query.Payee) is { } payee
+            ? await history.MostUsedCategoryAsync(payee, query.Type, cancellationToken)
+            : null;
+        return new QuickAddDetails(await LastAccountAsync(cancellationToken), suggested);
+    }
+
+    /// <summary>An archived account takes no new transactions, so it is passed over for the one used before it.</summary>
+    private async Task<Guid?> LastAccountAsync(CancellationToken cancellationToken)
+    {
+        foreach (var accountId in await history.AccountsLastUsedFirstAsync(cancellationToken))
+        {
+            if (await accounts.FindAsync(accountId, cancellationToken) is { IsArchived: false })
+            {
+                return accountId;
+            }
+        }
+
+        return null;
+    }
+}
