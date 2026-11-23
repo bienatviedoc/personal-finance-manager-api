@@ -295,6 +295,57 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(groceries, Assert.Single((await MonthAsync(browser, ThisMonth)).Items).CategoryId);
     }
 
+    // Copying last month's budgets (BUD-4).
+
+    [Fact]
+    public async Task A_user_copies_every_budget_of_last_month_into_this_month_in_one_action()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        var fuel = await CategoryAsync(browser, "Fuel");
+        await SetAsync(browser, LastMonth, food, "3000000");
+        await SetAsync(browser, LastMonth, fuel, "400000");
+
+        var response = await CopyAsync(browser, ThisMonth, LastMonth);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, (await response.Content.ReadFromJsonAsync<CopiedBody>())!.Copied);
+        var copied = (await MonthAsync(browser, ThisMonth)).Items;
+        Assert.Equal(new[] { (food, "3000000.00"), (fuel, "400000.00") }.Order(), copied.Select(budget => (budget.CategoryId, budget.Budgeted)).Order());
+        Assert.Equal(2, (await MonthAsync(browser, LastMonth)).Items.Count);
+    }
+
+    [Fact]
+    public async Task Copying_leaves_alone_a_category_already_budgeted_in_the_month_and_says_how_many_were_copied()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        var fuel = await CategoryAsync(browser, "Fuel");
+        await SetAsync(browser, LastMonth, food, "3000000");
+        await SetAsync(browser, LastMonth, fuel, "400000");
+        var kept = await SetAsync(browser, ThisMonth, food, "3500000");
+
+        var response = await CopyAsync(browser, ThisMonth, LastMonth);
+
+        Assert.Equal(1, (await response.Content.ReadFromJsonAsync<CopiedBody>())!.Copied);
+        Assert.Equal(kept, await BudgetAsync(browser, ThisMonth, food));
+        Assert.Equal("400000.00", (await BudgetAsync(browser, ThisMonth, fuel)).Budgeted);
+    }
+
+    [Fact]
+    public async Task Copying_again_copies_nothing()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await SetAsync(browser, LastMonth, await CategoryAsync(browser, "Food & drink"), "3000000");
+        await CopyAsync(browser, ThisMonth, LastMonth);
+
+        var again = await CopyAsync(browser, ThisMonth, LastMonth);
+
+        Assert.Equal(HttpStatusCode.OK, again.StatusCode);
+        Assert.Equal(0, (await again.Content.ReadFromJsonAsync<CopiedBody>())!.Copied);
+        Assert.Single((await MonthAsync(browser, ThisMonth)).Items);
+    }
+
     // Spent (the calculation of section 6).
 
     [Fact]
@@ -690,6 +741,9 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         return (await response.Content.ReadFromJsonAsync<BudgetBody>())!;
     }
 
+    private static Task<HttpResponseMessage> CopyAsync(Browser browser, string month, string sourceMonth) =>
+        browser.PostAsync($"{Budgets}/{month}/copy-from/{sourceMonth}");
+
     private static async Task<MonthBody> MonthAsync(Browser browser, string month) =>
         (await browser.Http.GetFromJsonAsync<MonthBody>($"{Budgets}?month={month}"))!;
 
@@ -732,6 +786,8 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
     private sealed record BudgetBody(
         Guid CategoryId, CategoryBody Category, string Budgeted, string Spent, string Remaining, int? PercentSpent, string State, int NotConverted,
         string RowVersion);
+
+    private sealed record CopiedBody(int Copied);
 
     private sealed record TotalsBody(string Budgeted, string Spent, string Remaining, int NotConverted);
 
