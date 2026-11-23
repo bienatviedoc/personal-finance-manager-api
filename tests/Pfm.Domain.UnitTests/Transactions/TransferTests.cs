@@ -27,6 +27,8 @@ public class TransferTests
         Assert.All(new[] { outLeg, inLeg }, leg =>
         {
             Assert.True(leg.IsTransferLeg);
+            Assert.Empty(leg.Lines);
+            Assert.False(leg.IsSplit);
             Assert.Equal((Today.AddDays(-1), "for Tet", (Guid?)null, (string?)null), (leg.Date, leg.Note, leg.CategoryId, leg.Payee));
             Assert.Equal((Monday, Monday), (leg.CreatedAt, leg.UpdatedAt));
         });

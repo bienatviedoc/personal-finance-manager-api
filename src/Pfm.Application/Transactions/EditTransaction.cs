@@ -11,9 +11,13 @@ namespace Pfm.Application.Transactions;
 /// the base currency again; any other edit leaves the converted amount as it is (decision record 0002).
 /// </summary>
 /// <param name="IsRefund">Whether the expense is a refund. Only an expense can be one.</param>
+/// <param name="Lines">
+/// The lines of a split, which replace the ones the transaction had; <paramref name="CategoryId"/> is then
+/// left empty. Null makes a split transaction one category again.
+/// </param>
 public sealed record EditTransactionCommand(
     Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note,
-    bool IsRefund = false)
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null)
     : ITransactionCommand
 {
     public TransactionFields Parsed { get; } = TransactionFields.Read(Type, Amount, Date);
@@ -89,9 +93,18 @@ public sealed class EditTransactionHandler(
         var fields = command.Parsed;
         try
         {
-            transaction.Edit(
-                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            if (against.Split is { } lines)
+            {
+                transaction.EditSplit(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, lines, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            }
+            else
+            {
+                transaction.Edit(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            }
         }
         catch (TransactionRuleViolation violation)
         {

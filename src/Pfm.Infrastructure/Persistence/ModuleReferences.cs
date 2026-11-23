@@ -39,7 +39,8 @@ internal static class ModuleReferences
         modelBuilder.Entity<User>().HasIndex(user => new { user.Id, user.BaseCurrency }).IsUnique();
     }
 
-    /// <summary>Whether the constraint a save broke is one of the three that another request's save can break.</summary>
+    /// <summary>Whether the constraint a save broke is one of the four that another request's save can break.</summary>
     public static bool IsBrokenByAConcurrentSave(string? constraintName) =>
-        constraintName is TransactionCurrencyIsItsAccounts or TransactionBaseCurrencyIsItsUsers or TransactionConfiguration.CategoryKindIsItsCategorys;
+        constraintName is TransactionCurrencyIsItsAccounts or TransactionBaseCurrencyIsItsUsers or TransactionConfiguration.CategoryKindIsItsCategorys
+            or TransactionConfiguration.LineCategoryKindIsItsCategorys;
 }
