@@ -10,6 +10,7 @@ using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
+using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
 
@@ -41,6 +42,7 @@ public static class ApplicationServices
         services.AddScoped<TransactionConversion>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+        services.AddScoped<IAttachmentFiles, AttachmentFiles>();
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();
         services.AddScoped<IUserBudgets, UserBudgets>();

@@ -44,7 +44,8 @@ public static class UserErasureFixtures
         var food = await BrowserFixtures.CategoryAsync(browser, "Food & drink");
         (await browser.PostAsync("/api/v1/categories", new { parentId = food, name = "Street food", kind = "expense", icon = "utensils", color = "#ef4444" })).EnsureSuccessStatusCode();
         var streetFood = await BrowserFixtures.CategoryAsync(browser, "Street food");
-        await RecordAsync(browser, accountId, streetFood, "45000", "Bánh mì Huỳnh Hoa");
+        var lunch = await RecordAsync(browser, accountId, streetFood, "45000", "Bánh mì Huỳnh Hoa");
+        (await browser.PostFileAsync($"/api/v1/transactions/{lunch}/attachments", ReceiptName, Receipt, "application/pdf")).EnsureSuccessStatusCode();
         var deleted = await RecordAsync(browser, accountId, food, "120000", "Phở Thìn");
         (await browser.DeleteAsync($"/api/v1/transactions/{deleted}")).EnsureSuccessStatusCode();
         await RecordAsync(browser, accountId, streetFood, "15000", "Bánh mì Huỳnh Hoa", isRefund: true);
@@ -59,6 +60,7 @@ public static class UserErasureFixtures
         return new()
         {
             ["Accounts"] = 1,
+            ["Attachments"] = 1,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
@@ -67,6 +69,11 @@ public static class UserErasureFixtures
             ["Transactions"] = 4,
         };
     }
+
+    /// <summary>The receipt <see cref="OwnSomethingOfEveryKindAsync"/> attaches to a transaction: its name, and the file itself.</summary>
+    public const string ReceiptName = "Bánh mì.pdf";
+
+    public static readonly byte[] Receipt = "%PDF-1.7\n% a receipt for one banh mi\n"u8.ToArray();
 
     private static async Task<Guid> RecordAsync(Browser browser, Guid accountId, Guid categoryId, string amount, string payee, bool isRefund = false)
     {

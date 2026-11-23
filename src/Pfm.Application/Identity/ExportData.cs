@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Identity;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 
@@ -19,11 +20,14 @@ public sealed record DataExport(string FileName, byte[] Zip);
 /// The export is the user's profile and every row they own (<see cref="IUserData"/>), a file for each table:
 /// <c>Transactions</c> becomes <c>transactions.csv</c> and its column <c>BaseCurrencyAmount</c> becomes
 /// <c>baseCurrencyAmount</c>. A table the user has nothing in is still there, with its column names alone. A
-/// new kind of user data is in the export once it is in the model. Passwords, authenticator keys and recovery
+/// new kind of user data is in the export once it is in the model.
+/// The files a user attached live in object storage, not in a table, so they are fetched one by one into
+/// <c>attachments/</c>. Passwords, authenticator keys and recovery
 /// codes are no part of it: they are secrets, kept hashed or encrypted, and of no use outside the app.
 /// </summary>
 public sealed class ExportDataHandler(
-    ICurrentUser currentUser, IUsers users, IUserProfiles profiles, IUserData userData, IUserCalendar calendar, TimeProvider clock)
+    ICurrentUser currentUser, IUsers users, IUserProfiles profiles, IUserData userData, IAttachmentFiles attachmentFiles, IUserCalendar calendar,
+    TimeProvider clock)
     : IQueryHandler
 {
     /// <summary>
@@ -42,6 +46,8 @@ public sealed class ExportDataHandler(
         *.csv           One file for each kind of data, one line for each thing, under a first line of
                         column names. Comma-separated (RFC 4180), UTF-8. Transactions you deleted are
                         included for as long as the app still holds them (deletedAt says when).
+        attachments/    The files you attached to transactions, as you uploaded them. Each is named
+                        by the id of its line in attachments.csv, then its own name.
 
         Amounts are plain numbers with a decimal point, next to their currency's ISO 4217 code.
         Dates are YYYY-MM-DD; moments are ISO 8601 in UTC. A column ending in "Id" names a line of
@@ -68,6 +74,22 @@ public sealed class ExportDataHandler(
             foreach (var table in tables)
             {
                 Add(zip, $"{KebabCase(table.Name)}.csv", now, writer => Csv.Write(writer, [.. table.Columns.Select(CamelCase)], table.Rows), CsvEncoding);
+            }
+
+            foreach (var file in await attachmentFiles.ListAsync(cancellationToken))
+            {
+                // A file storage has lost keeps its line in attachments.csv and is left out here.
+                await using var content = await attachmentFiles.OpenAsync(file, cancellationToken);
+                if (content is null)
+                {
+                    continue;
+                }
+
+                // The id keeps two files of one name apart. JPEG, PNG and PDF are compressed already.
+                var entry = zip.CreateEntry($"attachments/{file.Id}-{file.FileName}", CompressionLevel.NoCompression);
+                entry.LastWriteTime = now;
+                await using var target = entry.Open();
+                await content.CopyToAsync(target, cancellationToken);
             }
         }
 

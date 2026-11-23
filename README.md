@@ -395,7 +395,10 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   (`transactions.csv`, `accounts.csv`, ...) and a `README.txt` that says how to read them. CSV is RFC 4180 in
   UTF-8 with a byte order mark, so a spreadsheet reads Vietnamese text right; values are written as the API's
   JSON writes them. Transactions the user deleted are included while they are still held. Secrets (the
-  password hash, the authenticator key, recovery codes) are not exported.
+  password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
+  it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
+  object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
+  transactions included. The archive is built in memory, attachments and all.
 - **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
   (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
   they have, and the session that asked is signed out at once. Nothing is erased yet.
@@ -406,7 +409,11 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   not.
 - **Erasing:** the worker's `UserErasureJob` runs `EraseDeactivatedUsers` when it starts and every hour
   (`UserErasure__RunEvery`): for each user deactivated 30 days ago or more it erases everything they own and
-  then the user, in one transaction per user. The email address is then free to register again.
+  then the user, in one transaction per user. The email address is then free to register again. The files
+  they attached are deleted from object storage first, everything under the user's prefix
+  (`users/{user}/attachments/`): storage is no part of the transaction, and should the rows then fail to go, the
+  next run finds the user again with no file left to delete. So the worker needs the same `Storage__...`
+  settings as the API.
 - **Every kind of user data is covered without being named.** Both the export and the erasure go through
   `IUserData` (`Pfm.Application.Abstractions`), implemented by `Persistence/UserData` over every `IUserOwned`
   entity in the model, inside the user filter: the export reads each table's columns as stored (all but the
@@ -417,7 +424,8 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   things still need a hand, and tests say when: a table that is not user-owned must be argued for in
   `Every_table_holds_rows_a_user_owns_or_is_known_to_hold_none`; `UserErasureFixtures.OwnSomethingOfEveryKindAsync`
   must create a row of every user-owned table, or the export test fails; and what a user owns outside the
-  database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`.
+  database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`,
+  as attachments have.
 
 ## Hardening
 

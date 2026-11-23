@@ -28,7 +28,7 @@ public sealed class Attachment : IUserOwned
         Size = size;
 
         // Nothing of the user's own words, and one user's files under one prefix.
-        StorageKey = $"users/{userId:N}/attachments/{Id:N}";
+        StorageKey = $"{StoragePrefixOf(userId)}{Id:N}";
     }
 
     public Guid Id { get; private set; }
@@ -37,7 +37,7 @@ public sealed class Attachment : IUserOwned
 
     public Guid TransactionId { get; private set; }
 
-    /// <summary>Where the file is in object storage. Never shown to anyone.</summary>
+    /// <summary>Where the file is in object storage. The app never shows it.</summary>
     public string StorageKey { get; private set; }
 
     /// <summary>What the user's file was called, without any folder.</summary>
@@ -52,6 +52,9 @@ public sealed class Attachment : IUserOwned
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    /// <summary>What the storage key of every file of this user starts with, and of nobody else's.</summary>
+    public static string StoragePrefixOf(Guid userId) => $"users/{userId:N}/attachments/";
 
     /// <summary>A file can be attached when it holds something and at most <see cref="MaxSize"/>.</summary>
     public static bool IsValidSize(long size) => size is > 0 and <= MaxSize;

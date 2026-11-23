@@ -13,6 +13,9 @@ internal sealed class AttachmentRepository(PfmDbContext db) : IAttachmentReposit
             .OrderBy(attachment => attachment.Id)
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Attachment>> ListEveryAsync(CancellationToken cancellationToken) =>
+        await db.Set<Attachment>().OrderBy(attachment => attachment.Id).ToListAsync(cancellationToken);
+
     public Task<Attachment?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         OfTransactionsNotDeleted().SingleOrDefaultAsync(attachment => attachment.Id == id, cancellationToken);
 

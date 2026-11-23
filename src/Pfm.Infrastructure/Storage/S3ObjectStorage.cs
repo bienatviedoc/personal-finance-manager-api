@@ -28,6 +28,40 @@ internal sealed class S3ObjectStorage(IOptions<StorageOptions> options, TimeProv
     public async Task DeleteAsync(string key, CancellationToken cancellationToken = default) =>
         await _storage.DeleteObjectAsync(new DeleteObjectRequest { BucketName = _options.Bucket, Key = key }, cancellationToken);
 
+    public async Task DeleteAllAsync(string prefix, CancellationToken cancellationToken = default)
+    {
+        var page = new ListObjectsV2Request { BucketName = _options.Bucket, Prefix = prefix };
+        ListObjectsV2Response listed;
+        do
+        {
+            listed = await _storage.ListObjectsV2Async(page, cancellationToken);
+            foreach (var file in listed.S3Objects ?? [])
+            {
+                await DeleteAsync(file.Key, cancellationToken);
+            }
+
+            page.ContinuationToken = listed.NextContinuationToken;
+        }
+        while (listed.IsTruncated == true);
+    }
+
+    /// <summary>Read whole into memory: the app stores nothing over a few megabytes, and the caller gets a stream that holds no connection.</summary>
+    public async Task<Stream?> OpenReadAsync(string key, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var file = await _storage.GetObjectAsync(new GetObjectRequest { BucketName = _options.Bucket, Key = key }, cancellationToken);
+            var content = new MemoryStream();
+            await file.ResponseStream.CopyToAsync(content, cancellationToken);
+            content.Position = 0;
+            return content;
+        }
+        catch (AmazonS3Exception missing) when (missing.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+    }
+
     public SignedUrl SignedUrlFor(string key, string fileName)
     {
         var expiresAt = clock.GetUtcNow() + _options.SignedUrlLifetime;
