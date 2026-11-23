@@ -190,7 +190,7 @@ already uses it can still show it. An account can be archived at any balance.
   own category (`SpentAmountIn`): the lines share the converted amount as they share the amount, the last
   taking what rounding leaves. A refund counts in the month of
   the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
-  are left out. No endpoint answers spent yet: the budget screen (#28) does.
+  are left out. `GET /budgets` answers it (see Budgets below), through `ICategorySpending`.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
@@ -203,7 +203,7 @@ already uses it can still show it. An account can be archived at any balance.
   `BaseCurrencyConversion`, in four columns: `BaseCurrency`, `BaseCurrencyAmount`, `ExchangeRate` and
   `ExchangeRateDate`. Rates that arrive later never change it. An edit
   converts again only when it changes the amount, the date or the account. A transaction in the base currency
-  itself needs no rate. Budgets and reports will read the converted amount; no endpoint answers it yet.
+  itself needs no rate. Budgets read the converted amount as spent; reports will too.
 - **Not converted.** With no rate on or before its date the transaction is saved all the same, with no
   `BaseCurrencyAmount`. Every fetch, whether it stored new rates or not, asks Transactions, through
   `ITransactionConversion` (`Pfm.Application.Contracts.Transactions`), to convert every user's not-converted
@@ -212,7 +212,7 @@ already uses it can still show it. An account can be archived at any balance.
   only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
-  only happen until the base currency locks (rule 12).
+  only happen until the base currency locks (rule 12; see Budgets below).
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
@@ -250,6 +250,44 @@ already uses it can still show it. An account can be archived at any balance.
   column `CategoryKind`, which the database works out from the type) at a category and its kind. They are
   what keeps an account's currency and a category's kind fixed once it has transactions, and spec rule 7,
   when two requests save at once (see "Optimistic concurrency" below).
+
+### Budgets
+
+- **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st
+  (`BudgetMonth`, written `2026-11`), in the user's base currency. `PUT /budgets/{month}/{categoryId}` sets it:
+  a new budget answers 201 and sends no `If-Match`; a new amount for one that exists answers 200 and names its
+  row version like every edit (412 when stale, 428 without). `DELETE` on the same address removes it: a budget
+  is really gone, it is not archived. An archived category takes no new budget and keeps the ones it has.
+- **Spent is never stored** (spec section 6). `GET /budgets?month=2026-11` works out each budget's `budgeted`,
+  `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
+  `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
+  `ICategorySpending` (`Pfm.Application.Contracts.Transactions`). Transactions answers with its own definition of
+  spent (`Transaction.SpentAmountIn`, see Transactions above), adding up the month's expenses as they were
+  converted into the base currency at the exchange rate of each one's own date: a refund is taken away, so spent
+  can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
+  will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
+  date in the user's time zone; left out, `month` is the month it is now there.
+- **Roll-up** (rule 6): spending in a subcategory counts toward a budget on its parent, so a category and its
+  subcategory cannot both have a budget in the same month (`Budget.EnsureCanBeSetOn`); two subcategories of one
+  parent can. Two requests that budget a parent and its subcategory at the same moment cannot see each other
+  before saving, so `SetBudget` reads the month again after saving and takes its budget back when it broke the
+  rule.
+- **States** (BUD-3): `over` above 100% of the budget, `warning` at or above the user's threshold, otherwise
+  `onTrack`. The threshold is the profile setting `budgetWarningPercent` (`PATCH /me`, 1 to 100, 80 until
+  changed). `percentSpent` is rounded down, so it never shows a state the budget is not in yet.
+- **Not converted.** An expense with no exchange rate on or before its date is left out of spent and counted in
+  `notConverted`, on its budget and on the totals, until a rate arrives. A split is one expense, counted once
+  however many of a budget's categories, or of the month's budgets, its lines are in.
+- **The base currency locks once a budget exists** (rule 12,
+  [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)). `GET /me` says so
+  (`baseCurrencyLocked`), and `PATCH /me` refuses another `baseCurrency` by name while the user has a budget;
+  removing every budget unlocks it. A budget keeps the currency it was entered in, and a foreign key points
+  its user and currency at the user and their base currency (`ModuleReferences`), so the database refuses the
+  change, or the budget, when the two are saved at the same moment; the use case is then made again.
+- **A budgeted category stays an expense category**: changing the kind of a category that has a budget, or whose
+  subcategory has one, is refused, and a second foreign key holds that when the two are saved at the same moment.
+- Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
+  Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
 ## Signing in
 

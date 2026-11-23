@@ -25,4 +25,22 @@ public class ProfileSettingsTests
         Assert.False(ProfileSettings.IsValidTimeZone(timeZone));
         Assert.Throws<ArgumentException>(() => new ProfileSettings(Currency.VND, timeZone, null));
     }
+
+    [Fact]
+    public void A_user_is_warned_at_80_percent_of_a_budget_until_they_choose_another_threshold()
+    {
+        Assert.Equal(80, ProfileSettings.Default.BudgetWarningPercent);
+        Assert.Equal(80, new ProfileSettings(Currency.VND, "Asia/Ho_Chi_Minh", null).BudgetWarningPercent);
+        Assert.Equal(95, new ProfileSettings(Currency.VND, "Asia/Ho_Chi_Minh", null, 95).BudgetWarningPercent);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(101)]
+    public void A_budget_warning_threshold_is_from_1_to_100_percent(int percent)
+    {
+        Assert.False(ProfileSettings.IsValidBudgetWarningPercent(percent));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ProfileSettings(Currency.VND, "Asia/Ho_Chi_Minh", null, percent));
+    }
 }
