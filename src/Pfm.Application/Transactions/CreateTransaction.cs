@@ -18,8 +18,10 @@ namespace Pfm.Application.Transactions;
 /// A key the caller made up for this transaction. Sending the command again with it answers the transaction
 /// the first one recorded and records nothing; sending another transaction with it is refused.
 /// </param>
+/// <param name="RecurringRuleId">The recurring rule posting the transaction as one of its occurrences; null when a user records it.</param>
 public sealed record CreateTransactionCommand(
-    string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null)
+    string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null,
+    Guid? RecurringRuleId = null)
     : ITransactionCommand
 {
     public const int MaxIdempotencyKeyLength = 200;
@@ -87,6 +89,11 @@ public sealed class CreateTransactionHandler(
         catch (TransactionRuleViolation violation)
         {
             return Result<CreateTransactionOutcome>.Invalid(violation.AsErrors());
+        }
+
+        if (command.RecurringRuleId is { } recurringRuleId)
+        {
+            transaction.PostedBy(recurringRuleId);
         }
 
         await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);

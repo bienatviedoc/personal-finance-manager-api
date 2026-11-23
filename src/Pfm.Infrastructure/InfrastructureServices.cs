@@ -10,6 +10,7 @@ using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Recurring;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
@@ -64,6 +65,7 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<IRecurringRuleRepository, RecurringRuleRepository>();
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddExchangeRates();

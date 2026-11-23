@@ -157,13 +157,14 @@ public sealed record TransactionRequest(
 /// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign.</param>
 /// <param name="Currency">The currency of the transaction's account.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the transaction.</param>
+/// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid CategoryId, string? Payee, string? Note,
-    string RowVersion)
+    string RowVersion, Guid? RecurringRuleId)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
-            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture));
+            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture), transaction.RecurringRuleId);
 }
 
 /// <summary>A page of transactions. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>
