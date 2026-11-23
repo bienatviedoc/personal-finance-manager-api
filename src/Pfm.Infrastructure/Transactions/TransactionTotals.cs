@@ -13,21 +13,21 @@ namespace Pfm.Infrastructure.Transactions;
 internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage
 {
     /// <summary>
-    /// Income − expenses of each account (spec section 3, rule 2), leaving out deleted transactions. The
-    /// database adds up the amounts of each type; the sign of a type has one definition,
+    /// Income − expenses + refunds of each account (spec section 3, rule 2), leaving out deleted transactions.
+    /// The database adds up the amounts of each type, refunds apart; the sign of a type has one definition,
     /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
     /// </summary>
     public async Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken)
     {
         var sums = await db.Set<Transaction>()
             .Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null)
-            .GroupBy(transaction => new { transaction.AccountId, transaction.Type })
-            .Select(ofType => new { ofType.Key.AccountId, ofType.Key.Type, Amount = ofType.Sum(transaction => transaction.Amount) })
+            .GroupBy(transaction => new { transaction.AccountId, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new { ofType.Key.AccountId, ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount) })
             .ToListAsync(cancellationToken);
 
         return sums
             .GroupBy(sum => sum.AccountId)
-            .ToDictionary(account => account.Key, account => account.Sum(sum => sum.Type.Signed(sum.Amount)));
+            .ToDictionary(account => account.Key, account => account.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)));
     }
 
     /// <summary>
@@ -37,7 +37,10 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     public Task<bool> AnyOnAsync(Guid accountId, CancellationToken cancellationToken) =>
         db.Set<Transaction>().AnyAsync(transaction => transaction.AccountId == accountId, cancellationToken);
 
-    /// <summary>A deleted transaction still counts, as for an account: it would come back with a category of the wrong kind.</summary>
+    /// <summary>
+    /// Whether any line is on one of the categories, so a split counts for the category of each of its lines. A
+    /// deleted transaction still counts, as for an account: it would come back with a category of the wrong kind.
+    /// </summary>
     public Task<bool> HasTransactionsAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
-        db.Set<Transaction>().AnyAsync(transaction => categoryIds.Contains(transaction.CategoryId), cancellationToken);
+        db.Set<Transaction>().AnyAsync(transaction => transaction.Lines.Any(line => categoryIds.Contains(line.CategoryId)), cancellationToken);
 }
