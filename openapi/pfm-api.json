@@ -3177,6 +3177,80 @@
           }
         }
       }
+    },
+    "/api/v1/reports/spending-by-category/transactions": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "description": "The last step of drilling down spending by category: the expenses with a line on one category itself (not on its subcategories) over a period, newest first, each with what it spent there in the base currency, so they add up to that category's spent in the report. A split shows only its lines on the category; a refund spends a negative amount; one that is not converted spends nothing yet and is counted in notConverted. Not paged: one category's expenses over one period.",
+        "operationId": "GetSpendingTransactions",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "categoryId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendingTransactionsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4665,6 +4739,110 @@
           "subcategories",
           "transactions"
         ]
+      },
+      "SpendingTransactionResponse": {
+        "required": [
+          "id",
+          "date",
+          "accountId",
+          "payee",
+          "note",
+          "amount",
+          "currency",
+          "isRefund",
+          "isSplit",
+          "spent"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "accountId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "payee": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "note": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "amount": {
+            "type": "string"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "isRefund": {
+            "type": "boolean"
+          },
+          "isSplit": {
+            "type": "boolean"
+          },
+          "spent": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SpendingTransactionsResponse": {
+        "required": [
+          "from",
+          "to",
+          "currency",
+          "category",
+          "total",
+          "notConverted",
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "category": {
+            "$ref": "#/components/schemas/ReportCategoryResponse"
+          },
+          "total": {
+            "type": "string"
+          },
+          "notConverted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SpendingTransactionResponse"
+            }
+          }
+        }
       },
       "TransactionLineRequest": {
         "required": [

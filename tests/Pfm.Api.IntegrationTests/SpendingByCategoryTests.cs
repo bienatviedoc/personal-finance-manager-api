@@ -76,6 +76,52 @@ public class SpendingByCategoryTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"{Report}?{InMarch}&parentId={Guid.NewGuid()}")).StatusCode);
     }
 
+    [Fact]
+    public async Task A_category_drills_down_to_the_transactions_that_make_up_its_spending_each_with_what_it_spent_there()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        var market = await SpendAsync(browser, everyday, "Groceries", "500000", March, payee: "Market");
+        var split = await SplitAsync(browser, everyday, "150000", March.AddDays(2), ("Groceries", "100000"), ("Household", "50000"));
+        var refund = await RefundAsync(browser, everyday, "Groceries", "30000", March.AddDays(2));
+        var abroad = await SpendAsync(browser, dollars, "Groceries", "12.5", March.AddDays(1));
+        await SpendAsync(browser, everyday, "Food & drink", "999000", March);
+        await SpendAsync(browser, everyday, "Groceries", "999000", February);
+
+        var list = await TransactionsAsync(browser, $"{InMarch}&categoryId={groceries}");
+
+        Assert.Equal(("Groceries", "VND", "570000.00", 1), (list.Category.Name, list.Currency, list.Total, list.NotConverted));
+        Assert.Equal(
+            [
+                (refund, new DateOnly(2026, 3, 3), "30000.00", "VND", true, false, (string?)"-30000.00"),
+                (split, new DateOnly(2026, 3, 3), "100000.00", "VND", false, true, "100000.00"),
+                (abroad, new DateOnly(2026, 3, 2), "12.50", "USD", false, false, null),
+                (market, new DateOnly(2026, 3, 1), "500000.00", "VND", false, false, "500000.00"),
+            ],
+            list.Items.Select(item => (item.Id, item.Date, item.Amount, item.Currency, item.IsRefund, item.IsSplit, item.Spent)));
+        Assert.Equal(("Market", everyday), (list.Items[3].Payee, list.Items[3].AccountId));
+        Assert.Equal((await ReportAsync(browser, $"{InMarch}&parentId={await CategoryAsync(browser, "Food & drink")}")).Items.Single(item => item.Category.Id == groceries).Spent, list.Total);
+    }
+
+    [Fact]
+    public async Task The_transactions_of_a_category_follow_the_account_filter_and_a_category_the_user_does_not_have_is_not_found()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var card = await AddAccountAsync(browser, "Card");
+        var transport = await CategoryAsync(browser, "Transport");
+        await SpendAsync(browser, everyday, "Transport", "100000", March);
+        var onCard = await SpendAsync(browser, card, "Transport", "200000", March);
+
+        var list = await TransactionsAsync(browser, $"{InMarch}&categoryId={transport}&accountId={card}");
+
+        Assert.Equal((onCard, "200000.00"), (Assert.Single(list.Items).Id, list.Total));
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"{Report}/transactions?{InMarch}&categoryId={Guid.NewGuid()}")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await browser.GetAsync($"{Report}/transactions?{InMarch}")).StatusCode);
+    }
+
     // What counts (spec section 3, rules 2, 3 and 5).
 
     [Fact]
@@ -238,6 +284,18 @@ public class SpendingByCategoryTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<ReportBody>())!;
     }
+
+    private static async Task<TransactionsBody> TransactionsAsync(Browser browser, string query)
+    {
+        var response = await browser.GetAsync($"{Report}/transactions?{query}");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<TransactionsBody>())!;
+    }
+
+    private sealed record TransactionBody(
+        Guid Id, DateOnly Date, Guid AccountId, string? Payee, string? Note, string Amount, string Currency, bool IsRefund, bool IsSplit, string? Spent);
+
+    private sealed record TransactionsBody(DateOnly From, DateOnly To, string Currency, CategoryBody Category, string Total, int NotConverted, List<TransactionBody> Items);
 
     private sealed record CategoryBody(Guid Id, Guid? ParentId, string Name, string Icon, string Color, bool IsArchived);
 

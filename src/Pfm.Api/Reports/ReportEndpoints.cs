@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Domain;
 using Pfm.Domain.Reports;
@@ -14,6 +15,9 @@ public static class ReportEndpoints
 
         reports.MapGet("/spending-by-category", SpendingByCategory).WithName("GetSpendingByCategory")
             .WithDescription("Where the money went over a period: what the expenses in each category came to, minus refunds, with each one's share of the total, in the user's base currency and ranked, most first. Each expense counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers and income never count, and each line of a split counts in its own category. Without parentId each top-level category stands for itself and its subcategories; with it, each of that category's subcategories stands for itself, and the category for what was spent on it directly.");
+
+        reports.MapGet("/spending-by-category/transactions", SpendingTransactions).WithName("GetSpendingTransactions")
+            .WithDescription("The last step of drilling down spending by category: the expenses with a line on one category itself (not on its subcategories) over a period, newest first, each with what it spent there in the base currency, so they add up to that category's spent in the report. A split shows only its lines on the category; a refund spends a negative amount; one that is not converted spends nothing yet and is counted in notConverted. Not paged: one category's expenses over one period.");
 
         return api;
     }
@@ -38,6 +42,30 @@ public static class ReportEndpoints
 
         var report = await handler.HandleAsync(new GetSpendingByCategory(filter, parent), cancellationToken);
         return report is null ? TypedResults.NotFound() : TypedResults.Ok(SpendingByCategoryResponse.Of(report));
+    }
+
+    /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>; on or after <paramref name="from"/>.</param>
+    /// <param name="categoryId">The category whose expenses are listed: an item of the report that drills into transactions.</param>
+    /// <param name="accountId">One of the user's accounts: only its expenses are listed.</param>
+    private static async Task<Results<Ok<SpendingTransactionsResponse>, NotFound, ValidationProblem>> SpendingTransactions(
+        GetSpendingTransactionsHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, string? categoryId = null, string? accountId = null)
+    {
+        var asked = new ReportParameters();
+        var filter = asked.Filter(from, to, accountId, categoryId, compare: false);
+        if (categoryId is null)
+        {
+            asked.Refused[nameof(categoryId)] = ["Choose a category."];
+        }
+
+        if (filter is null || asked.Refused.Count > 0)
+        {
+            return TypedResults.ValidationProblem(asked.Refused);
+        }
+
+        var list = await handler.HandleAsync(new GetSpendingTransactions(filter.Period, filter.CategoryId!.Value, filter.AccountId), cancellationToken);
+        return list is null ? TypedResults.NotFound() : TypedResults.Ok(SpendingTransactionsResponse.Of(list));
     }
 }
 
@@ -87,4 +115,31 @@ public sealed record SpendingByCategoryResponse(
         new(report.Period.From, report.Period.To, report.Currency, report.Parent is { } parent ? ReportCategoryResponse.From(parent) : null,
             AmountJson.Text(report.Total.Total), report.Total.NotConverted.Count, [.. report.Items.Select(SpendingByCategoryItemResponse.From)],
             report.Previous is { } previous ? PreviousSpendingResponse.Of(previous) : null);
+}
+
+/// <summary>One expense as it counts toward what was spent in a category.</summary>
+/// <param name="Amount">What its lines on the category come to, a decimal string in <paramref name="Currency"/>: its whole amount unless it is split.</param>
+/// <param name="Currency">The currency of its account.</param>
+/// <param name="IsRefund">Money coming back from a purchase, which lowers spent.</param>
+/// <param name="IsSplit">It has lines on other categories too, which are not counted here.</param>
+/// <param name="Spent">What it adds to spent in the category, a decimal string in the base currency, negative for a refund; null while it is not converted.</param>
+public sealed record SpendingTransactionResponse(
+    Guid Id, DateOnly Date, Guid AccountId, string? Payee, string? Note, string Amount, Currency Currency, bool IsRefund, bool IsSplit, string? Spent)
+{
+    public static SpendingTransactionResponse From(CategoryExpense expense) =>
+        new(expense.TransactionId, expense.Date, expense.AccountId, expense.Payee, expense.Note, AmountJson.Text(expense.Amount), expense.Currency,
+            expense.IsRefund, expense.IsSplit, expense.Spent is { } spent ? AmountJson.Text(spent) : null);
+}
+
+/// <summary>The expenses that make up what one category spent over a period, unpaged.</summary>
+/// <param name="Currency">The user's base currency, which every spent is in.</param>
+/// <param name="Total">What their spent adds up to: the category's own spent in the report.</param>
+/// <param name="NotConverted">How many of them are left out of the total because they are not converted.</param>
+/// <param name="Items">Newest first; within a day, the last recorded first.</param>
+public sealed record SpendingTransactionsResponse(
+    DateOnly From, DateOnly To, Currency Currency, ReportCategoryResponse Category, string Total, int NotConverted, IReadOnlyList<SpendingTransactionResponse> Items)
+{
+    public static SpendingTransactionsResponse Of(SpendingTransactionsDetails list) =>
+        new(list.Period.From, list.Period.To, list.Currency, ReportCategoryResponse.From(list.Category), AmountJson.Text(list.Total), list.NotConverted,
+            [.. list.Items.Select(SpendingTransactionResponse.From)]);
 }
