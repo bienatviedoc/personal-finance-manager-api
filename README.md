@@ -278,6 +278,10 @@ already uses it can still show it. An account can be archived at any balance.
   field of a `multipart/form-data` body. `GET` on the same path lists a transaction's attachments, and
   `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
   transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
+  The foreign key from an attachment to its transaction restricts deletes (`AttachmentConfiguration`), so the
+  job that will purge deleted transactions after 30 days (spec rule 10) must delete their attachments first:
+  the files from storage, then the rows. Deleting the transaction alone fails, and cascading would leave the
+  files behind with nothing pointing at them.
 - **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
   (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
   it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
@@ -564,8 +568,10 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
-  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
+  `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
+  budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
   `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
   `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's

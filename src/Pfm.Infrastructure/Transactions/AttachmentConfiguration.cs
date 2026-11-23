@@ -20,6 +20,8 @@ internal sealed class AttachmentConfiguration : IEntityTypeConfiguration<Attachm
         attachment.HasIndex(row => row.StorageKey).IsUnique();
 
         // A transaction is deleted softly and keeps its attachments; nothing removes its row from under them.
+        // Purging deleted transactions (spec rule 10) must delete their attachments first, files then rows:
+        // restricted, the purge fails rather than leave files in storage that no row points at.
         attachment.HasOne<Transaction>().WithMany().HasForeignKey(row => row.TransactionId).OnDelete(DeleteBehavior.Restrict);
 
         // The attachments of one transaction, the first attached first (ids are in time order).
