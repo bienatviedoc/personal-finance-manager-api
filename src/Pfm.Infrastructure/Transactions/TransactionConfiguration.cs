@@ -39,6 +39,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         {
             table.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
+            // Only an expense can be a refund.
+            table.HasCheckConstraint("CK_Transactions_Refund_Is_Expense", "NOT \"IsRefund\" OR \"Type\" = 'Expense'");
+
             // Converted with its rate and the rate's day, or not converted and none of the three.
             table.HasCheckConstraint(
                 "CK_Transactions_Converted_Or_Not",
@@ -75,6 +78,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Property(row => row.RowVersion).IsRowVersion();
         transaction.Ignore(row => row.IsDeleted);
         transaction.Ignore(row => row.SignedAmount);
+        transaction.Ignore(row => row.SpentAmount);
         transaction.Ignore(row => row.IsConverted);
 
         // A category with transactions is archived, never deleted.

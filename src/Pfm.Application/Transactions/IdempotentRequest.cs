@@ -27,8 +27,8 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
         }
 
         var fields = command.Parsed;
-        var asked = JsonSerializer.Serialize(new[]
-        {
+        string?[] asked =
+        [
             fields.Type!.Value.ToString(),
             command.AccountId.ToString("N"),
             fields.Amount!.Value.ToString("0.############################", CultureInfo.InvariantCulture),
@@ -36,9 +36,13 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
             command.CategoryId.ToString("N"),
             Transaction.Normalised(command.Payee),
             Transaction.Normalised(command.Note),
-        });
 
-        return new IdempotentRequest(command.IdempotencyKey, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(asked))));
+            // Only a refund adds to what is hashed, so the fingerprints kept before refunds existed still match.
+            .. command.IsRefund ? ["refund"] : Array.Empty<string?>(),
+        ];
+
+        return new IdempotentRequest(
+            command.IdempotencyKey, Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(asked)))));
     }
 }
 
