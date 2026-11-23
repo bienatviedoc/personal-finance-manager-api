@@ -153,6 +153,34 @@ public class QuickAddTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Each_line_of_a_split_counts_as_a_use_of_its_category()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        var eatingOut = await CategoryAsync(browser, "Eating out");
+        var household = await CategoryAsync(browser, "Household");
+        await RecordSplitAsync(browser, everyday, "Co.opmart", groceries, household);
+        await RecordSplitAsync(browser, everyday, "Co.opmart", eatingOut, household);
+
+        Assert.Equal(household, (await QuickAddAsync(browser, "?type=expense&payee=Co.opmart")).SuggestedCategoryId);
+    }
+
+    [Fact]
+    public async Task A_refund_is_money_coming_back_and_says_nothing_about_what_a_payee_is_for()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        var household = await CategoryAsync(browser, "Household");
+        await RecordAsync(browser, everyday, groceries, payee: "Co.opmart");
+        await RecordAsync(browser, everyday, household, payee: "Co.opmart", isRefund: true);
+        await RecordAsync(browser, everyday, household, payee: "Co.opmart", isRefund: true);
+
+        Assert.Equal(groceries, (await QuickAddAsync(browser, "?type=expense&payee=Co.opmart")).SuggestedCategoryId);
+    }
+
+    [Fact]
     public async Task What_another_user_recorded_is_never_suggested()
     {
         var (alice, _) = await api.SignedInAsync();
@@ -194,11 +222,23 @@ public class QuickAddTests(PfmApi api)
 
     /// <summary>Records a transaction and answers its id.</summary>
     private static async Task<Guid> RecordAsync(
-        Browser browser, Guid accountId, Guid categoryId, string? payee = null, string type = "expense", string date = "2026-11-02")
+        Browser browser, Guid accountId, Guid categoryId, string? payee = null, string type = "expense", string date = "2026-11-02",
+        bool isRefund = false)
     {
-        var response = await browser.PostAsync(Transactions, new { type, accountId, amount = "100", date, categoryId, payee });
+        var response = await browser.PostAsync(Transactions, new { type, isRefund, accountId, amount = "100", date, categoryId, payee });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;
+    }
+
+    /// <summary>Records an expense split evenly across two categories.</summary>
+    private static async Task RecordSplitAsync(Browser browser, Guid accountId, string payee, Guid first, Guid second)
+    {
+        var response = await browser.PostAsync(Transactions, new
+        {
+            type = "expense", accountId, amount = "100", date = "2026-11-02", payee,
+            lines = new object[] { new { categoryId = first, amount = "60" }, new { categoryId = second, amount = "40" } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
 
     private sealed record Identified(Guid Id);
