@@ -195,8 +195,19 @@ already uses it can still show it. An account can be archived at any balance.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
-- **`GET /transactions`** is the newest date first and, within a date, the last recorded first, paged like every
-  list. Filters, search and totals are still to come (#10).
+- **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
+  (dates, both included), `accountId`, `categoryId` (the category and its subcategories), `type`, `min` and `max`
+  (amounts, both included, compared in whatever currency each transaction is in) and `q`, text found anywhere in
+  the payee or the note whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
+  date first when left out, and within a date or an amount the last recorded first (first when ascending). One
+  the list cannot read is a validation problem naming it; an id the user has nothing under lists nothing.
+  A `nextCursor` belongs to the filters and sort order it was answered for.
+- **`total`**, on the same answer, is of every transaction that passed the filters, whichever page is asked for:
+  their `count`, and for each currency their `income`, `expenses` and `net` (each amount with the sign of its
+  type). Currencies are never added together. It is a `SUM` in the database (`ITransactionRepository.SumAsync`),
+  the type's sign applied by `TransactionTypes.Signed`.
+- **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
+  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two. A test pins both.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in

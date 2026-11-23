@@ -410,6 +410,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_Transactions_UserId_NotConverted")
                         .HasFilter("\"BaseCurrencyAmount\" IS NULL");
 
+                    b.HasIndex("Payee", "Note")
+                        .HasDatabaseName("IX_Transactions_Payee_Note_Trigrams");
+
+                    NpgsqlIndexBuilderExtensions.HasMethod(b.HasIndex("Payee", "Note"), "gin");
+                    NpgsqlIndexBuilderExtensions.HasOperators(b.HasIndex("Payee", "Note"), new[] { "gin_trgm_ops", "gin_trgm_ops" });
+
                     b.HasIndex("UserId", "IdempotencyKey")
                         .IsUnique();
 

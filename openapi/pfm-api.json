@@ -1517,7 +1517,7 @@
         "tags": [
           "Transactions"
         ],
-        "description": "The user's transactions, newest date first and, within a date, last recorded first. A deleted transaction is never listed.",
+        "description": "The user's transactions that pass every filter sent, a page at a time, with the total of all that pass, whichever page is asked for. Newest date first and, within a date, last recorded first, unless sort and order say otherwise. A deleted transaction is never listed or counted.",
         "operationId": "ListTransactions",
         "parameters": [
           {

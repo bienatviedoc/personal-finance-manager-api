@@ -19,7 +19,7 @@ public static class TransactionEndpoints
         var transactions = api.MapGroup("/transactions").WithTags("Transactions").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         transactions.MapGet("/", List).WithName("ListTransactions")
-            .WithDescription("The user's transactions, newest date first and, within a date, last recorded first. A deleted transaction is never listed.");
+            .WithDescription("The user's transactions that pass every filter sent, a page at a time, with the total of all that pass, whichever page is asked for. Newest date first and, within a date, last recorded first, unless sort and order say otherwise. A deleted transaction is never listed or counted.");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")

@@ -84,6 +84,12 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.HasIndex(row => new { row.UserId, row.Date, row.Id }).IsDescending(false, true, true);
         transaction.HasIndex(row => new { row.UserId, row.AccountId, row.Date });
 
+        // Search: text anywhere in the payee or the note, found through their trigrams (spec section 10).
+        transaction.HasIndex(row => new { row.Payee, row.Note })
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops", "gin_trgm_ops")
+            .HasDatabaseName("IX_Transactions_Payee_Note_Trigrams");
+
         // The transactions waiting for an exchange rate, which a fetch of new rates converts.
         transaction.HasIndex(row => row.UserId).HasFilter("\"BaseCurrencyAmount\" IS NULL").HasDatabaseName("IX_Transactions_UserId_NotConverted");
 
