@@ -40,6 +40,7 @@ public class RateLimitTests(PfmApi api)
     [InlineData("/api/v1/me/two-factor/enable")]
     [InlineData("/api/v1/me/two-factor/disable")]
     [InlineData("/api/v1/me/two-factor/recovery-codes")]
+    [InlineData("/api/v1/me/deletion")]
     public async Task Every_endpoint_that_takes_a_password_a_code_or_a_link_or_sends_email_shares_the_limit(string path)
     {
         var browser = PfmApi.CreateBrowser(api.WithAuthRateLimit(Limit, TimeSpan.FromMinutes(1)));

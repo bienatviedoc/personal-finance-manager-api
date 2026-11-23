@@ -336,6 +336,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
+| Auth | `POST /me/deletion` | The user deletes themselves, with their password: signed out and deactivated at once. `POST /auth/login` within 30 days cancels it and says so (`deletionCancelled`) |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
 | Accounts | `POST /accounts/{id}/reconciliations`; `POST /reconciliations/{id}/complete` | Start and lock a reconciliation |
@@ -372,7 +373,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 | `/reports/:report` | Reports | Shared filter bar, chart and table toggle, export |
 | `/recurring` | Recurring | Rules list, upcoming 30 days |
 | `/import` | Import wizard | Upload, map columns, preview with duplicates flagged, commit |
-| `/settings/*` | Settings | Profile, categories, rules, security, data export and account deletion |
+| `/settings/*` | Settings | Profile, categories, rules, security, data export and deleting the user |
 
 **Design decisions**
 

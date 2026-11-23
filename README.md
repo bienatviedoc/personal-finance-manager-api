@@ -302,8 +302,8 @@ the browser never holds a token a script could read.
   locale, and in English for a user who has none (`IdentityEmails`).
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
-reset the password, change the password, and set up, turn on, turn off and get recovery codes for two-factor
-sign-in) are in
+reset the password, change the password, set up, turn on, turn off and get recovery codes for two-factor
+sign-in, export the user's data, delete the user and erase deactivated users) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
 `SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
@@ -350,7 +350,7 @@ method on a port when it needs something Identity does, such as a reset token.
   the count again, and a password reset lifts the lock, since whoever holds the link owns the email address.
 - **Rate limiting:** one client address gets 20 attempts a minute across every endpoint that takes a password, a
   code or an emailed link, or that sends email: all of `/api/v1/auth/...` except the anti-forgery token and
-  signing out, plus the password and two-factor changes under `/api/v1/me`. Over that, the answer is 429 Problem
+  signing out, plus the password and two-factor changes and deleting the user under `/api/v1/me`. Over that, the answer is 429 Problem
   Details with `Retry-After`, given before a password is hashed or the database asked. Set it with
   `RateLimiting__Auth__PermitLimit` and `RateLimiting__Auth__WindowSeconds`. Mark a new endpoint of that kind with
   `LimitAuthAttempts()`. **Behind a proxy** every request arrives from the proxy's address, so all users would
@@ -371,6 +371,39 @@ method on a port when it needs something Identity does, such as a reset token.
   (a password reset or deactivation).
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
+
+## Export and deleting a user
+
+Spec section 8 (Privacy): a user can take everything the app holds about them, and delete themselves.
+
+- **Export:** `GET /api/v1/export/all.zip` answers a ZIP archive (`ExportData`): `profile.json` (what `GET /me`
+  answers, and whether two-factor sign-in is on), one CSV file for each table of user-owned data
+  (`transactions.csv`, `accounts.csv`, ...) and a `README.txt` that says how to read them. CSV is RFC 4180 in
+  UTF-8 with a byte order mark, so a spreadsheet reads Vietnamese text right; values are written as the API's
+  JSON writes them. Transactions the user deleted are included while they are still held. Secrets (the
+  password hash, the authenticator key, recovery codes) are not exported.
+- **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
+  (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
+  they have, and the session that asked is signed out at once. Nothing is erased yet.
+- **Cancelling:** signing in within 30 days (`Deactivation.CancellationPeriod`) cancels the deletion.
+  `POST /api/v1/auth/login` then answers 200 with `deletionCancelled: true` in place of its 204, so the SPA can
+  say so. Only a sign-in that gets all the way through cancels: the password alone is not enough for a user who
+  signs in with two factors. After 30 days signing in is refused exactly as a wrong password is, erased yet or
+  not.
+- **Erasing:** the worker's `UserErasureJob` runs `EraseDeactivatedUsers` when it starts and every hour
+  (`UserErasure__RunEvery`): for each user deactivated 30 days ago or more it erases everything they own and
+  then the user, in one transaction per user. The email address is then free to register again.
+- **Every kind of user data is covered without being named.** Both the export and the erasure go through
+  `IUserData` (`Pfm.Application.Abstractions`), implemented by `Persistence/UserData` over every `IUserOwned`
+  entity in the model, inside the user filter: the export reads each table's columns as stored (all but the
+  owner, the row version and computed columns), and the erasure deletes each table's rows, a table before the
+  tables it references. What an entity owns in a table of its own (a transaction's lines) is exported as its
+  own file, read through its owner, and erased with its owner by the database's cascade. So a new user-owned
+  entity is exported and erased as soon as it is in the model. Three
+  things still need a hand, and tests say when: a table that is not user-owned must be argued for in
+  `Every_table_holds_rows_a_user_owns_or_is_known_to_hold_none`; `UserErasureFixtures.OwnSomethingOfEveryKindAsync`
+  must create a row of every user-owned table, or the export test fails; and what a user owns outside the
+  database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`.
 
 ## Hardening
 
