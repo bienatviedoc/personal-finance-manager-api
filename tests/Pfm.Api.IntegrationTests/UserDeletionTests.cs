@@ -145,6 +145,39 @@ public class UserDeletionTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Erasing_a_user_deletes_the_files_they_attached_from_storage_and_nobody_elses()
+    {
+        var (leaving, _) = await api.SignedInAsync();
+        await UserErasureFixtures.OwnSomethingOfEveryKindAsync(leaving);
+        var leavingsFile = await SignedUrlOfTheReceiptAsync(leaving);
+        var (staying, _) = await api.SignedInAsync();
+        await UserErasureFixtures.OwnSomethingOfEveryKindAsync(staying);
+        var stayingsFile = await SignedUrlOfTheReceiptAsync(staying);
+        await leaving.PostAsync(Deletion, new { password = PfmApi.Password });
+        using var anyone = new HttpClient();
+
+        // Deactivated, the user can still cancel: the file is kept.
+        await api.EraseDeactivatedUsersAsync(after: TimeSpan.FromDays(30) - TimeSpan.FromMinutes(1));
+        Assert.Equal(HttpStatusCode.OK, (await anyone.GetAsync(leavingsFile)).StatusCode);
+
+        await api.EraseDeactivatedUsersAsync(after: TimeSpan.FromDays(31));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await anyone.GetAsync(leavingsFile)).StatusCode);
+        Assert.Equal(UserErasureFixtures.Receipt, await anyone.GetByteArrayAsync(stayingsFile));
+    }
+
+    /// <summary>A signed URL of the one file the user attached, which works for the minutes the test takes.</summary>
+    private static async Task<Uri> SignedUrlOfTheReceiptAsync(Browser browser)
+    {
+        var export = await browser.GetAsync("/api/v1/export/all.zip");
+        using var zip = new System.IO.Compression.ZipArchive(await export.Content.ReadAsStreamAsync());
+        var id = zip.Entries.Single(entry => entry.FullName.StartsWith("attachments/", StringComparison.Ordinal)).Name[..36];
+        return (await browser.Http.GetFromJsonAsync<SignedUrl>($"/api/v1/attachments/{id}"))!.Url;
+    }
+
+    private sealed record SignedUrl(Uri Url);
+
+    [Fact]
     public async Task An_erased_users_email_address_is_free_to_register_again_and_starts_with_nothing()
     {
         var (browser, email) = await api.SignedInAsync();

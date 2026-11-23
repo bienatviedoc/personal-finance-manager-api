@@ -34,6 +34,9 @@ public sealed class PfmApi : IAsyncLifetime
 
     private readonly PostgreSqlContainer _database = new PostgreSqlBuilder("postgres:17-alpine").Build();
 
+    /// <summary>The private object storage attachments are kept in: an S3 emulator in a container.</summary>
+    public ObjectStorageEmulator Storage { get; } = new();
+
     /// <summary>Where emails' links point: the SPA's address.</summary>
     public const string PublicUrl = "https://pfm.test";
 
@@ -199,6 +202,18 @@ public sealed class PfmApi : IAsyncLifetime
         return factory;
     }
 
+    /// <summary>A second copy of the API whose signed URLs stop working after this long.</summary>
+    public WebApplicationFactory<Program> WhereSignedUrlsLastFor(TimeSpan time)
+    {
+        var factory = CreateFactory(ConnectionString, Emails, settings: new() { ["Storage:SignedUrlLifetime"] = time.ToString("c") });
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
+    /// <summary>A second copy of the API with one storage setting changed, such as <c>Bucket</c>.</summary>
+    public WebApplicationFactory<Program> WithStorageSetting(string name, string value) =>
+        CreateFactory(ConnectionString, Emails, settings: new() { [$"Storage:{name}"] = value });
+
     /// <summary>The header a test browser names its network address in; see <see cref="ClientAddressFilter"/>.</summary>
     private const string ClientAddressHeader = "X-Test-Client-Address";
 
@@ -216,7 +231,7 @@ public sealed class PfmApi : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        await _database.StartAsync();
+        await Task.WhenAll(_database.StartAsync(), Storage.StartAsync());
         _factory = CreateFactory(_database.GetConnectionString(), Emails, Telemetry, configure: services =>
         {
             services.AddSingleton(Saves);
@@ -239,9 +254,10 @@ public sealed class PfmApi : IAsyncLifetime
         }
 
         await _database.DisposeAsync();
+        await Storage.DisposeAsync();
     }
 
-    private static WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null, Action<IServiceCollection>? configure = null) =>
+    private WebApplicationFactory<Program> CreateFactory(string connectionString, CapturedEmails emails, CapturedTelemetry? telemetry = null, string environment = "Production", Dictionary<string, string>? settings = null, Action<IServiceCollection>? configure = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -249,7 +265,7 @@ public sealed class PfmApi : IAsyncLifetime
             builder.UseSetting("App:PublicUrl", PublicUrl);
             // Every test calls from the same address, so the real limit would have them refuse each other.
             builder.UseSetting("RateLimiting:Auth:PermitLimit", "1000000");
-            foreach (var (key, value) in settings ?? [])
+            foreach (var (key, value) in Storage.Settings.Concat(settings ?? []))
             {
                 builder.UseSetting(key, value);
             }

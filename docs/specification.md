@@ -344,7 +344,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines |
 | Transactions | `POST /transactions/bulk` | Bulk recategorise, tag or delete |
 | Transfers | `POST /transfers`; `PUT, DELETE /transfers/{id}` | Creates and maintains both legs |
-| Attachments | `POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipt upload and signed download |
+| Attachments | `GET, POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipts of a transaction and upload; a signed URL to open one, and removal |
 | Categories | `GET, POST /categories`; `PUT, DELETE /categories/{id}`; `POST /categories/{id}/merge` | Tree CRUD and merge |
 | Tags | `GET /tags` | Autocomplete |
 | Budgets | `GET /budgets?month=2026-11` | Budgets with spent, remaining and state |
