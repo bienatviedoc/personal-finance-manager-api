@@ -20,13 +20,35 @@ public static class RowVersions
         rowVersion = default;
         refused = ifMatch switch
         {
-            null => TypedResults.Problem(statusCode: StatusCodes.Status428PreconditionRequired, title: $"Send the {what}'s row version as If-Match."),
+            null => Required(what),
             ['"', .. var number, '"'] when uint.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion) => null,
             _ => Stale(what),
         };
 
         return refused is null;
     }
+
+    /// <summary>
+    /// Reads the <c>If-Match</c> of a request that sets something which may not exist yet, so has no row
+    /// version to name: without one <paramref name="rowVersion"/> is null. One that is sent is read as
+    /// <see cref="TryRead"/> reads it.
+    /// </summary>
+    public static bool TryReadOptional(string? ifMatch, string what, out uint? rowVersion, [NotNullWhen(false)] out ProblemHttpResult? refused)
+    {
+        (rowVersion, refused) = (null, null);
+        if (ifMatch is null)
+        {
+            return true;
+        }
+
+        var read = TryRead(ifMatch, what, out var sent, out refused);
+        rowVersion = read ? sent : null;
+        return read;
+    }
+
+    /// <summary>The 428 an edit that names no row version answers; nothing was saved.</summary>
+    public static ProblemHttpResult Required(string what) =>
+        TypedResults.Problem(statusCode: StatusCodes.Status428PreconditionRequired, title: $"Send the {what}'s row version as If-Match.");
 
     /// <summary>The 412 an edit made from a row version that is no longer the row's answers; nothing was saved.</summary>
     public static ProblemHttpResult Stale(string what) =>

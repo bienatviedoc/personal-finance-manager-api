@@ -13,8 +13,8 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261123031512_AddRecurringRules")]
-    partial class AddRecurringRules
+    [Migration("20261123031644_AddBudgets")]
+    partial class AddBudgets
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -232,6 +232,63 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Institutions", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Budgets.Budget", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CategoryKind")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasComputedColumnSql("'Expense'", true);
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateOnly>("Month")
+                        .HasColumnType("date");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("UserId", "Month");
+
+                    b.HasIndex("UserId", "CategoryId", "Month")
+                        .IsUnique();
+
+                    b.ToTable("Budgets", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Budgets_Amount_Not_Negative", "\"Amount\" >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Pfm.Domain.ExchangeRates.ExchangeRate", b =>
                 {
                     b.Property<string>("From")
@@ -309,97 +366,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Categories", (string)null);
                 });
 
-            modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid>("AccountId")
-                        .HasColumnType("uuid");
-
-                    b.Property<decimal>("Amount")
-                        .HasPrecision(19, 4)
-                        .HasColumnType("numeric(19,4)");
-
-                    b.Property<Guid>("CategoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateOnly?>("EndDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Frequency")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<int>("Interval")
-                        .HasColumnType("integer");
-
-                    b.Property<bool>("IsPaused")
-                        .HasColumnType("boolean");
-
-                    b.Property<DateOnly?>("NextRunDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
-                    b.Property<string>("Payee")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<uint>("RowVersion")
-                        .IsConcurrencyToken()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("xid")
-                        .HasColumnName("xmin");
-
-                    b.Property<DateOnly?>("SettledThrough")
-                        .HasColumnType("date");
-
-                    b.Property<DateOnly>("StartDate")
-                        .HasColumnType("date");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("character varying(20)");
-
-                    b.Property<DateTimeOffset>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("UserId")
-                        .IsConcurrencyToken()
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("AccountId");
-
-                    b.HasIndex("CategoryId");
-
-                    b.HasIndex("NextRunDate")
-                        .HasDatabaseName("IX_RecurringRules_NextRunDate_Due")
-                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\"");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("RecurringRules", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_RecurringRules_Amount_Positive", "\"Amount\" > 0");
-
-                            t.HasCheckConstraint("CK_RecurringRules_Ends_After_It_Starts", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
-
-                            t.HasCheckConstraint("CK_RecurringRules_Interval_Positive", "\"Interval\" >= 1");
-
-                            t.HasCheckConstraint("CK_RecurringRules_Type_IncomeOrExpense", "\"Type\" IN ('Income', 'Expense')");
-                        });
-                });
-
             modelBuilder.Entity("Pfm.Domain.Transactions.Transaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -454,9 +420,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<Guid?>("RecurringRuleId")
-                        .HasColumnType("uuid");
-
                     b.Property<uint>("RowVersion")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -506,8 +469,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CategoryId");
 
-                    b.HasIndex("RecurringRuleId");
-
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_Transactions_UserId_NotConverted")
                         .HasFilter("\"BaseCurrencyAmount\" IS NULL");
@@ -543,6 +504,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasMaxLength(3)
                         .HasColumnType("character varying(3)");
+
+                    b.Property<int>("BudgetWarningPercent")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(80);
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -609,7 +575,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("Id", "BaseCurrency")
                         .IsUnique();
 
-                    b.ToTable("Users", (string)null);
+                    b.ToTable("Users", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_Users_BudgetWarningPercent_1_To_100", "\"BudgetWarningPercent\" BETWEEN 1 AND 100");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
@@ -647,27 +616,21 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Budgets.Budget", b =>
+                {
+                    b.HasOne("Pfm.Domain.Transactions.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.Category", b =>
                 {
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.NoAction);
-                });
-
-            modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
-                {
-                    b.HasOne("Pfm.Domain.Accounts.Account", null)
-                        .WithMany()
-                        .HasForeignKey("AccountId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.HasOne("Pfm.Domain.Transactions.Category", null)
-                        .WithMany()
-                        .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Transaction", b =>
@@ -683,11 +646,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
-
-                    b.HasOne("Pfm.Domain.Transactions.RecurringRule", null)
-                        .WithMany()
-                        .HasForeignKey("RecurringRuleId")
-                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.OwnsMany("Pfm.Domain.Transactions.TransactionLine", "Lines", b1 =>
                         {

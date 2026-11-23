@@ -2,7 +2,9 @@ using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Accounts;
+using Pfm.Application.Budgets;
 using Pfm.Application.Contracts.Accounts;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
@@ -42,6 +44,10 @@ public static class ApplicationServices
         services.AddScoped<TransactionConversion>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+        services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
+        services.AddScoped<ICategoryLookup, CategoryLookup>();
+        services.AddScoped<IUserBudgets, UserBudgets>();
+        services.AddScoped<BudgetMonthReader>();
 
         // Every module converts between currencies through this.
         services.AddScoped<ICurrencyConversion, CurrencyConversion>();
