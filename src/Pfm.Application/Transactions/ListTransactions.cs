@@ -87,11 +87,13 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions)
 
     /// <summary>
     /// The database adds up the amounts of each type in each currency; the sign of a type has one definition,
-    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
+    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here. Only income and expenses are added
+    /// up: any other type (a leg of a transfer, spec section 3, rule 3) is listed and counted, and is neither.
     /// </summary>
     private static FilteredTotal Total(IReadOnlyList<TransactionSum> sums) =>
         new(sums.Sum(sum => sum.Count),
             [.. sums
+                .Where(sum => sum.Type is TransactionType.Income or TransactionType.Expense)
                 .GroupBy(sum => sum.Currency)
                 .OrderBy(currency => currency.Key)
                 .Select(currency => new CurrencyTotal(
