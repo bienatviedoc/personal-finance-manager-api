@@ -56,6 +56,9 @@ public static class UserErasureFixtures
         })).EnsureSuccessStatusCode();
         (await browser.PutAsync($"/api/v1/budgets/{DateTime.UtcNow:yyyy-MM}/{food}", new { amount = "3000000" })).EnsureSuccessStatusCode();
 
+        // Due far in the future, so it posts nothing meanwhile.
+        (await browser.PostAsync("/api/v1/recurring-rules", new { type = "expense", accountId, amount = "9000000", categoryId = food, payee = "Landlord", frequency = "monthly", startDate = "2099-01-31" })).EnsureSuccessStatusCode();
+
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
@@ -64,6 +67,7 @@ public static class UserErasureFixtures
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
+            ["RecurringRules"] = 1,
             // One line for each transaction, and two for the split.
             ["TransactionLines"] = 5,
             ["Transactions"] = 4,

@@ -12,6 +12,7 @@ using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Recurring;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application;
@@ -38,7 +39,10 @@ public static class ApplicationServices
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
         services.AddScoped<IUserCalendar, UserCalendar>();
+        services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();
+        services.AddScoped<RecurringRuleContext>();
+        services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
