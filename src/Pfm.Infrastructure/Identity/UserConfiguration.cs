@@ -18,6 +18,9 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(user => user.Locale)
             .HasConversion(new ValueConverter<Locale, string>(locale => locale.Tag(), tag => ParseLocale(tag)))
             .HasMaxLength(8);
+
+        // The deactivated users, which the erasure job asks for by how long ago they were deactivated.
+        builder.HasIndex(user => user.DeactivatedAt).HasFilter("\"DeactivatedAt\" IS NOT NULL");
     }
 
     private static Locale ParseLocale(string tag) =>
