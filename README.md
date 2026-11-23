@@ -16,6 +16,8 @@ docker compose up --build
 ```
 
 This starts PostgreSQL, applies migrations, then starts the API on http://localhost:8080, the worker,
+an object storage emulator for attachments (the [Versity S3 Gateway](https://github.com/versity/versitygw), on
+http://localhost:7070),
 [Mailpit](https://mailpit.axllent.org), which catches every email the API sends: read them at http://localhost:8025,
 and the [Aspire Dashboard](https://aspire.dev/dashboard/standalone/), which shows the logs, traces and metrics of
 the API and worker: http://localhost:18888.
@@ -30,7 +32,7 @@ the API and worker: http://localhost:18888.
 To run the API from source against the Compose database (requires the .NET 10 SDK):
 
 ```bash
-docker compose up -d db
+docker compose up -d db storage
 dotnet run --project src/Pfm.Api -- migrate
 dotnet run --project src/Pfm.Api
 ```
@@ -45,7 +47,7 @@ Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domai
 the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Those tests share one API and all call from one
 address, so its rate limit is set too high to meet; a test of the limit (or of anything else set at start-up)
 runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
-user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running.
+user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running. They start the object storage emulator the same way (`api.Storage`), so a signed URL is fetched for real.
 
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
@@ -208,6 +210,32 @@ already uses it can still show it. An account can be archived at any balance.
   column `CategoryKind`, which the database works out from the type) at a category and its kind. They are
   what keeps an account's currency and a category's kind fixed once it has transactions, and spec rule 7,
   when two requests save at once (see "Optimistic concurrency" below).
+
+### Attachments
+
+- **A receipt** is attached to a transaction with `POST /transactions/{id}/attachments`: one file, as the `file`
+  field of a `multipart/form-data` body. `GET` on the same path lists a transaction's attachments, and
+  `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
+  transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
+- **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
+  (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
+  it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
+  one is a validation problem on `file` saying what can be attached. A request of over 10 MB is cut off before
+  it is read.
+- **Files live in private object storage**, behind `IObjectStorage` (`Pfm.Application.Abstractions`): any
+  storage that speaks the S3 API ([decision record 0004](docs/adr/0004-attachments-in-s3-compatible-storage.md)).
+  The key is `users/{user}/attachments/{attachment}`, with nothing the user wrote in it. The upload goes
+  through the API; the browser never writes to storage.
+- **A file is served only through a signed URL.** `GET /attachments/{id}` answers `url` and `expiresAt` for the
+  signed-in user's own attachment, and 404 for anyone else's. The URL needs no sign-in and works for five
+  minutes (`Storage__SignedUrlLifetime`, at most an hour), so the SPA asks for it when the user opens the file
+  and never keeps it. It serves the file `inline` under the user's file name.
+- **Configuration:** `Storage__Bucket` (required: both hosts refuse to start without it), `Storage__Region`
+  (`us-east-1`), and `Storage__AccessKey` with `Storage__SecretKey` (left out, the AWS SDK finds the credentials
+  itself, as from a role). For storage other than Amazon S3, `Storage__ServiceUrl` is its address, and
+  `Storage__PublicUrl` the address browsers reach it at when that differs (Compose: the API calls
+  `http://storage:7070`, the browser `http://localhost:7070`). The bucket must exist and must not be public;
+  nothing in the app creates it or sets its policy.
 
 ## Signing in
 
@@ -405,7 +433,8 @@ if they were signed in. Registration uses it to create the new user's default ca
 - **OpenAPI**: building `Pfm.Api` rewrites `openapi/pfm-api.json`. Commit it with the change that
   caused it; CI fails when the committed file is out of date.
 - **Configuration**: the database connection string is `ConnectionStrings__Pfm`. `App__PublicUrl` is the SPA's
-  address, which emailed links point to; the API refuses to start without it. Email goes out through
+  address, which emailed links point to; the API refuses to start without it. Attachments are stored as
+  `Storage__...` says (see [Attachments](#attachments)). Email goes out through
   `Smtp__Host`, `Smtp__Port`, `Smtp__Username`, `Smtp__Password` and `Smtp__From`. Telemetry and error
   reports are configured as described under [Observability](#observability). STARTTLS is required
   (`Smtp__UseStartTls`, on by default); turn it off only for a local catcher such as Mailpit, never with
