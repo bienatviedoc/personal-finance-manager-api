@@ -25,6 +25,9 @@ internal interface ITransactionCommand
 
     string? Note { get; }
 
+    /// <summary>Whether the expense is a refund. Only an expense can be one, which the transaction itself checks.</summary>
+    bool IsRefund { get; }
+
     TransactionFields Parsed { get; }
 }
 

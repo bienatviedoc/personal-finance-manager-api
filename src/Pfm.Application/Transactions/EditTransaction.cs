@@ -10,8 +10,10 @@ namespace Pfm.Application.Transactions;
 /// another account, it takes that account's currency. A changed amount, date or account is converted into
 /// the base currency again; any other edit leaves the converted amount as it is (decision record 0002).
 /// </summary>
+/// <param name="IsRefund">Whether the expense is a refund. Only an expense can be one.</param>
 public sealed record EditTransactionCommand(
-    Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note)
+    Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note,
+    bool IsRefund = false)
     : ITransactionCommand
 {
     public TransactionFields Parsed { get; } = TransactionFields.Read(Type, Amount, Date);
@@ -89,7 +91,7 @@ public sealed class EditTransactionHandler(
         {
             transaction.Edit(
                 fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                command.Note, against.Today, clock.GetUtcNow());
+                command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
         }
         catch (TransactionRuleViolation violation)
         {

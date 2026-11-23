@@ -45,6 +45,31 @@ public class TransferTests
     }
 
     [Fact]
+    public void A_transfer_is_not_spending_so_it_moves_spent_in_no_category()
+    {
+        var groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
+        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 125_000m, Today, groceries, null, null, Today, Monday);
+        expense.ConvertInto(Currency.VND, 125_000m, 1m, Today);
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, null, Today, Monday);
+        transfer.OutLeg.ConvertInto(Currency.VND, 2_000_000m, 1m, Today);
+        transfer.InLeg.ConvertInto(Currency.VND, 2_000_000m, 1m, Today);
+
+        Assert.Equal((0m, 0m), (transfer.OutLeg.SpentAmount, transfer.InLeg.SpentAmount));
+        Assert.Equal(125_000m, Spent.Of([expense, transfer.OutLeg, transfer.InLeg], [groceries.Id], Today.Year, Today.Month));
+    }
+
+    [Fact]
+    public void A_leg_is_never_a_refund()
+    {
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+
+        Assert.False(transfer.OutLeg.IsRefund);
+        Assert.False(transfer.InLeg.IsRefund);
+        Assert.Throws<ArgumentException>(() => TransactionType.TransferOut.Signed(100m, isRefund: true));
+        Assert.Throws<ArgumentException>(() => TransactionType.TransferIn.Signed(100m, isRefund: true));
+    }
+
+    [Fact]
     public void A_transfer_between_currencies_keeps_the_amount_entered_for_each_account()
     {
         var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 99.5m), Today, null, Today, Monday);

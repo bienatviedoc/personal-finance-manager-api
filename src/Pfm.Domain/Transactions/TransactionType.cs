@@ -28,12 +28,16 @@ public static class TransactionTypes
 
     /// <summary>
     /// The amount as it moves the account's balance: income and a transfer in add it, an expense and a transfer
-    /// out take it away.
+    /// out take it away, except a refund, an expense that adds it (spec section 3, rule 2).
     /// </summary>
-    public static decimal Signed(this TransactionType type, decimal amount) => type switch
+    /// <param name="isRefund">Whether the expense is a refund. Only an expense can be one.</param>
+    public static decimal Signed(this TransactionType type, decimal amount, bool isRefund = false) => type switch
     {
+        TransactionType.Income or TransactionType.TransferIn or TransactionType.TransferOut when isRefund =>
+            throw new ArgumentException("Only an expense can be a refund.", nameof(isRefund)),
         TransactionType.Income or TransactionType.TransferIn => amount,
-        TransactionType.Expense or TransactionType.TransferOut => -amount,
+        TransactionType.TransferOut => -amount,
+        TransactionType.Expense => isRefund ? amount : -amount,
         _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type."),
     };
 }
