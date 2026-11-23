@@ -170,6 +170,17 @@ already uses it can still show it. An account can be archived at any balance.
 - **Income or an expense** on one account, with an amount above zero whose sign is its type (spec section 3,
   rule 2), a category of the kind its type takes, and optionally a payee and a note. Its currency is never sent:
   it is the account's, and follows the transaction to another account.
+- **Lines and splits** (rule 5, TXN-4). Every transaction has lines (`TransactionLine`, table `TransactionLines`):
+  one, with its category and whole amount, or several when it is split. `POST` and `PUT` take `lines` (2 to 50,
+  each a `categoryId`, an `amount` and an optional `note`) in place of `categoryId`; an edit without them makes a
+  split one category again. The lines must sum exactly to the amount: `Transaction` refuses anything else as an
+  error on `lines`, and `Transaction.RemainingToSplit` says how much is left. What is wrong with one line is an
+  error on that line (`lines[1].categoryId`). Every answer lists the `lines`, one for a transaction that is not
+  split. Lines are the transaction's own (an owned collection): read and saved with it, guarded by its row
+  version, and reached in a query through it: `transaction.Lines.Any(line => …)` finds a split through any of
+  its lines, which is how a category knows it has transactions. `Transaction.CategoryId` stays as the category of
+  the first line, for what shows one category for a transaction; anything that adds up amounts by category
+  (budgets, reports) reads the lines. A line has no `UserId` or timestamps: they are its transaction's.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
@@ -201,6 +212,8 @@ already uses it can still show it. An account can be archived at any balance.
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
   `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
+  A line carries its category's kind (`CategoryKind`) for a foreign key like the transaction's below, so the
+  kind of a category is as fixed for the second line of a split as for the first.
   Two more are named there and added by their migration alone, because the model cannot hold a foreign key to
   columns that change: a transaction's account and currency point at an account and its currency, and its
   user and base currency at a user and their base currency. A third, within the Transactions module
