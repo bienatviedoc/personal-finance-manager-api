@@ -7,7 +7,7 @@ using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
 
-/// <summary>Category budgets and what was spent against them (spec section 6: BUD-1, BUD-2, BUD-3; section 3, rules 6, 7 and 12).</summary>
+/// <summary>Category budgets and what was spent against them (spec section 6: BUD-1 to BUD-4; section 3, rules 6, 7 and 12).</summary>
 [Collection(ApiCollection.Name)]
 public class BudgetTests(PfmApi api) : IAsyncLifetime
 {
