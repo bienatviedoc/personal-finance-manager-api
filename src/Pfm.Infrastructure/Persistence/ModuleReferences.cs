@@ -51,6 +51,10 @@ internal static class ModuleReferences
         modelBuilder.Entity<Transaction>()
             .HasOne<Account>().WithMany().HasForeignKey(transaction => transaction.AccountId).OnDelete(DeleteBehavior.Restrict);
 
+        // An account a recurring rule posts to is archived, never deleted.
+        modelBuilder.Entity<RecurringRule>()
+            .HasOne<Account>().WithMany().HasForeignKey(rule => rule.AccountId).OnDelete(DeleteBehavior.Restrict);
+
         // What the foreign keys named above point at (a category's id and kind are indexed by its own configuration). The keys themselves are in the migration that adds them:
         // the model cannot hold a foreign key to columns that change, or one checked at commit.
         modelBuilder.Entity<Account>().HasIndex(account => new { account.Id, account.Currency }).IsUnique();

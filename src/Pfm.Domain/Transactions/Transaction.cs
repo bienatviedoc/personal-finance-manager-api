@@ -79,6 +79,12 @@ public sealed class Transaction : IUserOwned
 
     public string? Note { get; private set; }
 
+    /// <summary>
+    /// The recurring rule that posted the transaction; null for one a user recorded, and once the rule is
+    /// deleted.
+    /// </summary>
+    public Guid? RecurringRuleId { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -222,6 +228,23 @@ public sealed class Transaction : IUserOwned
         {
             throw new InvalidOperationException("A deleted transaction cannot be edited.");
         }
+    }
+
+    /// <summary>Says which recurring rule posted the transaction, once: it is the occurrence of that rule due on its date.</summary>
+    /// <exception cref="InvalidOperationException">Another rule already posted it.</exception>
+    public void PostedBy(Guid recurringRuleId)
+    {
+        if (recurringRuleId == Guid.Empty)
+        {
+            throw new ArgumentException("A transaction is posted by a recurring rule.", nameof(recurringRuleId));
+        }
+
+        if (RecurringRuleId is { } already && already != recurringRuleId)
+        {
+            throw new InvalidOperationException("A transaction is posted by one recurring rule.");
+        }
+
+        RecurringRuleId = recurringRuleId;
     }
 
     /// <summary>Whether the amount is already converted into this base currency, and so is not converted again.</summary>

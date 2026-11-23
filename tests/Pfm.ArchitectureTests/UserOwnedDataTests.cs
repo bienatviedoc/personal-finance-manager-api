@@ -8,11 +8,15 @@ namespace Pfm.ArchitectureTests;
 public class UserOwnedDataTests
 {
     /// <summary>
-    /// The one query that looks past the user filter: a job that runs for nobody asks which users have
-    /// transactions flagged not converted. It answers user ids and no row; the job then acts for each user
-    /// in turn, inside the filter.
+    /// The two queries that look past the user filter, one in each file. A job that runs for nobody asks which
+    /// users have something for it to do: recurring rules with an occurrence due, or transactions flagged not
+    /// converted. Each answers user ids and no row; the job then acts for each user in turn, inside the filter.
     /// </summary>
-    private static readonly string[] MayIgnoreQueryFilters = ["src/Pfm.Infrastructure/Transactions/TransactionRepository.cs"];
+    private static readonly string[] MayIgnoreQueryFilters =
+    [
+        "src/Pfm.Infrastructure/Transactions/RecurringRuleRepository.cs",
+        "src/Pfm.Infrastructure/Transactions/TransactionRepository.cs",
+    ];
 
     /// <summary>Exchange rates belong to no user; storing them is one INSERT … ON CONFLICT DO NOTHING.</summary>
     private static readonly string[] MayUseRawSql = ["src/Pfm.Infrastructure/ExchangeRates/ExchangeRateRepository.cs"];
@@ -20,10 +24,11 @@ public class UserOwnedDataTests
     private static readonly string[] RawSqlCalls = ["FromSql", "SqlQuery", "ExecuteSql", "ExecuteSqlRaw", "FromSqlRaw", "SqlQueryRaw"];
 
     [Fact]
-    public void Only_the_query_that_answers_which_users_have_not_converted_transactions_ignores_the_user_filter()
+    public void Only_the_queries_that_answer_which_users_a_job_has_work_for_ignore_the_user_filter()
     {
         var uses = Layout.SourceFiles()
             .SelectMany(file => Enumerable.Repeat(file.Key, Occurrences(file.Value, ".IgnoreQueryFilters(")))
+            .Order(StringComparer.Ordinal)
             .ToArray();
 
         Assert.Equal(MayIgnoreQueryFilters, uses);
