@@ -242,11 +242,12 @@ already uses it can still show it. An account can be archived at any balance.
   A `nextCursor` belongs to the filters and sort order it was answered for.
 - **`total`**, on the same answer, is of every transaction that passed the filters, whichever page is asked for:
   their `count`, and for each currency their `income`, `expenses` (minus refunds, so it can go below zero) and
-  `net` (each amount with the sign of its type, a refund adding). Currencies are never added together, and a
-  split found by one line's category counts whole: the total is of transactions, not of lines. The legs of a
-  transfer are listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type`
-  takes `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`),
-  the type's sign applied by `TransactionTypes.Signed`.
+  `net` (each amount with the sign of its type, a refund adding). Currencies are never added together. Filtered by a
+  category, a transaction counts once and adds only its lines in that category (and its subcategories), as spent
+  does (spec section 6): a split is listed whole, and adds only what it spent there. The legs of a transfer are
+  listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type` takes
+  `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`), over the
+  lines when filtered by a category, the type's sign applied by `TransactionTypes.Signed`.
 - **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
   `Note`, answered by one trigram (`pg_trgm`) GIN index on the two. A test pins both.
 - **Quick add** (spec TXN-8). `GET /transactions/quick-add` answers what a new transaction starts from:

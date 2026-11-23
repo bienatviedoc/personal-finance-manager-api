@@ -62,8 +62,9 @@ public sealed record TransactionList(Page<TransactionDetails> Page, FilteredTota
 
 /// <summary>
 /// What the transactions that pass a filter come to (spec TXN-3): how many there are, and their amounts added
-/// up in each currency. Currencies are never added together. A split found by the category of one line
-/// counts with its whole amount: the total is of transactions, not of lines.
+/// up in each currency. Currencies are never added together. Filtered by a category, each transaction is
+/// counted once and adds only its lines in that category and its subcategories, as spent does (spec section 6):
+/// a split is listed whole but counts only the part it spent there.
 /// </summary>
 public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Currencies);
 

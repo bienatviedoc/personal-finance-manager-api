@@ -245,9 +245,31 @@ public class TransactionListTests(PfmApi api)
         Assert.Equal(["7.00"], await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Transport")}"));
         Assert.Empty(await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Housing")}"));
 
-        // A split found by one of its lines is listed once and counts whole: the total is of transactions, not of lines.
-        var found = await ListAsync(browser, $"?categoryId={clothes}");
-        Assert.Equal(new TotalBody(1, [new CurrencyTotalBody("VND", "0.00", "500.00", "-500.00")]), found.Total, TotalBody.Comparer);
+    }
+
+    [Fact]
+    public async Task A_split_found_by_a_category_is_listed_whole_and_counts_only_its_lines_in_that_category_toward_the_total()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var (groceries, household) = (await CategoryAsync(browser, "Groceries"), await CategoryAsync(browser, "Household"));
+        var response = await browser.PostAsync(Transactions, new
+        {
+            type = "expense", accountId = everyday, amount = "150", date = "2026-11-02",
+            lines = new object[] { new { categoryId = groceries, amount = "100" }, new { categoryId = household, amount = "50" } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await AddAsync(browser, "expense", everyday, "7", category: "Groceries");
+
+        var inGroceries = await ListAsync(browser, $"?categoryId={groceries}");
+        var inFood = await ListAsync(browser, $"?categoryId={await CategoryAsync(browser, "Food & drink")}");
+        var all = await ListAsync(browser);
+
+        // Spent in a category counts each line in its own (spec section 6), and so does the filtered total.
+        Assert.Equal(["7.00", "150.00"], inGroceries.Items.Select(transaction => transaction.Amount));
+        Assert.Equal(new TotalBody(2, [new CurrencyTotalBody("VND", "0.00", "107.00", "-107.00")]), inGroceries.Total, TotalBody.Comparer);
+        Assert.Equal(new TotalBody(2, [new CurrencyTotalBody("VND", "0.00", "107.00", "-107.00")]), inFood.Total, TotalBody.Comparer);
+        Assert.Equal(new TotalBody(2, [new CurrencyTotalBody("VND", "0.00", "157.00", "-157.00")]), all.Total, TotalBody.Comparer);
     }
 
     [Fact]
