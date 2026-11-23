@@ -44,7 +44,7 @@ public static class TransactionEndpoints
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="accountId">One of the user's accounts: only its transactions are listed.</param>
-    /// <param name="categoryId">One of the user's categories: only transactions on it or on one of its subcategories are listed.</param>
+    /// <param name="categoryId">One of the user's categories: only transactions with a line on it or on one of its subcategories are listed, so a split is found by each of its categories.</param>
     /// <param name="type"><c>income</c> or <c>expense</c>.</param>
     /// <param name="min">The smallest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="max">The largest amount listed, a decimal string, in whatever currency a transaction is in.</param>
@@ -229,7 +229,7 @@ public sealed record FilteredTotalResponse(int Count, IReadOnlyList<CurrencyTota
 
 /// <summary>The filtered transactions in one currency, added up.</summary>
 /// <param name="Income">The income among them, a decimal string.</param>
-/// <param name="Expenses">The expenses among them, a decimal string that is not negative.</param>
+/// <param name="Expenses">The expenses among them minus the refunds, a decimal string: negative when more came back than was spent.</param>
 /// <param name="Net">Each amount with the sign of its type, added up: income minus expenses.</param>
 public sealed record CurrencyTotalResponse(Currency Currency, string Income, string Expenses, string Net)
 {

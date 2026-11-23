@@ -224,6 +224,51 @@ public class TransactionListTests(PfmApi api)
         }
     }
 
+    [Fact]
+    public async Task A_split_transaction_is_found_by_the_category_of_any_of_its_lines_or_that_categorys_parent_and_by_no_other()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var (groceries, clothes) = (await CategoryAsync(browser, "Groceries"), await CategoryAsync(browser, "Clothes"));
+        var response = await browser.PostAsync(Transactions, new
+        {
+            type = "expense", accountId = everyday, amount = "500", date = "2026-11-02",
+            lines = new object[] { new { categoryId = groceries, amount = "320" }, new { categoryId = clothes, amount = "180" } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        await AddAsync(browser, "expense", everyday, "7", category: "Fuel");
+
+        Assert.Equal(["500.00"], await AmountsAsync(browser, $"?categoryId={groceries}"));
+        Assert.Equal(["500.00"], await AmountsAsync(browser, $"?categoryId={clothes}"));
+        Assert.Equal(["500.00"], await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Shopping")}"));
+        Assert.Equal(["500.00"], await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Food & drink")}"));
+        Assert.Equal(["7.00"], await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Transport")}"));
+        Assert.Empty(await AmountsAsync(browser, $"?categoryId={await CategoryAsync(browser, "Housing")}"));
+
+        // A split found by one of its lines is listed once and counts whole: the total is of transactions, not of lines.
+        var found = await ListAsync(browser, $"?categoryId={clothes}");
+        Assert.Equal(new TotalBody(1, [new CurrencyTotalBody("VND", "0.00", "500.00", "-500.00")]), found.Total, TotalBody.Comparer);
+    }
+
+    [Fact]
+    public async Task A_refund_is_money_coming_back_so_the_total_takes_it_off_the_expenses()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var clothes = await CategoryAsync(browser, "Clothes");
+        await AddAsync(browser, "income", everyday, "1000");
+        await AddAsync(browser, "expense", everyday, "400", category: "Clothes");
+        var refund = await browser.PostAsync(
+            Transactions, new { type = "expense", isRefund = true, accountId = everyday, amount = "150", date = "2026-11-03", categoryId = clothes });
+        Assert.Equal(HttpStatusCode.Created, refund.StatusCode);
+
+        var all = await ListAsync(browser);
+        var refunds = await ListAsync(browser, "?max=150");
+
+        Assert.Equal(new TotalBody(3, [new CurrencyTotalBody("VND", "1000.00", "250.00", "750.00")]), all.Total, TotalBody.Comparer);
+        Assert.Equal(new TotalBody(1, [new CurrencyTotalBody("VND", "0.00", "-150.00", "150.00")]), refunds.Total, TotalBody.Comparer);
+    }
+
     private static async Task<TransactionBody> AddAsync(
         Browser browser, string type, Guid accountId, string amount, string date = "2026-11-02", string? category = null, string? payee = null,
         string? note = null)

@@ -14,8 +14,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
 
     public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
         await Passing(filter)
-            .GroupBy(transaction => new { transaction.Currency, transaction.Type })
-            .Select(ofType => new TransactionSum(ofType.Key.Currency, ofType.Key.Type, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
+            .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new TransactionSum(
+                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
             .ToListAsync(cancellationToken);
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
@@ -39,9 +40,10 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
 
         if (filter.CategoryId is { } categoryId)
         {
-            transactions = transactions.Where(transaction =>
-                transaction.CategoryId == categoryId
-                || db.Set<Category>().Any(category => category.Id == transaction.CategoryId && category.ParentId == categoryId));
+            // Through any of its lines: a split is found by each category it was split across.
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line =>
+                line.CategoryId == categoryId
+                || db.Set<Category>().Any(category => category.Id == line.CategoryId && category.ParentId == categoryId)));
         }
 
         if (filter.Type is { } type)

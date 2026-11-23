@@ -21,7 +21,7 @@ public sealed record ListTransactions(
 /// </summary>
 /// <param name="From">The earliest date listed.</param>
 /// <param name="To">The latest date listed.</param>
-/// <param name="CategoryId">A category: transactions on it or on one of its subcategories are listed.</param>
+/// <param name="CategoryId">A category: transactions with a line on it or on one of its subcategories are listed, so a split is found by each of its categories.</param>
 /// <param name="Min">The smallest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Max">The largest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Search">Text the payee or the note contains, in upper or lower case.</param>
@@ -62,13 +62,14 @@ public sealed record TransactionList(Page<TransactionDetails> Page, FilteredTota
 
 /// <summary>
 /// What the transactions that pass a filter come to (spec TXN-3): how many there are, and their amounts added
-/// up in each currency. Currencies are never added together.
+/// up in each currency. Currencies are never added together. A split found by the category of one line
+/// counts with its whole amount: the total is of transactions, not of lines.
 /// </summary>
 public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Currencies);
 
 /// <summary>The filtered transactions in one currency, added up.</summary>
 /// <param name="Income">The income among them, added up.</param>
-/// <param name="Expenses">The expenses among them, added up: a positive number.</param>
+/// <param name="Expenses">The expenses among them, added up, minus the refunds: below zero when more came back than was spent.</param>
 /// <param name="Net">What they do to balances together: each amount with the sign of its type.</param>
 public sealed record CurrencyTotal(Currency Currency, decimal Income, decimal Expenses, decimal Net);
 
@@ -96,12 +97,15 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions)
                 .Select(currency => new CurrencyTotal(
                     currency.Key,
                     currency.Where(sum => sum.Type == TransactionType.Income).Sum(sum => sum.Amount),
-                    currency.Where(sum => sum.Type == TransactionType.Expense).Sum(sum => sum.Amount),
-                    currency.Sum(sum => sum.Type.Signed(sum.Amount))))]);
+                    -currency.Where(sum => sum.Type == TransactionType.Expense).Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)),
+                    currency.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund))))]);
 }
 
-/// <summary>How many transactions of one type in one currency passed a filter, and their amounts added up.</summary>
-public sealed record TransactionSum(Currency Currency, TransactionType Type, int Count, decimal Amount);
+/// <summary>
+/// How many transactions of one type in one currency, refunds apart from other expenses, passed a filter, and
+/// their amounts added up.
+/// </summary>
+public sealed record TransactionSum(Currency Currency, TransactionType Type, bool IsRefund, int Count, decimal Amount);
 
 /// <summary>
 /// Where a page of transactions ends: the date, amount and id of its last one, opaque to clients. It holds
