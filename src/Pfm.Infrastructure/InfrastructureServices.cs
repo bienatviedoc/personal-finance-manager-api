@@ -66,6 +66,7 @@ public static class InfrastructureServices
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
         services.AddScoped<IRecurringRuleRepository, RecurringRuleRepository>();
+        services.AddScoped<IQuickAddHistory, QuickAddHistory>();
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddExchangeRates();

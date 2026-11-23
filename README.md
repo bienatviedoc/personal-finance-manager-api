@@ -218,6 +218,12 @@ already uses it can still show it. An account can be archived at any balance.
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
 - **`GET /transactions`** is the newest date first and, within a date, the last recorded first, paged like every
   list. Filters, search and totals are still to come (#10).
+- **Quick add** (spec TXN-8). `GET /transactions/quick-add` answers what a new transaction starts from:
+  `lastAccountId`, the account the user recorded on last (by when it was recorded, not its date), and, given a
+  `payee` and optionally a `type`, `suggestedCategoryId`: the category most of their transactions with that
+  payee have, in any case but never part of one, and of those used equally often the one used last. Deleted
+  transactions and archived accounts and categories are passed over. It reads through its own port,
+  `IQuickAddHistory`. Category rules (spec section 9) will take part when they exist.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
