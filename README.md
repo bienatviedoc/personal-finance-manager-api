@@ -215,6 +215,20 @@ already uses it can still show it. An account can be archived at any balance.
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
   only happen until the base currency locks (rule 12; see Budgets below).
+- **A transfer is two linked transactions** (rules 3 and 4, [decision record 0001](docs/adr/0001-transfer-is-two-linked-transactions.md)):
+  `POST /transfers` records a `transferOut` leg on the source account and a `transferIn` leg on the destination,
+  sharing a `TransferId`, in one save. `Transfer` (`Pfm.Domain.Transactions`) is the only way to record, edit or
+  delete a leg, so the two always change together; it is not a table of its own, and the repository pairs the two
+  rows back into it (`FindTransferAsync`). A leg has no category and no payee, and counts in its account's balance
+  like any transaction, so a transfer moves both balances and is neither income nor spending: whatever adds up
+  income or expenses goes by type and never sees a leg. Between accounts in one currency there is one `amount`;
+  between currencies the request also carries `toAmount`, what arrived, and the rate between the two is never
+  looked up. (Each leg's own amount is still converted into the base currency like any transaction's.)
+  `GET`, `PUT` and `DELETE /transfers/{id}` go by the transfer id, which each leg carries as `transferId` in the
+  transaction list. The transfer's row version is its Transfer out leg's. `DELETE /transactions/{id}` on a leg
+  deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
+  `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
+  one transfer, never one of each.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
@@ -229,7 +243,9 @@ already uses it can still show it. An account can be archived at any balance.
 - **`total`**, on the same answer, is of every transaction that passed the filters, whichever page is asked for:
   their `count`, and for each currency their `income`, `expenses` (minus refunds, so it can go below zero) and
   `net` (each amount with the sign of its type, a refund adding). Currencies are never added together, and a
-  split found by one line's category counts whole: the total is of transactions, not of lines. It is a `SUM` in the database (`ITransactionRepository.SumAsync`),
+  split found by one line's category counts whole: the total is of transactions, not of lines. The legs of a
+  transfer are listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type`
+  takes `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`),
   the type's sign applied by `TransactionTypes.Signed`.
 - **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
   `Note`, answered by one trigram (`pg_trgm`) GIN index on the two. A test pins both.

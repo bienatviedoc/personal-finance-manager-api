@@ -178,7 +178,7 @@ public class TransactionListTests(PfmApi api)
     [InlineData("to=2026-02-30", "to")]
     [InlineData("accountId=everyday", "accountId")]
     [InlineData("categoryId=7", "categoryId")]
-    [InlineData("type=transferOut", "type")]
+    [InlineData("type=transfer", "type")]
     [InlineData("type=1", "type")]
     [InlineData("min=abc", "min")]
     [InlineData("max=1,500", "max")]
@@ -269,6 +269,35 @@ public class TransactionListTests(PfmApi api)
         Assert.Equal(new TotalBody(1, [new CurrencyTotalBody("VND", "0.00", "-150.00", "150.00")]), refunds.Total, TotalBody.Comparer);
     }
 
+    [Fact]
+    public async Task The_legs_of_a_transfer_are_listed_and_counted_but_are_neither_income_nor_expenses_in_the_total()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "5000000");
+        var dollars = await AddAccountAsync(browser, "Dollars", "USD");
+        var savings = await AddAccountAsync(browser, "Savings", "VND");
+        await AddAsync(browser, "income", everyday, "1000");
+        await AddAsync(browser, "expense", everyday, "400");
+        (await browser.PostAsync("/api/v1/transfers", new { fromAccountId = everyday, toAccountId = savings, amount = "2000", date = "2026-11-03" })).EnsureSuccessStatusCode();
+        (await browser.PostAsync(
+            "/api/v1/transfers", new { fromAccountId = everyday, toAccountId = dollars, amount = "50000", toAmount = "2", date = "2026-11-04" })).EnsureSuccessStatusCode();
+
+        var all = await ListAsync(browser);
+        var legsOut = await ListAsync(browser, "?type=transferOut");
+        var onSavings = await ListAsync(browser, $"?accountId={savings}");
+        var inFood = await ListAsync(browser, $"?categoryId={await CategoryAsync(browser, "Food & drink")}");
+
+        // Two transfers are four legs. The dollars the second arrived as are in no total: USD has no income or expense.
+        Assert.Equal(6, all.Items.Length);
+        Assert.Equal(new TotalBody(6, [new CurrencyTotalBody("VND", "1000.00", "400.00", "600.00")]), all.Total, TotalBody.Comparer);
+        Assert.Equal(["50000.00", "2000.00"], legsOut.Items.Select(leg => leg.Amount));
+        Assert.Equal(new TotalBody(2, []), legsOut.Total, TotalBody.Comparer);
+        Assert.Equal(["transferIn"], onSavings.Items.Select(leg => leg.Type));
+        Assert.Equal(new TotalBody(1, []), onSavings.Total, TotalBody.Comparer);
+        // A leg has no category, so no category finds it.
+        Assert.Equal(["400.00"], inFood.Items.Select(transaction => transaction.Amount));
+    }
+
     private static async Task<TransactionBody> AddAsync(
         Browser browser, string type, Guid accountId, string amount, string date = "2026-11-02", string? category = null, string? payee = null,
         string? note = null)
@@ -301,5 +330,5 @@ public class TransactionListTests(PfmApi api)
     private sealed record CurrencyTotalBody(string Currency, string Income, string Expenses, string Net);
 
     private sealed record TransactionBody(
-        Guid Id, string Type, Guid AccountId, string Amount, string Currency, string Date, Guid CategoryId, string? Payee, string? Note, string RowVersion);
+        Guid Id, string Type, Guid AccountId, string Amount, string Currency, string Date, Guid? CategoryId, string? Payee, string? Note, string RowVersion);
 }

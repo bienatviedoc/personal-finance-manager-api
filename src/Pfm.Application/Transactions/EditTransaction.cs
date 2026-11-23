@@ -42,7 +42,8 @@ public sealed record EditTransactionOutcome(TransactionDetails? Edited)
 
 /// <summary>
 /// Answers the edited transaction; null when the user has no transaction with that id, or deleted it. It
-/// may stay on an account or category that has since been archived, but not move to one.
+/// may stay on an account or category that has since been archived, but not move to one. A leg of a transfer
+/// is refused on its type: it is edited through its transfer, which changes the other leg with it.
 /// </summary>
 public sealed class EditTransactionHandler(
     IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
@@ -69,6 +70,12 @@ public sealed class EditTransactionHandler(
         if (transaction is null)
         {
             return (EditTransactionOutcome?)null;
+        }
+
+        if (transaction.IsTransferLeg)
+        {
+            return Result<EditTransactionOutcome?>.Invalid(FieldError.On(
+                nameof(EditTransactionCommand.Type), "This transaction is a leg of a transfer. Edit the transfer, which changes both legs together."));
         }
 
         if (transaction.RowVersion != command.RowVersion)

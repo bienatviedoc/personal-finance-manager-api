@@ -22,6 +22,12 @@ public interface ITransactionRepository
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The user's transfer whose two legs share this transfer id; null when they have none, or deleted it
+    /// and <paramref name="deletedToo"/> is not asked for.
+    /// </summary>
+    Task<Transfer?> FindTransferAsync(Guid transferId, bool deletedToo, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The transaction a request with this idempotency key recorded, deleted since or not, with that request's
     /// fingerprint; null when none did.
     /// </summary>
@@ -38,4 +44,8 @@ public interface ITransactionRepository
 
     /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
     void Add(Transaction transaction, IdempotentRequest? request);
+
+    /// <summary>Adds both legs, to be saved together.</summary>
+    /// <param name="request">The key and fingerprint of the request recording the transfer, if it sent a key; the Transfer out leg keeps them.</param>
+    void Add(Transfer transfer, IdempotentRequest? request);
 }

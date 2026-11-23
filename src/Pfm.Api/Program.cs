@@ -88,6 +88,7 @@ app.MapGroup("/api/v1")
     .MapAccountEndpoints()
     .MapCategoryEndpoints()
     .MapTransactionEndpoints()
+    .MapTransferEndpoints()
     .MapAttachmentEndpoints()
     .MapRecurringRuleEndpoints()
     .MapBudgetEndpoints();
