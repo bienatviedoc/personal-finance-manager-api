@@ -85,6 +85,13 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount, IsRefund);
 
+    /// <summary>
+    /// What the transaction does to spent in its category, in the base currency: an expense adds its converted
+    /// amount and a refund takes its own away (spec section 6). Nothing for income, once deleted, or while
+    /// not converted, which is left out of totals (spec section 3, rule 7).
+    /// </summary>
+    public decimal SpentAmount => !IsDeleted && Conversion is { Amount: { } converted } ? Spent.Signed(Type, converted, IsRefund) : 0;
+
     public static bool IsValidPayee(string? payee) => payee is null || payee.Trim().Length <= MaxPayeeLength;
 
     public static bool IsValidNote(string? note) => note is null || note.Trim().Length <= MaxNoteLength;
