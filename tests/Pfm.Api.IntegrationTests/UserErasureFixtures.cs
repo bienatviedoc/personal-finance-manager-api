@@ -48,6 +48,11 @@ public static class UserErasureFixtures
         var deleted = await RecordAsync(browser, accountId, food, "120000", "Phở Thìn");
         (await browser.DeleteAsync($"/api/v1/transactions/{deleted}")).EnsureSuccessStatusCode();
         await RecordAsync(browser, accountId, streetFood, "15000", "Bánh mì Huỳnh Hoa", isRefund: true);
+        (await browser.PostAsync("/api/v1/transactions", new
+        {
+            type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart",
+            lines = new object[] { new { categoryId = food, amount = "320000", note = "Rice" }, new { categoryId = streetFood, amount = "180000" } },
+        })).EnsureSuccessStatusCode();
 
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
@@ -55,7 +60,9 @@ public static class UserErasureFixtures
             ["Accounts"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
-            ["Transactions"] = 3,
+            // One line for each transaction, and two for the split.
+            ["TransactionLines"] = 5,
+            ["Transactions"] = 4,
         };
     }
 

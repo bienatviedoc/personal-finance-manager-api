@@ -25,7 +25,7 @@ public class DataExportTests(PfmApi api)
         Assert.Equal("attachment", response.Content.Headers.ContentDisposition?.DispositionType);
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
-        Assert.Equal(["README.txt", "accounts.csv", "categories.csv", "institutions.csv", "profile.json", "transactions.csv"], files.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal(["README.txt", "accounts.csv", "categories.csv", "institutions.csv", "profile.json", "transaction-lines.csv", "transactions.csv"], files.Keys.Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
             owned,
@@ -73,6 +73,15 @@ public class DataExportTests(PfmApi api)
         // A refund is an expense flagged as money coming back.
         Assert.Equal("false", kept["isRefund"]);
         Assert.Equal(("expense", "true"), (Row(transactions, 3)["type"], Row(transactions, 3)["isRefund"]));
+        // A split's lines are in a file of their own, each naming its transaction and its category.
+        var split = Row(transactions, 4);
+        var lines = Csv(files["transaction-lines.csv"]).Skip(1).Select(line => Csv(files["transaction-lines.csv"])[0].Zip(line).ToDictionary(cell => cell.First, cell => cell.Second)).ToList();
+        Assert.Equal("Co.opmart", split["payee"]);
+        Assert.Equal(
+            [(320000m, "Rice"), (180000m, "")],
+            lines.Where(line => line["transactionId"] == split["id"]).OrderBy(line => line["position"], StringComparer.Ordinal)
+                .Select(line => (decimal.Parse(line["amount"], System.Globalization.CultureInfo.InvariantCulture), line["note"])));
+        Assert.Single(lines, line => line["transactionId"] == kept["id"] && line["categoryId"] == kept["categoryId"]);
         // An account, an institution and a category are named by the id their own file lists them under.
         var account = Row(Csv(files["accounts.csv"]), 1);
         Assert.Equal(account["id"], kept["accountId"]);
@@ -107,6 +116,7 @@ public class DataExportTests(PfmApi api)
 
         Assert.Single(Csv(files["transactions.csv"]));
         Assert.Contains("payee", Csv(files["transactions.csv"])[0]);
+        Assert.Single(Csv(files["transaction-lines.csv"]));
     }
 
     [Fact]

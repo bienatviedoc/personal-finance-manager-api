@@ -17,21 +17,34 @@ internal sealed class UserData(PfmDbContext db) : IUserData
 {
     private static readonly MethodInfo ReadMethod = typeof(UserData).GetMethod(nameof(ReadAsync), BindingFlags.Instance | BindingFlags.NonPublic)!;
 
+    private static readonly MethodInfo ReadOwnedMethod = typeof(UserData).GetMethod(nameof(ReadOwnedAsync), BindingFlags.Instance | BindingFlags.NonPublic)!;
+
     private static readonly MethodInfo EraseMethod = typeof(UserData).GetMethod(nameof(EraseAsync), BindingFlags.Instance | BindingFlags.NonPublic)!;
 
     /// <summary>The entities whose rows belong to a user, each mapped to a table of its own.</summary>
     public static IReadOnlyList<IEntityType> UserOwnedEntities(IModel model) =>
         [.. model.GetEntityTypes().Where(type => typeof(IUserOwned).IsAssignableFrom(type.ClrType) && !type.IsOwned() && type.BaseType is null)];
 
+    /// <summary>
+    /// What a user-owned entity keeps in a table of its own for the parts it owns (a transaction's lines). Those
+    /// rows are the user's through their owner: read through it, and erased with it by the database.
+    /// </summary>
+    public static IReadOnlyList<INavigation> OwnedTables(IEntityType entity) =>
+        [.. entity.GetNavigations().Where(navigation => navigation.TargetEntityType.IsOwned() && navigation.TargetEntityType.GetTableName() != entity.GetTableName())];
+
     public async Task<IReadOnlyList<UserDataTable>> ReadEverythingAsync(CancellationToken cancellationToken)
     {
         var tables = new List<UserDataTable>();
-        foreach (var entity in UserOwnedEntities(db.Model).OrderBy(entity => entity.GetTableName(), StringComparer.Ordinal))
+        foreach (var entity in UserOwnedEntities(db.Model))
         {
             tables.Add(await (Task<UserDataTable>)ReadMethod.MakeGenericMethod(entity.ClrType).Invoke(this, [entity, cancellationToken])!);
+            foreach (var owned in OwnedTables(entity))
+            {
+                tables.Add(await (Task<UserDataTable>)ReadOwnedMethod.MakeGenericMethod(entity.ClrType, owned.TargetEntityType.ClrType).Invoke(this, [owned, cancellationToken])!);
+            }
         }
 
-        return tables;
+        return [.. tables.OrderBy(table => table.Name, StringComparer.Ordinal)];
     }
 
     public async Task EraseEverythingAsync(CancellationToken cancellationToken)
@@ -47,14 +60,26 @@ internal sealed class UserData(PfmDbContext db) : IUserData
     /// what an entity keeps in columns alone, and leaves nothing to a list of properties that a new one could
     /// be missing from.
     /// </summary>
-    private async Task<UserDataTable> ReadAsync<TEntity>(IEntityType entity, CancellationToken cancellationToken)
+    private Task<UserDataTable> ReadAsync<TEntity>(IEntityType entity, CancellationToken cancellationToken)
+        where TEntity : class =>
+        ReadTableAsync(db.Set<TEntity>().AsNoTracking(), entity, cancellationToken);
+
+    /// <summary>The rows the user's entities own in a table of their own, each naming its owner by id.</summary>
+    private Task<UserDataTable> ReadOwnedAsync<TOwner, TOwned>(INavigation navigation, CancellationToken cancellationToken)
+        where TOwner : class
+        where TOwned : class =>
+        ReadTableAsync(
+            db.Set<TOwner>().AsNoTracking().SelectMany(owner => EF.Property<IEnumerable<TOwned>>(owner, navigation.Name)),
+            navigation.TargetEntityType,
+            cancellationToken);
+
+    private async Task<UserDataTable> ReadTableAsync<TEntity>(IQueryable<TEntity> query, IEntityType entity, CancellationToken cancellationToken)
         where TEntity : class
     {
         var columns = entity.GetFlattenedProperties().Where(IsTheUsersData).Select(property => (Name: property.GetColumnName(), Property: property)).ToArray();
         var rows = new List<IReadOnlyList<object?>>();
-
-        IQueryable<TEntity> query = db.Set<TEntity>().AsNoTracking();
-        if (entity.FindPrimaryKey() is { Properties: [var key] })
+        var key = entity.FindPrimaryKey() is { Properties: [var single] } ? single : null;
+        if (key is not null)
         {
             query = query.OrderBy(row => EF.Property<object>(row, key.Name));
         }
@@ -65,9 +90,25 @@ internal sealed class UserData(PfmDbContext db) : IUserData
             await using var command = query.CreateDbCommand();
             command.Transaction = db.Database.CurrentTransaction?.GetDbTransaction();
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+            // The first column of a name is the table's own: what the query joins in for the parts an entity
+            // owns comes after, and repeats the entity's row once for each part, which is read once.
             var ordinals = columns.Select(column => reader.GetOrdinal(column.Name)).ToArray();
+            var keyOrdinal = key is null ? -1 : reader.GetOrdinal(key.GetColumnName());
+            object? lastKey = null;
             while (await reader.ReadAsync(cancellationToken))
             {
+                if (keyOrdinal >= 0)
+                {
+                    var rowKey = reader.GetValue(keyOrdinal);
+                    if (Equals(rowKey, lastKey))
+                    {
+                        continue;
+                    }
+
+                    lastKey = rowKey;
+                }
+
                 rows.Add([.. columns.Select((column, index) => reader.IsDBNull(ordinals[index]) ? null : AsItTravels(reader.GetValue(ordinals[index]), column.Property))]);
             }
         }
@@ -122,6 +163,8 @@ internal sealed class UserData(PfmDbContext db) : IUserData
         return ordered;
     }
 
+    /// <summary>Whether the entity, or a part it owns in a table of its own, holds a foreign key to the other.</summary>
     private static bool References(IEntityType entity, IEntityType other) =>
-        entity.GetForeignKeys().Any(key => key.PrincipalEntityType == other);
+        entity.GetForeignKeys().Concat(OwnedTables(entity).SelectMany(owned => owned.TargetEntityType.GetForeignKeys()))
+            .Any(key => key.PrincipalEntityType == other);
 }

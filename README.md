@@ -170,12 +170,25 @@ already uses it can still show it. An account can be archived at any balance.
 - **Income or an expense** on one account, with an amount above zero whose sign is its type (spec section 3,
   rule 2), a category of the kind its type takes, and optionally a payee and a note. Its currency is never sent:
   it is the account's, and follows the transaction to another account.
+- **Lines and splits** (rule 5, TXN-4). Every transaction has lines (`TransactionLine`, table `TransactionLines`):
+  one, with its category and whole amount, or several when it is split. `POST` and `PUT` take `lines` (2 to 50,
+  each a `categoryId`, an `amount` and an optional `note`) in place of `categoryId`; an edit without them makes a
+  split one category again. The lines must sum exactly to the amount: `Transaction` refuses anything else as an
+  error on `lines`, and `Transaction.RemainingToSplit` says how much is left. What is wrong with one line is an
+  error on that line (`lines[1].categoryId`). Every answer lists the `lines`, one for a transaction that is not
+  split. Lines are the transaction's own (an owned collection): read and saved with it, guarded by its row
+  version, and reached in a query through it: `transaction.Lines.Any(line => …)` finds a split through any of
+  its lines, which is how a category knows it has transactions. `Transaction.CategoryId` stays as the category of
+  the first line, for what shows one category for a transaction; anything that adds up amounts by category
+  (budgets, reports) reads the lines. A line has no `UserId` or timestamps: they are its transaction's.
 - **A refund** is an expense sent with `isRefund: true`: money coming back from a purchase. It is the one
   exception to the type giving the sign (rule 2): it raises the account's balance, and it lowers spent in its
   category instead of counting as income. Only an expense can be one; income sent with the flag is refused on
   `isRefund`, by `Transaction` and by a check constraint. An edit can set the flag or take it away.
 - **Spent** (spec section 6) is `Spent.Of` in `Pfm.Domain.Transactions`: a category's expenses in a month minus
-  its refunds, in the base currency, each transaction adding its `SpentAmount`. A refund counts in the month of
+  its refunds, in the base currency, each transaction adding its `SpentAmount`. A split adds each line to its
+  own category (`SpentAmountIn`): the lines share the converted amount as they share the amount, the last
+  taking what rounding leaves. A refund counts in the month of
   the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
   are left out. No endpoint answers spent yet: the budget screen (#28) does.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
@@ -209,6 +222,8 @@ already uses it can still show it. An account can be archived at any balance.
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
   `Persistence/ModuleReferences`, because a module's own configuration cannot name another module's types.
+  A line carries its category's kind (`CategoryKind`) for a foreign key like the transaction's below, so the
+  kind of a category is as fixed for the second line of a split as for the first.
   Two more are named there and added by their migration alone, because the model cannot hold a foreign key to
   columns that change: a transaction's account and currency point at an account and its currency, and its
   user and base currency at a user and their base currency. A third, within the Transactions module
@@ -324,7 +339,9 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   `IUserData` (`Pfm.Application.Abstractions`), implemented by `Persistence/UserData` over every `IUserOwned`
   entity in the model, inside the user filter: the export reads each table's columns as stored (all but the
   owner, the row version and computed columns), and the erasure deletes each table's rows, a table before the
-  tables it references. So a new user-owned entity is exported and erased as soon as it is in the model. Three
+  tables it references. What an entity owns in a table of its own (a transaction's lines) is exported as its
+  own file, read through its owner, and erased with its owner by the database's cascade. So a new user-owned
+  entity is exported and erased as soon as it is in the model. Three
   things still need a hand, and tests say when: a table that is not user-owned must be argued for in
   `Every_table_holds_rows_a_user_owns_or_is_known_to_hold_none`; `UserErasureFixtures.OwnSomethingOfEveryKindAsync`
   must create a row of every user-owned table, or the export test fails; and what a user owns outside the

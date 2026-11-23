@@ -197,7 +197,7 @@ public class UserDeletionTests(PfmApi api)
         var model = scope.ServiceProvider.GetRequiredService<PfmDbContext>().Model;
 
         var notUserOwned = model.GetEntityTypes()
-            .Where(entity => !typeof(IUserOwned).IsAssignableFrom(entity.ClrType))
+            .Where(entity => !typeof(IUserOwned).IsAssignableFrom(entity.ClrType) && !IsOwnedByAUserOwnedEntity(entity))
             .Select(entity => entity.GetTableName()!)
             .Distinct()
             .Order(StringComparer.Ordinal)
@@ -216,6 +216,10 @@ public class UserDeletionTests(PfmApi api)
             ],
             notUserOwned);
     }
+
+    /// <summary>A part of a user-owned entity (a transaction's lines) is the user's through its owner: exported and erased with it.</summary>
+    private static bool IsOwnedByAUserOwnedEntity(Microsoft.EntityFrameworkCore.Metadata.IEntityType entity) =>
+        entity.FindOwnership()?.PrincipalEntityType is { } owner && typeof(IUserOwned).IsAssignableFrom(owner.ClrType);
 
     private static Task<HttpResponseMessage> SignInAsync(Browser browser, string email) =>
         browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password });

@@ -19,9 +19,10 @@ namespace Pfm.Application.Transactions;
 /// A key the caller made up for this transaction. Sending the command again with it answers the transaction
 /// the first one recorded and records nothing; sending another transaction with it is refused.
 /// </param>
+/// <param name="Lines">The lines of a split, which sum exactly to the amount; <paramref name="CategoryId"/> is then left empty.</param>
 public sealed record CreateTransactionCommand(
     string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null,
-    bool IsRefund = false)
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null)
     : ITransactionCommand
 {
     public const int MaxIdempotencyKeyLength = 200;
@@ -82,9 +83,13 @@ public sealed class CreateTransactionHandler(
         Transaction transaction;
         try
         {
-            transaction = Transaction.Record(
-                fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+            transaction = against.Split is { } lines
+                ? Transaction.RecordSplit(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, lines, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund)
+                : Transaction.Record(
+                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
+                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
         }
         catch (TransactionRuleViolation violation)
         {
