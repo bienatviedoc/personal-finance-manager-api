@@ -16,6 +16,13 @@ x-environment: &environment
   Smtp__UseStartTls: "false"
   # Logs, traces and metrics go to the Aspire Dashboard: http://localhost:18888
   OTEL_EXPORTER_OTLP_ENDPOINT: http://dashboard:18889
+  # Attachments go to the storage emulator. The API reaches it by its service name; a signed URL is opened
+  # by the browser, which reaches it on localhost.
+  Storage__ServiceUrl: http://storage:7070
+  Storage__PublicUrl: http://localhost:7070
+  Storage__Bucket: pfm-attachments
+  Storage__AccessKey: pfm
+  Storage__SecretKey: pfm-local-secret
 
 services:
   db:
@@ -39,6 +46,20 @@ services:
     ports:
       - "1025:1025"
       - "8025:8025"
+
+  # Private object storage for attachments: the Versity S3 Gateway, which speaks the S3 API over a folder.
+  # Local only; a real environment names its own bucket in Storage__*.
+  storage:
+    image: versity/versitygw:v1.11.0
+    command: ["posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY: pfm
+      ROOT_SECRET_KEY: pfm-local-secret
+    ports:
+      - "7070:7070"
+    volumes:
+      # Each folder under /data is a bucket, so this volume is the bucket pfm-attachments.
+      - attachments:/data/pfm-attachments
 
   # Shows the logs, traces and metrics the API and worker send over OTLP. Local only: no sign-in.
   # The API run from source sends to its OTLP port on localhost:4317.
@@ -76,6 +97,8 @@ services:
         condition: service_started
       dashboard:
         condition: service_started
+      storage:
+        condition: service_started
 
   worker:
     build:
@@ -92,3 +115,4 @@ services:
 
 volumes:
   db-data:
+  attachments:
