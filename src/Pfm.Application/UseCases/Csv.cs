@@ -33,7 +33,7 @@ public static class Csv
         null => "",
         string text => text,
         bool flag => flag ? "true" : "false",
-        DateOnly date => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+        DateOnly date => DateText.Of(date),
         DateTime moment => Moment(new DateTimeOffset(moment.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(moment, DateTimeKind.Utc) : moment)),
         DateTimeOffset moment => Moment(moment),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),

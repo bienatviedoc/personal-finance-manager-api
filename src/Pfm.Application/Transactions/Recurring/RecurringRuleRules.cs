@@ -49,7 +49,8 @@ public sealed record RecurringRuleFields(TransactionType? Type, decimal? Amount,
 internal static class RecurringRuleRules
 {
     /// <summary>Recurring rules cover income and expenses only, never transfers (spec section 5).</summary>
-    private static readonly string[] Types = ["income", "expense"];
+    private static readonly string[] Types =
+        [.. Enum.GetValues<TransactionType>().Where(type => type.IsIncomeOrExpense()).Select(EnumText.Of)];
 
     public static void RecurringRuleFieldRules<T>(this AbstractValidator<T> validator)
         where T : IRecurringRuleCommand

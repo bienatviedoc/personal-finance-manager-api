@@ -105,7 +105,7 @@ public sealed class RecurringPosting(
     /// <summary>The transaction a user would record for this occurrence, as they would send it.</summary>
     private static CreateTransactionCommand OccurrenceOf(RecurringRule rule, DateOnly dueDate)
     {
-        var date = dueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        var date = DateText.Of(dueDate);
         return new CreateTransactionCommand(
             EnumText.Of(rule.Type), rule.AccountId, rule.Amount.ToString(CultureInfo.InvariantCulture), date,
             rule.CategoryId, rule.Payee, rule.Note, IdempotencyKey: string.Create(CultureInfo.InvariantCulture, $"recurring-rule:{rule.Id:N}:{date}"), RecurringRuleId: rule.Id);
