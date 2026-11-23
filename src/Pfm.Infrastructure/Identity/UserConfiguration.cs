@@ -10,7 +10,9 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 {
     public void Configure(EntityTypeBuilder<User> builder)
     {
-        builder.ToTable("Users");
+        builder.ToTable("Users", table => table.HasCheckConstraint(
+            "CK_Users_BudgetWarningPercent_1_To_100", "\"BudgetWarningPercent\" BETWEEN 1 AND 100"));
+        builder.Property(user => user.BudgetWarningPercent).HasDefaultValue(Pfm.Domain.Identity.ProfileSettings.DefaultBudgetWarningPercent);
         builder.Property(user => user.BaseCurrency).HasConversion<string>().HasMaxLength(3);
         builder.Property(user => user.TimeZone).HasMaxLength(64);
         builder.Property(user => user.Locale)
