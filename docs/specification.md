@@ -74,7 +74,7 @@ Eight concepts carry the whole product; the rules under the table are the ones m
 9. **Credit cards and loans are accounts with a negative balance.** The user enters the amount owed as a positive number and the account shows it as a negative balance. Paying the card is a transfer from a current account, not an expense, so the spending is not counted twice.
 10. **Deletes are soft.** Accounts with history are archived, not deleted. An account can be archived at any balance, with a warning when the balance is not zero, and it stays in net worth and reports. Deleted transactions are recoverable for 30 days.
 11. **Reconciled transactions are locked.** Amount, date and account cannot change until the transaction is unreconciled. A reconciliation completes only when the difference is exactly zero; the app never creates an adjustment transaction.
-12. **The base currency locks once a budget exists.** It can be changed freely until the user's first budget is created.
+12. **The base currency locks once a budget exists.** It can be changed freely until the user's first budget is created, and again once the user has removed every budget.
 13. **A category's kind is fixed once it has transactions.** A subcategory always has the same kind as its parent.
 14. **"Account" always means a place money sits.** The sign-in identity is the user.
 
@@ -159,6 +159,8 @@ Income and expenses share one transaction screen and one data model; the type to
 - Undoing an import batch is refused while any of its transactions is reconciled. Otherwise it removes every transaction in the batch, edited or not; they stay recoverable for 30 days.
 - Vietcombank and Techcombank statement files must import cleanly at launch, tested against real sample files.
 - Recurring rules cover income and expenses only. If the worker was down on a due date, every missed occurrence is posted afterwards with its original due date.
+- A paused rule posts nothing. Resuming it posts from today: occurrences that fell due while it was paused are skipped, never posted late.
+- Nothing is posted for a deactivated user. If they cancel the deletion by signing in, the occurrences that fell due meanwhile are posted, each with its original due date, like those missed while the worker was down.
 
 ## 6. Budgets
 
@@ -296,7 +298,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Transaction` | AccountId, Type, Amount, Currency, Date, BaseCurrency, BaseCurrencyAmount?, ExchangeRate?, ExchangeRateDate?, Payee, Note, IsRefund, TransferId?, RecurringRuleId?, ImportBatchId?, ReconciliationId?, RowVersion | Amount > 0. Currency copied from account. The amount converted once into the user's base currency (rule 7), with the rate used and the day that rate is of; the three are null together while the transaction is not converted |
 | `TransactionLine` | TransactionId, Position, CategoryId, Amount, Note | One line normally, several for a split, in the order entered. Lines sum to the transaction amount. Owned by its transaction: no `UserId` or timestamps of its own |
 | `Tag`, `TransactionTag` | Name; TransactionId + TagId | Many to many |
-| `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage |
+| `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage. The foreign key to its transaction restricts deletes, so purging a deleted transaction after 30 days (rule 10) must first delete its attachments' files from storage, then their rows |
 | `Budget` | CategoryId?, Month (first day), Amount | Null category means the overall monthly budget. Unique on (UserId, CategoryId, Month) |
 | `RecurringRule` | Template fields, Frequency, Interval, StartDate, EndDate?, NextRunDate, Mode (AutoPost or Remind) |  |
 | `ImportBatch` | AccountId, FileName, Status, RowCount, ImportedCount, DuplicateCount | Undo deletes by ImportBatchId |
@@ -310,7 +312,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 
 - `Transaction (UserId, Date DESC, Id)` for the list; `(UserId, AccountId, Date)` for balances; `(TransferId)` for linked legs.
 - `TransactionLine (CategoryId, TransactionId)` for budget and category reports.
-- Trigram index on `Transaction.Payee` and `Note` for search.
+- Trigram index on `Transaction.Payee` and `Note`, and on `TransactionLine.Note`, for search.
 - Check constraints: `Amount > 0`; `Budget.Amount >= 0`. Split-sum equality is checked in the domain and re-verified by the nightly integrity job.
 - Optimistic concurrency through `RowVersion` on `Transaction`, `Account` and `Budget`.
 - Balances are computed with a `SUM` query. If that becomes slow, add a monthly `AccountBalanceSnapshot` table; do not add a mutable `CurrentBalance` column.
@@ -324,8 +326,8 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. The category tree is the exception: `GET /categories` returns all of its `items` at once, because a tree cannot be cut into pages and a user has dozens of categories.
-- Updates send `If-Match` with the row version; a stale version returns `412`.
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Three answers are not paged and return all of their `items` at once: the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; and a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+- Updates send `If-Match` with the row version; a stale version returns `412`. An upsert (`PUT /budgets/{month}/{categoryId}`) needs it only when the budget exists: creating one sends none.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.
 
@@ -341,15 +343,16 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
 | Accounts | `POST /accounts/{id}/reconciliations`; `POST /reconciliations/{id}/complete` | Start and lock a reconciliation |
 | Transactions | `GET /transactions?from&to&accountId&categoryId&type&tag&q&min&max` | Filtered, paged list with totals |
+| Transactions | `GET /transactions/quick-add?payee&type` | What quick add starts from: the account used last and the category a payee usually takes |
 | Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines |
 | Transactions | `POST /transactions/bulk` | Bulk recategorise, tag or delete |
-| Transfers | `POST /transfers`; `PUT, DELETE /transfers/{id}` | Creates and maintains both legs |
+| Transfers | `POST /transfers`; `GET, PUT, DELETE /transfers/{id}` | Creates, reads and maintains both legs |
 | Attachments | `GET, POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipts of a transaction and upload; a signed URL to open one, and removal |
 | Categories | `GET, POST /categories`; `PUT, DELETE /categories/{id}`; `POST /categories/{id}/merge` | Tree CRUD and merge |
 | Tags | `GET /tags` | Autocomplete |
 | Budgets | `GET /budgets?month=2026-11` | Budgets with spent, remaining and state |
 | Budgets | `PUT /budgets/{month}/{categoryId}`; `DELETE` same; `POST /budgets/{month}/copy-from/{sourceMonth}` | Upsert, remove, copy |
-| Recurring | `GET, POST /recurring-rules`; `PUT, DELETE /recurring-rules/{id}`; `GET /recurring-rules/upcoming?days=30` | Rules and upcoming occurrences |
+| Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
 | Imports | `POST /imports` (upload); `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Upload, preview, commit, undo |
 | Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}` | Auto-categorisation rules |
 | Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expense`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |

@@ -20,10 +20,9 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
     /// <param name="currentAccountId">The account the transaction is already on, which it may stay on after the account is archived.</param>
     internal async Task<Result<RecordedAgainst>> ReadAsync(ITransactionCommand command, Guid? currentAccountId, CancellationToken cancellationToken)
     {
-        var account = await accounts.FindAsync(command.AccountId, cancellationToken);
-        if (account is null || (account.IsArchived && account.Id != currentAccountId))
+        if (await accounts.FindChoosableAsync(command.AccountId, currentAccountId, cancellationToken) is not { } account)
         {
-            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.AccountId), "Choose one of your accounts that is not archived."));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.AccountId), Choices.NotAnAccount));
         }
 
         List<SplitLine>? split = null;
@@ -35,7 +34,7 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
                 if (await categories.FindAsync(line.CategoryId, cancellationToken) is not { } itsCategory)
                 {
                     return Result<RecordedAgainst>.Invalid(FieldError.On(
-                        $"{nameof(ITransactionCommand.Lines)}[{split.Count}].{nameof(TransactionLineInput.CategoryId)}", NotACategory));
+                        $"{nameof(ITransactionCommand.Lines)}[{split.Count}].{nameof(TransactionLineInput.CategoryId)}", Choices.NotACategory));
                 }
 
                 split.Add(new SplitLine(itsCategory, line.ParsedAmount!.Value, line.Note));
@@ -45,14 +44,12 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
         var category = split is null ? await categories.FindAsync(command.CategoryId, cancellationToken) : split[0].Category;
         if (category is null)
         {
-            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.CategoryId), NotACategory));
+            return Result<RecordedAgainst>.Invalid(FieldError.On(nameof(ITransactionCommand.CategoryId), Choices.NotACategory));
         }
 
         return new RecordedAgainst(
             account, category, await calendar.TodayAsync(cancellationToken), await baseCurrency.OfCurrentUserAsync(cancellationToken), split);
     }
-
-    private const string NotACategory = "Choose one of your categories that is not archived.";
 }
 
 /// <summary>What a transaction is recorded against.</summary>

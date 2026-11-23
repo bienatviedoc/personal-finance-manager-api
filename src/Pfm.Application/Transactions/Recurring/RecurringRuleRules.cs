@@ -55,7 +55,7 @@ internal static class RecurringRuleRules
         where T : IRecurringRuleCommand
     {
         validator.RuleFor(command => command.Type)
-            .Must((command, _) => command.Parsed.Type is TransactionType.Income or TransactionType.Expense)
+            .Must((command, _) => command.Parsed.Type?.IsIncomeOrExpense() == true)
             .WithMessage($"Choose one of: {string.Join(", ", Types)}.");
         validator.RuleFor(command => command.AccountId).Required();
         validator.RuleFor(command => command.Amount)

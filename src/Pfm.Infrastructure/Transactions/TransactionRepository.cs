@@ -12,12 +12,33 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         TransactionFilter filter, TransactionSort sort, int take, TransactionCursor? after, CancellationToken cancellationToken) =>
         await Sorted(After(Passing(filter), sort, after), sort).Take(take).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
-        await Passing(filter)
-            .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
+    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken)
+    {
+        if (filter.CategoryId is not { } categoryId)
+        {
+            return await Passing(filter)
+                .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
+                .Select(ofType => new TransactionSum(
+                    ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
+                .ToListAsync(cancellationToken);
+        }
+
+        // Each line counts in its own category (spec section 6): a split adds only its lines in the category.
+        var inCategory = CategoryAndSubcategories(categoryId);
+        return await Passing(filter)
+            .SelectMany(transaction => transaction.Lines
+                .Where(line => inCategory.Contains(line.CategoryId))
+                .Select(line => new { transaction.Id, transaction.Currency, transaction.Type, transaction.IsRefund, line.Amount }))
+            .GroupBy(line => new { line.Currency, line.Type, line.IsRefund })
             .Select(ofType => new TransactionSum(
-                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
+                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund,
+                ofType.Select(line => line.Id).Distinct().Count(), ofType.Sum(line => line.Amount)))
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>The ids of a category and of its subcategories.</summary>
+    private IQueryable<Guid> CategoryAndSubcategories(Guid categoryId) =>
+        db.Set<Category>().Where(category => category.Id == categoryId || category.ParentId == categoryId).Select(category => category.Id);
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
     private IQueryable<Transaction> Passing(TransactionFilter filter)
@@ -41,9 +62,8 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         if (filter.CategoryId is { } categoryId)
         {
             // Through any of its lines: a split is found by each category it was split across.
-            transactions = transactions.Where(transaction => transaction.Lines.Any(line =>
-                line.CategoryId == categoryId
-                || db.Set<Category>().Any(category => category.Id == line.CategoryId && category.ParentId == categoryId)));
+            var inCategory = CategoryAndSubcategories(categoryId);
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line => inCategory.Contains(line.CategoryId)));
         }
 
         if (filter.Type is { } type)
@@ -63,10 +83,13 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
 
         if (filter.Search is { } search)
         {
-            // ILIKE with the text between wildcards is what the trigram index on the two columns answers.
+            // ILIKE with the text between wildcards is what the trigram indexes on the payee and the notes answer.
+            // A line has a note of its own (spec section 10), so a split is found by any of its lines' notes too.
             var containing = $"%{EscapedForLike(search)}%";
             transactions = transactions.Where(transaction =>
-                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape) || EF.Functions.ILike(transaction.Note!, containing, LikeEscape));
+                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape)
+                || EF.Functions.ILike(transaction.Note!, containing, LikeEscape)
+                || transaction.Lines.Any(line => EF.Functions.ILike(line.Note!, containing, LikeEscape)));
         }
 
         return transactions;

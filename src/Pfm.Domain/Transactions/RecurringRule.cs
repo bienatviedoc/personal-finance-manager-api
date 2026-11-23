@@ -152,31 +152,20 @@ public sealed class RecurringRule : IUserOwned
             throw new ArgumentException($"A note is at most {Transaction.MaxNoteLength} characters.", nameof(note));
         }
 
-        if (type is not (TransactionType.Income or TransactionType.Expense))
+        if (!type.IsIncomeOrExpense())
         {
             throw new RecurringRuleViolation(nameof(Type), "A recurring rule is income or an expense.");
         }
 
-        if (amount <= 0)
+        // Held to the rules of the transactions it posts.
+        if (Transaction.AmountRuleBroken(amount, currency) is { } amountRule)
         {
-            throw new RecurringRuleViolation(nameof(Amount), "An amount is greater than zero.");
+            throw new RecurringRuleViolation(nameof(Amount), amountRule);
         }
 
-        if (!Amounts.IsValid(amount, currency))
+        if (Transaction.CategoryRuleBroken(category, type, keeps: category.Id == CategoryId) is { } categoryRule)
         {
-            throw new RecurringRuleViolation(nameof(Amount), $"An amount in {currency} has at most {currency.DecimalPlaces()} decimals and {Amounts.MaxIntegerDigits} digits before them.");
-        }
-
-        if (category.IsArchived && category.Id != CategoryId)
-        {
-            throw new RecurringRuleViolation(nameof(CategoryId), "An archived category takes no new transactions.");
-        }
-
-        if (category.Kind != type.CategoryKind())
-        {
-            throw new RecurringRuleViolation(
-                nameof(CategoryId),
-                type == TransactionType.Income ? "An income rule takes an income category." : "An expense rule takes an expense category.");
+            throw new RecurringRuleViolation(nameof(CategoryId), categoryRule);
         }
 
         Type = type;

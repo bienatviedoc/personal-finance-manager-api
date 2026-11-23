@@ -26,9 +26,18 @@ public static class PrivacyEndpoints
     /// Everything the app holds about the signed-in user, as a ZIP archive to download: <c>profile.json</c> and
     /// one CSV file for each kind of data.
     /// </summary>
-    private static async Task<Results<FileContentHttpResult, UnauthorizedHttpResult>> ExportData(ExportDataHandler handler, CancellationToken cancellationToken) =>
+    private static async Task<Results<PushStreamHttpResult, UnauthorizedHttpResult>> ExportData(ExportDataHandler handler, CancellationToken cancellationToken) =>
         await handler.HandleAsync(new ExportData(), cancellationToken) is { } export
-            ? TypedResults.File(export.Zip, "application/zip", export.FileName)
+            // Written to the response as it is made, so the attached files are never all in memory at once.
+            ? TypedResults.Stream(
+                async body =>
+                {
+                    await using var asynchronous = new AsynchronousBody(body);
+                    await export.WriteZipAsync(asynchronous, cancellationToken);
+                    await asynchronous.FlushAsync(cancellationToken);
+                },
+                "application/zip",
+                export.FileName)
             : TypedResults.Unauthorized();
 
     /// <summary>

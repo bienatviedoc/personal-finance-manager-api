@@ -30,9 +30,13 @@ internal sealed class QuickAddHistory(PfmDbContext db) : IQuickAddHistory
         return await db.Set<Transaction>()
             .Where(transaction => transaction.DeletedAt == null && EF.Functions.ILike(transaction.Payee!, exactly, Escape))
             .Where(transaction => type == null || transaction.Type == type)
-            .Join(db.Set<Category>().Where(category => !category.IsArchived), transaction => transaction.CategoryId, category => category.Id, (transaction, _) => transaction)
-            .GroupBy(transaction => transaction.CategoryId)
-            .Select(withCategory => new { CategoryId = withCategory.Key, Times = withCategory.Count(), LastRecorded = withCategory.Max(transaction => transaction.CreatedAt) })
+            // A refund is money coming back: it says nothing about what the payee is usually paid for.
+            .Where(transaction => !transaction.IsRefund)
+            // Each line of a split is a use of its own category.
+            .SelectMany(transaction => transaction.Lines.Select(line => new { line.CategoryId, transaction.CreatedAt }))
+            .Join(db.Set<Category>().Where(category => !category.IsArchived), line => line.CategoryId, category => category.Id, (line, _) => line)
+            .GroupBy(line => line.CategoryId)
+            .Select(withCategory => new { CategoryId = withCategory.Key, Times = withCategory.Count(), LastRecorded = withCategory.Max(line => line.CreatedAt) })
             .OrderByDescending(category => category.Times)
             .ThenByDescending(category => category.LastRecorded)
             .Select(category => (Guid?)category.CategoryId)

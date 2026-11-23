@@ -50,7 +50,7 @@ public static class TransactionEndpoints
     /// <param name="type"><c>income</c>, <c>expense</c>, <c>transferOut</c> or <c>transferIn</c>.</param>
     /// <param name="min">The smallest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="max">The largest amount listed, a decimal string, in whatever currency a transaction is in.</param>
-    /// <param name="q">Text the payee or the note contains, in upper or lower case; at most 200 characters.</param>
+    /// <param name="q">Text the payee, the note or the note of any line contains, in upper or lower case; at most 200 characters.</param>
     /// <param name="sort"><c>date</c> or <c>amount</c>; <c>date</c> when left out.</param>
     /// <param name="order"><c>asc</c> or <c>desc</c>; <c>desc</c> when left out.</param>
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>

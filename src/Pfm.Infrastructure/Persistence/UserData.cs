@@ -1,5 +1,5 @@
 using System.Reflection;
-using System.Text.Json;
+using Pfm.Application.UseCases;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -129,10 +129,10 @@ internal sealed class UserData(PfmDbContext db) : IUserData
         && property is not { IsConcurrencyToken: true, ValueGenerated: ValueGenerated.OnAddOrUpdate }
         && property.GetComputedColumnSql() is null;
 
-    /// <summary>An enum is stored under its name; it leaves as it does in the API's JSON: in camelCase, except a currency's code.</summary>
+    /// <summary>An enum is stored under its name; it leaves as it does in the API's JSON (<see cref="EnumText"/>).</summary>
     private static object AsItTravels(object stored, IProperty property) =>
-        stored is string name && (Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) is { IsEnum: true } type && type != typeof(Currency)
-            ? JsonNamingPolicy.CamelCase.ConvertName(name)
+        stored is string name && (Nullable.GetUnderlyingType(property.ClrType) ?? property.ClrType) is { IsEnum: true } type
+            ? EnumText.Of(type, name)
             : stored;
 
     private Task EraseAsync<TEntity>(CancellationToken cancellationToken)

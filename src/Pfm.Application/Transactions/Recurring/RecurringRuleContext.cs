@@ -17,16 +17,15 @@ public sealed class RecurringRuleContext(IAccountLookup accounts, ICategoryRepos
     internal async Task<Result<(AccountSummary Account, Category Category)>> ReadAsync(
         IRecurringRuleCommand command, RecurringRule? current, CancellationToken cancellationToken)
     {
-        var account = await accounts.FindAsync(command.AccountId, cancellationToken);
-        if (account is null || (account.IsArchived && account.Id != current?.AccountId))
+        if (await accounts.FindChoosableAsync(command.AccountId, current?.AccountId, cancellationToken) is not { } account)
         {
-            return Result<(AccountSummary, Category)>.Invalid(FieldError.On(nameof(IRecurringRuleCommand.AccountId), "Choose one of your accounts that is not archived."));
+            return Result<(AccountSummary, Category)>.Invalid(FieldError.On(nameof(IRecurringRuleCommand.AccountId), Choices.NotAnAccount));
         }
 
         var category = await categories.FindAsync(command.CategoryId, cancellationToken);
         if (category is null)
         {
-            return Result<(AccountSummary, Category)>.Invalid(FieldError.On(nameof(IRecurringRuleCommand.CategoryId), "Choose one of your categories that is not archived."));
+            return Result<(AccountSummary, Category)>.Invalid(FieldError.On(nameof(IRecurringRuleCommand.CategoryId), Choices.NotACategory));
         }
 
         return (account, category);

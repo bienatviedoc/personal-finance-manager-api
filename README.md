@@ -236,24 +236,27 @@ already uses it can still show it. An account can be archived at any balance.
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
   (amounts, both included, compared in whatever currency each transaction is in) and `q`, text found anywhere in
-  the payee or the note whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
+  the payee, the note or the note of any line whatever its case. `sort` is `date` or `amount` and `order` is `asc` or `desc`: the newest
   date first when left out, and within a date or an amount the last recorded first (first when ascending). One
   the list cannot read is a validation problem naming it; an id the user has nothing under lists nothing.
   A `nextCursor` belongs to the filters and sort order it was answered for.
 - **`total`**, on the same answer, is of every transaction that passed the filters, whichever page is asked for:
   their `count`, and for each currency their `income`, `expenses` (minus refunds, so it can go below zero) and
-  `net` (each amount with the sign of its type, a refund adding). Currencies are never added together, and a
-  split found by one line's category counts whole: the total is of transactions, not of lines. The legs of a
-  transfer are listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type`
-  takes `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`),
-  the type's sign applied by `TransactionTypes.Signed`.
+  `net` (each amount with the sign of its type, a refund adding). Currencies are never added together. Filtered by a
+  category, a transaction counts once and adds only its lines in that category (and its subcategories), as spent
+  does (spec section 6): a split is listed whole, and adds only what it spent there. The legs of a transfer are
+  listed and counted, and added to neither income nor expenses (spec section 3, rule 3); `type` takes
+  `transferOut` and `transferIn` too. It is a `SUM` in the database (`ITransactionRepository.SumAsync`), over the
+  lines when filtered by a category, the type's sign applied by `TransactionTypes.Signed`.
 - **Indexes** (spec section 10): the list reads `(UserId, Date DESC, Id DESC)`; search is `ILIKE` over `Payee` and
-  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two. A test pins both.
+  `Note`, answered by one trigram (`pg_trgm`) GIN index on the two, and over each line's `Note`, answered by a
+  trigram GIN index on `TransactionLines`. A test pins all three.
 - **Quick add** (spec TXN-8). `GET /transactions/quick-add` answers what a new transaction starts from:
   `lastAccountId`, the account the user recorded on last (by when it was recorded, not its date), and, given a
   `payee` and optionally a `type`, `suggestedCategoryId`: the category most of their transactions with that
-  payee have, in any case but never part of one, and of those used equally often the one used last. Deleted
-  transactions and archived accounts and categories are passed over. It reads through its own port,
+  payee have, in any case but never part of one, and of those used equally often the one used last. Each line of
+  a split is a use of its category. Refunds, deleted transactions and archived accounts and categories are passed
+  over. It reads through its own port,
   `IQuickAddHistory`. Category rules (spec section 9) will take part when they exist.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
@@ -275,6 +278,10 @@ already uses it can still show it. An account can be archived at any balance.
   field of a `multipart/form-data` body. `GET` on the same path lists a transaction's attachments, and
   `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
   transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
+  The foreign key from an attachment to its transaction restricts deletes (`AttachmentConfiguration`), so the
+  job that will purge deleted transactions after 30 days (spec rule 10) must delete their attachments first:
+  the files from storage, then the rows. Deleting the transaction alone fails, and cascading would leave the
+  files behind with nothing pointing at them.
 - **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
   (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
   it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
@@ -458,7 +465,8 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
   it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
   object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
-  transactions included. The archive is built in memory, attachments and all.
+  transactions included. The archive is written to the response as it is made (`AsynchronousBody` takes the few writes a ZIP
+  archive makes synchronously), so the attached files are never all in memory at once.
 - **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
   (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
   they have, and the session that asked is signed out at once. Nothing is erased yet.
@@ -561,8 +569,10 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. The one exception is the category tree (`GET /categories`), which answers
-  all of its `items` in one go: a tree cannot be cut into pages, and a user has dozens of categories, not thousands.
+  `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
+  budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
   `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
   `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
@@ -590,7 +600,8 @@ Registration uses it to create the new user's default categories.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
-  name in camelCase (`"income"`, `"creditCard"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  name in camelCase (`"income"`, `"creditCard"`), never as a number; `EnumText` (`Pfm.Application.UseCases`) is the one place
+  that says so, for the JSON (`JsonSetup`), the export and the commands that read them. Enums are listed
   in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:

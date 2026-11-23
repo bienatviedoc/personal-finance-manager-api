@@ -24,7 +24,7 @@ public sealed record ListTransactions(
 /// <param name="CategoryId">A category: transactions with a line on it or on one of its subcategories are listed, so a split is found by each of its categories.</param>
 /// <param name="Min">The smallest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Max">The largest amount listed, in whatever currency the transaction is in.</param>
-/// <param name="Search">Text the payee or the note contains, in upper or lower case.</param>
+/// <param name="Search">Text the payee, the note or the note of any line contains, in upper or lower case.</param>
 public sealed record TransactionFilter(
     DateOnly? From = null, DateOnly? To = null, Guid? AccountId = null, Guid? CategoryId = null, TransactionType? Type = null,
     decimal? Min = null, decimal? Max = null, string? Search = null)
@@ -62,8 +62,9 @@ public sealed record TransactionList(Page<TransactionDetails> Page, FilteredTota
 
 /// <summary>
 /// What the transactions that pass a filter come to (spec TXN-3): how many there are, and their amounts added
-/// up in each currency. Currencies are never added together. A split found by the category of one line
-/// counts with its whole amount: the total is of transactions, not of lines.
+/// up in each currency. Currencies are never added together. Filtered by a category, each transaction is
+/// counted once and adds only its lines in that category and its subcategories, as spent does (spec section 6):
+/// a split is listed whole but counts only the part it spent there.
 /// </summary>
 public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Currencies);
 
@@ -86,20 +87,21 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions)
     }
 
     /// <summary>
-    /// The database adds up the amounts of each type in each currency; the sign of a type has one definition,
-    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here. Only income and expenses are added
-    /// up: any other type (a leg of a transfer, spec section 3, rule 3) is listed and counted, and is neither.
+    /// The database adds up the amounts of each type in each currency; the signs are applied to those sums here,
+    /// by their one definitions: <see cref="TransactionTypes.Signed"/> for the net, <see cref="Spent.Signed"/>
+    /// for the expenses. Only income and expenses are added up: a leg of a transfer (spec section 3, rule 3) is
+    /// listed and counted, and is neither.
     /// </summary>
     private static FilteredTotal Total(IReadOnlyList<TransactionSum> sums) =>
         new(sums.Sum(sum => sum.Count),
             [.. sums
-                .Where(sum => sum.Type is TransactionType.Income or TransactionType.Expense)
+                .Where(sum => sum.Type.IsIncomeOrExpense())
                 .GroupBy(sum => sum.Currency)
                 .OrderBy(currency => currency.Key)
                 .Select(currency => new CurrencyTotal(
                     currency.Key,
                     currency.Where(sum => sum.Type == TransactionType.Income).Sum(sum => sum.Amount),
-                    -currency.Where(sum => sum.Type == TransactionType.Expense).Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)),
+                    currency.Sum(sum => Spent.Signed(sum.Type, sum.Amount, sum.IsRefund)),
                     currency.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund))))]);
 }
 

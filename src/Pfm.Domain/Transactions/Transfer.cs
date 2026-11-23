@@ -46,6 +46,15 @@ public sealed class Transfer
 
     public bool IsDeleted => OutLeg.IsDeleted;
 
+    /// <summary>
+    /// The version an edit of the transfer names: the Transfer out leg's. It stands for both legs because the user
+    /// changes a leg only through this type, which changes both together (a leg alone is refused), so an edit
+    /// moves both versions at once. What changes one leg alone, converting it into the base currency once a rate
+    /// arrives, is no edit to call stale. The in leg's own version still guards the save: one changed in between
+    /// fails it as a concurrent change.
+    /// </summary>
+    public uint RowVersion => OutLeg.RowVersion;
+
     /// <param name="from">What leaves the source account.</param>
     /// <param name="to">What arrives on the destination account.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
@@ -53,8 +62,8 @@ public sealed class Transfer
     {
         GuardCanMove(from, to);
         var id = Guid.CreateVersion7(now);
-        var outLeg = OfLeg(nameof(Amount), () => Transaction.RecordLeg(id, TransactionType.TransferOut, from.AccountId, from.Currency, from.Amount, date, note, today, now));
-        var inLeg = OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(id, TransactionType.TransferIn, to.AccountId, to.Currency, to.Amount, date, note, today, now));
+        var outLeg = OfLeg(nameof(Amount), () => Transaction.RecordLeg(id, TransactionType.TransferOut, from, date, note, today, now));
+        var inLeg = OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(id, TransactionType.TransferIn, to, date, note, today, now));
         return new Transfer(outLeg, inLeg);
     }
 
@@ -85,9 +94,9 @@ public sealed class Transfer
         GuardCanMove(from, to);
 
         // Checked on a leg nobody keeps first, so the out leg is not left changed when the in leg is refused.
-        OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to.AccountId, to.Currency, to.Amount, date, note, today, now));
-        OfLeg(nameof(Amount), () => OutLeg.EditLeg(from.AccountId, from.Currency, from.Amount, date, note, today, now));
-        OfLeg(nameof(ToAmount), () => InLeg.EditLeg(to.AccountId, to.Currency, to.Amount, date, note, today, now));
+        OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to, date, note, today, now));
+        OfLeg(nameof(Amount), () => OutLeg.EditLeg(from, date, note, today, now));
+        OfLeg(nameof(ToAmount), () => InLeg.EditLeg(to, date, note, today, now));
     }
 
     /// <summary>Deletes both legs together, so both accounts' balances are as before the transfer. Deleting it again changes nothing.</summary>

@@ -26,15 +26,15 @@ public static class Spent
     }
 
     /// <summary>
-    /// A base currency amount as it moves spent: an expense adds it and a refund takes it away. Income does
-    /// not move it, and neither does a leg of a transfer, which is not spending (spec section 3, rule 3). The
-    /// one definition of that sign, for sums the database adds up per type as well.
+    /// An amount as it moves spent, or any total of expenses: an expense adds it and a refund takes it away.
+    /// Income does not move it, and neither does a leg of a transfer, which is not spending (spec section 3,
+    /// rule 3). The one definition of that sign, for sums the database adds up per type as well. It is the
+    /// balance's sign (<see cref="TransactionTypes.Signed"/>) turned round, for expenses alone.
     /// </summary>
     /// <param name="isRefund">Whether the expense is a refund. Only an expense can be one.</param>
-    public static decimal Signed(TransactionType type, decimal baseCurrencyAmount, bool isRefund) => type switch
+    public static decimal Signed(TransactionType type, decimal amount, bool isRefund)
     {
-        TransactionType.Expense => isRefund ? -baseCurrencyAmount : baseCurrencyAmount,
-        TransactionType.Income or TransactionType.TransferOut or TransactionType.TransferIn => 0,
-        _ => throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type."),
-    };
+        var balance = type.Signed(amount, isRefund);
+        return type == TransactionType.Expense ? -balance : 0;
+    }
 }
