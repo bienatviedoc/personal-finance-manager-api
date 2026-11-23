@@ -41,10 +41,13 @@ public static class TransactionEndpoints
     /// </summary>
     public const string IdempotencyKeyReused = "urn:pfm:problem:idempotency-key-reused";
 
+    /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
     /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
     private static async Task<Results<Ok<TransactionListResponse>, ValidationProblem>> List(
-        ListTransactionsHandler handler, CancellationToken cancellationToken, int limit = Paging.DefaultLimit, string? cursor = null)
+        ListTransactionsHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, int limit = Paging.DefaultLimit, string? cursor = null)
     {
         if (!Paging.IsValidLimit(limit))
         {
@@ -57,8 +60,9 @@ public static class TransactionEndpoints
             return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
         }
 
-        var page = await handler.HandleAsync(new ListTransactions(limit, after), cancellationToken);
-        return TypedResults.Ok(new TransactionListResponse([.. page.Items.Select(TransactionResponse.From)], page.NextCursor));
+        var filter = new TransactionFilter(DateText.Read(from), DateText.Read(to));
+        var list = await handler.HandleAsync(new ListTransactions(filter, TransactionSort.NewestFirst, limit, after), cancellationToken);
+        return TypedResults.Ok(new TransactionListResponse([.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor));
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
