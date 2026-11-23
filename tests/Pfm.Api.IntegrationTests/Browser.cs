@@ -29,6 +29,31 @@ public sealed class Browser(HttpClient http)
     public Task<HttpResponseMessage> PostJsonAsync(string path, string body, Traceparent? traceparent = null) =>
         PostAsync(path, new StringContent(body, Encoding.UTF8, "application/json"), traceparent);
 
+    /// <summary>Posts one file as the <c>file</c> field of a form, the way a browser uploads it.</summary>
+    /// <param name="contentType">What the browser says the file is; left out when null.</param>
+    public Task<HttpResponseMessage> PostFileAsync(string path, string fileName, byte[] content, string? contentType = null)
+    {
+        var file = new ByteArrayContent(content);
+        if (contentType is not null)
+        {
+            file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+        }
+
+        return ChangeAsync(HttpMethod.Post, path, new MultipartFormDataContent { { file, "file", fileName } }, traceparent: null);
+    }
+
+    /// <summary>Posts a form's fields, with no file among them.</summary>
+    public Task<HttpResponseMessage> PostFormAsync(string path, Dictionary<string, string> fields)
+    {
+        var form = new MultipartFormDataContent();
+        foreach (var (name, value) in fields)
+        {
+            form.Add(new StringContent(value), name);
+        }
+
+        return ChangeAsync(HttpMethod.Post, path, form, traceparent: null);
+    }
+
     public Task<HttpResponseMessage> PatchAsync(string path, object body) =>
         ChangeAsync(HttpMethod.Patch, path, JsonContent.Create(body), traceparent: null);
 

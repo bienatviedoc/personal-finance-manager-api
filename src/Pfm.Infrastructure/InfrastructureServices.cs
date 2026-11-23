@@ -9,12 +9,14 @@ using Pfm.Application.Accounts.Institutions;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
+using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
+using Pfm.Infrastructure.Storage;
 using Pfm.Infrastructure.Transactions;
 
 namespace Pfm.Infrastructure;
@@ -64,6 +66,10 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<IAttachmentRepository, AttachmentRepository>();
+
+        // Like the SPA's address: a host fails at start-up, not at the first upload.
+        services.AddObjectStorage(validateOnStart: !IsGeneratingOpenApiDocument);
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddExchangeRates();
