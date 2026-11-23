@@ -18,8 +18,19 @@ public static class TransactionIntegrity
     {
         ArgumentNullException.ThrowIfNull(transactions);
         ArgumentNullException.ThrowIfNull(balances);
-        return [.. TransfersThatDrift(transactions), .. BalancesThatDrift(transactions, balances)];
+        return [.. SplitsThatDrift(transactions), .. TransfersThatDrift(transactions), .. BalancesThatDrift(transactions, balances)];
     }
+
+    /// <summary>
+    /// Income and expenses whose lines do not sum to their amount. A leg of a transfer has no lines, so it is
+    /// not one of them.
+    /// </summary>
+    private static IEnumerable<Drift> SplitsThatDrift(IReadOnlyCollection<Transaction> transactions) =>
+        from transaction in transactions
+        where !transaction.IsTransferLeg
+        let linesTotal = transaction.Lines.Sum(line => line.Amount)
+        where linesTotal != transaction.Amount
+        select new Drift.Split(transaction.Id, transaction.Amount, linesTotal);
 
     /// <summary>The legs sharing each transfer id, against what <see cref="Transactions.Transfer"/> records.</summary>
     private static IEnumerable<Drift> TransfersThatDrift(IReadOnlyCollection<Transaction> transactions)
@@ -63,6 +74,10 @@ public abstract record Drift
     private Drift()
     {
     }
+
+    /// <summary>A transaction's lines do not sum to its amount (spec section 3, rule 5).</summary>
+    /// <param name="LinesTotal">What its lines sum to: zero when it has none.</param>
+    public sealed record Split(Guid TransactionId, decimal Amount, decimal LinesTotal) : Drift;
 
     /// <summary>The legs sharing a transfer id are not one Transfer out leg and one Transfer in leg that match.</summary>
     /// <param name="LegIds">Every transaction that carries the transfer id.</param>

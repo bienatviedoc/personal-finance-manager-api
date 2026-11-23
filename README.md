@@ -553,10 +553,11 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are two
-exceptions, and `UserOwnedDataTests` fails when a third appears: `TransactionRepository.UsersWithNotConvertedAsync`
-ignores the filter to answer which users have transactions flagged not converted, and
-`RecurringRuleRepository.UsersWithDueRulesAsync` to answer which users have a recurring rule with an occurrence
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are three
+exceptions, and `UserOwnedDataTests` fails when a fourth appears: `TransactionRepository.UsersWithNotConvertedAsync`
+ignores the filter to answer which users have transactions flagged not converted,
+`TransactionRepository.UsersWithTransactionsAsync` which users have any transaction (for the integrity check), and
+`RecurringRuleRepository.UsersWithDueRulesAsync` which users have a recurring rule with an occurrence
 due. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
