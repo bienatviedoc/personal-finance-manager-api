@@ -46,12 +46,21 @@ public sealed class CopyBudgetsHandler(
         var copied = 0;
         foreach (var source in await budgets.ListForMonthAsync(sourceMonth, cancellationToken))
         {
-            if (budgeted.Contains(source.CategoryId))
+            if (budgeted.Contains(source.CategoryId) || tree.BudgetCategory(source.CategoryId) is not { } category)
             {
                 continue;
             }
 
-            budgets.Add(Budget.Set(tree.BudgetCategory(source.CategoryId)!, month, source.Amount, currency, budgeted, clock.GetUtcNow()));
+            try
+            {
+                budgets.Add(Budget.Set(category, month, source.Amount, currency, budgeted, clock.GetUtcNow()));
+            }
+            catch (BudgetRuleViolation)
+            {
+                // The category takes no new budget this month: it was archived, or its parent or a subcategory has one.
+                continue;
+            }
+
             budgeted.Add(source.CategoryId);
             copied++;
         }
