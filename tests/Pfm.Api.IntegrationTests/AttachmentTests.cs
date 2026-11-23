@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -186,7 +187,14 @@ public class AttachmentTests(PfmApi api)
         var signed = await UrlOfAsync(browser, attached.Id);
 
         Assert.InRange(signed.ExpiresAt, asked.AddMinutes(5).AddSeconds(-1), DateTimeOffset.UtcNow.AddMinutes(5).AddSeconds(1));
-        Assert.InRange(int.Parse(System.Web.HttpUtility.ParseQueryString(signed.Url.Query)["X-Amz-Expires"]!), 295, 301);
+
+        // The URL stops working when the answer says. The SDK signs by its own clock, which it corrects for the
+        // skew it sees in storage's responses, so X-Amz-Expires alone can be a second or two over 300. X-Amz-Date
+        // is cut to the second and X-Amz-Expires rounded, so the two can end up to 1.5 seconds early.
+        var query = System.Web.HttpUtility.ParseQueryString(signed.Url.Query);
+        var signedAt = DateTimeOffset.ParseExact(query["X-Amz-Date"]!, "yyyyMMdd'T'HHmmss'Z'", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal);
+        var stopsAt = signedAt.AddSeconds(int.Parse(query["X-Amz-Expires"]!, CultureInfo.InvariantCulture));
+        Assert.InRange(stopsAt, signed.ExpiresAt.AddSeconds(-2), signed.ExpiresAt.AddSeconds(1));
     }
 
     [Fact]
