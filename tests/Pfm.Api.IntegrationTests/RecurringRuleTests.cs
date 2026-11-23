@@ -154,7 +154,7 @@ public class RecurringRuleTests(PfmApi api)
         rule["startDate"] = "2031-03-03";
         rule["endDate"] = "2031-06-30";
         rule.Remove("payee");
-        var response = await browser.PutAsync($"{Rules}/{created.Id}", rule);
+        var response = await browser.PutAsync($"{Rules}/{created.Id}", rule, await VersionOfAsync(browser, created.Id));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var edited = (await response.Content.ReadFromJsonAsync<RuleBody>())!;
@@ -173,10 +173,47 @@ public class RecurringRuleTests(PfmApi api)
         rule["amount"] = "0";
         rule["type"] = "transferIn";
 
-        var response = await browser.PutAsync($"{Rules}/{created.Id}", rule);
+        var response = await browser.PutAsync($"{Rules}/{created.Id}", rule, await VersionOfAsync(browser, created.Id));
 
         Assert.Equal(["amount", "type"], await response.ErrorFieldsAsync());
         Assert.Equal(created, await browser.Http.GetFromJsonAsync<RuleBody>($"{Rules}/{created.Id}"));
+    }
+
+    [Fact]
+    public async Task An_edit_made_from_a_stale_row_version_is_refused_with_412_and_one_without_a_row_version_with_428_and_neither_changes_the_rule()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await ANewAsync(browser, "expense", await AddAccountAsync(browser, "Everyday", "VND"), "100");
+        var created = await AddAsync(browser, rule);
+        var path = $"{Rules}/{created.Id}";
+        var read = await VersionOfAsync(browser, created.Id);
+        rule["amount"] = "200";
+        var first = await browser.PutAsync(path, rule, read);
+
+        rule["amount"] = "300";
+        var stale = await browser.PutAsync(path, rule, read);
+        var none = await browser.PutAsync(path, rule);
+
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(first.Headers.ETag?.Tag, await VersionOfAsync(browser, created.Id));
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        Assert.Equal(HttpStatusCode.PreconditionRequired, none.StatusCode);
+        Assert.Equal("200.00", (await browser.Http.GetFromJsonAsync<RuleBody>(path))!.Amount);
+    }
+
+    [Fact]
+    public async Task Pausing_a_rule_changes_its_row_version_so_an_edit_read_before_the_pause_is_stale()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await ANewAsync(browser, "expense", await AddAccountAsync(browser, "Everyday"), "100");
+        var created = await AddAsync(browser, rule);
+        var read = await VersionOfAsync(browser, created.Id);
+
+        var paused = await browser.PostAsync($"{Rules}/{created.Id}/pause");
+        var edit = await browser.PutAsync($"{Rules}/{created.Id}", rule, read);
+
+        Assert.NotEqual(read, paused.Headers.ETag?.Tag);
+        Assert.Equal(HttpStatusCode.PreconditionFailed, edit.StatusCode);
     }
 
     [Fact]
@@ -219,7 +256,7 @@ public class RecurringRuleTests(PfmApi api)
 
         Assert.Empty((await ListAsync(alice)).Items);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync($"{Rules}/{bobs.Id}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await alice.PutAsync($"{Rules}/{bobs.Id}", alices)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.PutAsync($"{Rules}/{bobs.Id}", alices, await VersionOfAsync(bob, bobs.Id))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.PostAsync($"{Rules}/{bobs.Id}/pause")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.PostAsync($"{Rules}/{bobs.Id}/resume")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await alice.DeleteAsync($"{Rules}/{bobs.Id}")).StatusCode);
@@ -276,6 +313,14 @@ public class RecurringRuleTests(PfmApi api)
         var response = await browser.PostAsync(Rules, rule);
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<RuleBody>())!;
+    }
+
+    /// <summary>The rule's row version as its ETag gives it, in double quotes, ready for <c>If-Match</c>.</summary>
+    private static async Task<string> VersionOfAsync(Browser browser, Guid id)
+    {
+        var response = await browser.GetAsync($"{Rules}/{id}");
+        response.EnsureSuccessStatusCode();
+        return response.Headers.ETag!.Tag;
     }
 
     private static async Task<RuleList> ListAsync(Browser browser, string query = "")

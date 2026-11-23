@@ -1,4 +1,6 @@
+using System.Globalization;
 using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.AspNetCore.Mvc;
 using Pfm.Application.Transactions.Recurring;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
@@ -9,17 +11,21 @@ namespace Pfm.Api.Transactions;
 /// <summary>Recurring rules over HTTP. The use cases decide everything; these only map requests and answers.</summary>
 public static class RecurringRuleEndpoints
 {
+    /// <summary>What these endpoints edit, as a problem about its row version names it.</summary>
+    private const string What = "recurring rule";
+
     public static IEndpointRouteBuilder MapRecurringRuleEndpoints(this IEndpointRouteBuilder api)
     {
         var rules = api.MapGroup("/recurring-rules").WithTags("Recurring rules").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         rules.MapGet("/", List).WithName("ListRecurringRules")
             .WithDescription("The user's recurring rules, the last set up first.");
-        rules.MapGet("/{id:guid}", Get).WithName("GetRecurringRule");
+        rules.MapGet("/{id:guid}", Get).WithName("GetRecurringRule")
+            .WithDescription("One recurring rule. The ETag header carries its row version.");
         rules.MapPost("/", Create).WithName("CreateRecurringRule")
             .WithDescription("Sets up income or an expense that repeats. The worker posts each occurrence as a transaction on its due date, in the user's time zone. A start date in the past is allowed: the occurrences since then are posted, each on its own due date.");
         rules.MapPut("/{id:guid}", Edit).WithName("EditRecurringRule")
-            .WithDescription("Replaces what the rule's next transactions say and when they are due. Transactions it already posted stay as they are, and a new schedule carries on after the last occurrence posted or skipped.");
+            .WithDescription("Replaces what the rule's next transactions say and when they are due. Transactions it already posted stay as they are, and a new schedule carries on after the last occurrence posted or skipped. Send the row version last read as If-Match: a stale one answers 412, none answers 428. Posting an occurrence, pausing and resuming change the row version too.");
         rules.MapPost("/{id:guid}/pause", Pause).WithName("PauseRecurringRule")
             .WithDescription("Pauses the rule: it posts nothing until it is resumed.");
         rules.MapPost("/{id:guid}/resume", Resume).WithName("ResumeRecurringRule")
@@ -50,13 +56,14 @@ public static class RecurringRuleEndpoints
         return TypedResults.Ok(new RecurringRuleListResponse([.. page.Items.Select(RecurringRuleResponse.From)], page.NextCursor));
     }
 
-    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound>> Get(Guid id, GetRecurringRuleHandler handler, CancellationToken cancellationToken) =>
+    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound>> Get(
+        Guid id, GetRecurringRuleHandler handler, HttpContext http, CancellationToken cancellationToken) =>
         await handler.HandleAsync(new GetRecurringRule(id), cancellationToken) is { } rule
-            ? TypedResults.Ok(RecurringRuleResponse.From(rule))
+            ? TypedResults.Ok(Versioned(http, RecurringRuleResponse.From(rule)))
             : TypedResults.NotFound();
 
     private static async Task<Results<Created<RecurringRuleResponse>, ValidationProblem>> Create(
-        RecurringRuleRequest request, CreateRecurringRuleHandler handler, CancellationToken cancellationToken)
+        RecurringRuleRequest request, CreateRecurringRuleHandler handler, HttpContext http, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
             new CreateRecurringRuleCommand(
@@ -68,24 +75,44 @@ public static class RecurringRuleEndpoints
             return ValidationProblems.For(result);
         }
 
-        return TypedResults.Created($"/api/v1/recurring-rules/{result.Outcome.Id}", RecurringRuleResponse.From(result.Outcome));
+        return TypedResults.Created($"/api/v1/recurring-rules/{result.Outcome.Id}", Versioned(http, RecurringRuleResponse.From(result.Outcome)));
     }
 
-    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem>> Edit(
-        Guid id, RecurringRuleRequest request, EditRecurringRuleHandler handler, CancellationToken cancellationToken) =>
-        Changed(await handler.HandleAsync(
+    /// <param name="ifMatch">The rule's row version as last read, in double quotes: its ETag.</param>
+    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem, ProblemHttpResult>> Edit(
+        Guid id, RecurringRuleRequest request, [FromHeader(Name = "If-Match")] string? ifMatch, EditRecurringRuleHandler handler, HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!RowVersions.TryRead(ifMatch, What, out var rowVersion, out var refused))
+        {
+            return refused;
+        }
+
+        var result = await handler.HandleAsync(
             new EditRecurringRuleCommand(
-                id, request.Type, request.AccountId, request.Amount, request.CategoryId, request.Payee, request.Note, request.Frequency,
+                id, rowVersion, request.Type, request.AccountId, request.Amount, request.CategoryId, request.Payee, request.Note, request.Frequency,
                 request.Interval, request.StartDate, request.EndDate),
-            cancellationToken));
+            cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            null => TypedResults.NotFound(),
+            { Edited: { } edited } => TypedResults.Ok(Versioned(http, RecurringRuleResponse.From(edited))),
+            _ => RowVersions.Stale(What),
+        };
+    }
 
     private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem>> Pause(
-        Guid id, PauseRecurringRuleHandler handler, CancellationToken cancellationToken) =>
-        Changed(await handler.HandleAsync(new PauseRecurringRuleCommand(id), cancellationToken));
+        Guid id, PauseRecurringRuleHandler handler, HttpContext http, CancellationToken cancellationToken) =>
+        Changed(http, await handler.HandleAsync(new PauseRecurringRuleCommand(id), cancellationToken));
 
     private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem>> Resume(
-        Guid id, ResumeRecurringRuleHandler handler, CancellationToken cancellationToken) =>
-        Changed(await handler.HandleAsync(new ResumeRecurringRuleCommand(id), cancellationToken));
+        Guid id, ResumeRecurringRuleHandler handler, HttpContext http, CancellationToken cancellationToken) =>
+        Changed(http, await handler.HandleAsync(new ResumeRecurringRuleCommand(id), cancellationToken));
 
     private static async Task<Results<NoContent, NotFound, ValidationProblem>> Delete(
         Guid id, DeleteRecurringRuleHandler handler, CancellationToken cancellationToken)
@@ -100,14 +127,20 @@ public static class RecurringRuleEndpoints
     }
 
     /// <summary>The rule as a change left it, 404 when the user has no such rule, or the fields to fix.</summary>
-    private static Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem> Changed(Result<RecurringRuleDetails?> result)
+    private static Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem> Changed(HttpContext http, Result<RecurringRuleDetails?> result)
     {
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is { } rule ? TypedResults.Ok(RecurringRuleResponse.From(rule)) : TypedResults.NotFound();
+        return result.Outcome is { } rule ? TypedResults.Ok(Versioned(http, RecurringRuleResponse.From(rule))) : TypedResults.NotFound();
+    }
+
+    private static RecurringRuleResponse Versioned(HttpContext http, RecurringRuleResponse rule)
+    {
+        http.SendAsETag(rule.RowVersion);
+        return rule;
     }
 }
 
@@ -131,13 +164,14 @@ public sealed record RecurringRuleRequest(
 /// <param name="Currency">The currency of the rule's account.</param>
 /// <param name="Interval">How many days apart an <c>everyNDays</c> rule is due; null for any other frequency.</param>
 /// <param name="NextRunDate">The due date of the next occurrence to post; null once the rule has ended. A paused rule keeps the date it stopped at.</param>
+/// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the rule.</param>
 public sealed record RecurringRuleResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, Guid CategoryId, string? Payee, string? Note,
-    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused)
+    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused, string RowVersion)
 {
     public static RecurringRuleResponse From(RecurringRuleDetails rule) =>
         new(rule.Id, rule.Type, rule.AccountId, AmountJson.Text(rule.Amount), rule.Currency, rule.CategoryId, rule.Payee, rule.Note, rule.Frequency,
-            rule.Interval, rule.StartDate, rule.EndDate, rule.NextRunDate, rule.IsPaused);
+            rule.Interval, rule.StartDate, rule.EndDate, rule.NextRunDate, rule.IsPaused, rule.RowVersion.ToString(CultureInfo.InvariantCulture));
 }
 
 /// <summary>A page of recurring rules. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>

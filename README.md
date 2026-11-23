@@ -327,7 +327,9 @@ already uses it can still show it. An account can be archived at any balance.
   they cancel the deletion by signing in, what was due meanwhile is posted like any other missed occurrence.
 - **Pause, resume, edit, delete.** `POST /recurring-rules/{id}/pause` stops a rule posting;
   `POST /recurring-rules/{id}/resume` has it post again from today, skipping what was due meanwhile. `PUT` replaces
-  the template and the schedule: posted transactions stay as they are, and the new schedule carries on after the
+  the template and the schedule, from the rule's row version in `If-Match` like every edit (412 when stale, 428
+  without); posting an occurrence, pausing and resuming move the row version on too, so an edit read before
+  any of them is stale: posted transactions stay as they are, and the new schedule carries on after the
   last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
   is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
 - Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
@@ -573,9 +575,10 @@ Registration uses it to create the new user's default categories.
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
-- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account or a transaction is PostgreSQL's
-  `xmin`, also sent as the `ETag` of every response that answers one of them. `PUT /accounts/{id}` and
-  `PUT /transactions/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+- **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
+  recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
+  of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
+  `PUT /recurring-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has

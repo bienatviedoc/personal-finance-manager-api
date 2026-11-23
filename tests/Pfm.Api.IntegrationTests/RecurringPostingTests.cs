@@ -156,7 +156,7 @@ public class RecurringPostingTests(PfmApi api)
         var edited = await browser.PutAsync($"{Rules}/{rule.Id}", new
         {
             type = "expense", accountId = everyday, amount = "250", categoryId = rule.CategoryId, frequency = "weekly", startDate = Text(Today.AddDays(-21)),
-        });
+        }, (await browser.GetAsync($"{Rules}/{rule.Id}")).Headers.ETag!.Tag);
         await PostDueAsync();
 
         Assert.Equal(Text(Today.AddDays(7)), (await edited.Content.ReadFromJsonAsync<RuleBody>())!.NextRunDate);
