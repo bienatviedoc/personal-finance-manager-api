@@ -4,10 +4,12 @@ using Pfm.Infrastructure.Observability;
 using Pfm.Worker.ExchangeRates;
 using Pfm.Worker.Identity;
 using Pfm.Worker.Recurring;
+using Pfm.Worker.Transactions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.AddPfmObservability("pfm-worker");
+builder.AddPfmObservability("pfm-worker")
+    .WithMetrics(metrics => metrics.AddMeter(IntegrityCheckJob.MeterName));
 
 // The worker shares the API's use cases and database, so a job follows the same rules as a request.
 builder.Services.AddApplication();
@@ -22,5 +24,10 @@ builder.Services.AddOptions<RecurringPostingOptions>()
     .ValidateOnStart();
 builder.Services.AddHostedService<RecurringPostingJob>();
 builder.Services.AddHostedService<UserErasureJob>();
+builder.Services.AddOptions<IntegrityCheckOptions>()
+    .BindConfiguration(IntegrityCheckOptions.Section)
+    .Validate(options => options.RunEvery > TimeSpan.Zero, "IntegrityCheck:RunEvery must be longer than zero.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<IntegrityCheckJob>();
 
 builder.Build().Run();
