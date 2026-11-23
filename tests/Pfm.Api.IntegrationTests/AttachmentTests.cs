@@ -1,5 +1,9 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
@@ -86,6 +90,28 @@ public class AttachmentTests(PfmApi api)
         Assert.Equal(HttpStatusCode.BadRequest, overTheLimit.StatusCode);
         Assert.Equal("Attach a file of at most 5 MB.", await overTheLimit.ErrorOnAsync("file"));
         Assert.Equal([("big.pdf", FiveMegabytes)], (await ListAsync(browser, transaction)).Select(attachment => (attachment.FileName, attachment.Size)));
+    }
+
+    /// <summary>
+    /// Kestrel cuts off an upload over the endpoint's request limit with a bare 413 before it is read; the test
+    /// server sets no such limit, so the problem that 413 becomes is written here the way the server writes it.
+    /// </summary>
+    [Fact]
+    public async Task A_file_too_large_to_be_read_at_all_is_refused_with_the_same_message()
+    {
+        var addAttachment = api.Services.GetRequiredService<EndpointDataSource>().Endpoints
+            .Single(endpoint => endpoint.Metadata.GetMetadata<IEndpointNameMetadata>()?.EndpointName == "AddAttachment");
+        await using var scope = api.Services.CreateAsyncScope();
+        var http = new DefaultHttpContext { RequestServices = scope.ServiceProvider, Response = { Body = new MemoryStream() } };
+        http.SetEndpoint(addAttachment);
+        http.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+
+        await scope.ServiceProvider.GetRequiredService<IProblemDetailsService>()
+            .WriteAsync(new ProblemDetailsContext { HttpContext = http, ProblemDetails = { Status = StatusCodes.Status413PayloadTooLarge } });
+
+        http.Response.Body.Position = 0;
+        using var problem = await JsonDocument.ParseAsync(http.Response.Body);
+        Assert.Equal("Attach a file of at most 5 MB.", problem.RootElement.GetProperty("detail").GetString());
     }
 
     [Fact]
