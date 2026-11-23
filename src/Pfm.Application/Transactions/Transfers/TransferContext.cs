@@ -19,16 +19,14 @@ public sealed class TransferContext(IAccountLookup accounts, IUserCalendar calen
     /// <param name="current">The transfer being edited, which may stay on an account after it is archived.</param>
     internal async Task<Result<TransferredBetween>> ReadAsync(ITransferCommand command, Transfer? current, CancellationToken cancellationToken)
     {
-        var from = await accounts.FindAsync(command.FromAccountId, cancellationToken);
-        if (from is null || (from.IsArchived && from.Id != current?.FromAccountId))
+        if (await accounts.FindChoosableAsync(command.FromAccountId, current?.FromAccountId, cancellationToken) is not { } from)
         {
-            return Result<TransferredBetween>.Invalid(FieldError.On(nameof(ITransferCommand.FromAccountId), "Choose one of your accounts that is not archived."));
+            return Result<TransferredBetween>.Invalid(FieldError.On(nameof(ITransferCommand.FromAccountId), Choices.NotAnAccount));
         }
 
-        var to = await accounts.FindAsync(command.ToAccountId, cancellationToken);
-        if (to is null || (to.IsArchived && to.Id != current?.ToAccountId))
+        if (await accounts.FindChoosableAsync(command.ToAccountId, current?.ToAccountId, cancellationToken) is not { } to)
         {
-            return Result<TransferredBetween>.Invalid(FieldError.On(nameof(ITransferCommand.ToAccountId), "Choose one of your accounts that is not archived."));
+            return Result<TransferredBetween>.Invalid(FieldError.On(nameof(ITransferCommand.ToAccountId), Choices.NotAnAccount));
         }
 
         // Accounts in one currency move one amount. Between currencies the user says what arrived: no exchange

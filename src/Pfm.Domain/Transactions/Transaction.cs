@@ -404,14 +404,9 @@ public sealed class Transaction : IUserOwned
             throw new ArgumentException($"A note is at most {MaxNoteLength} characters.", nameof(note));
         }
 
-        if (amount <= 0)
+        if (AmountRuleBroken(amount, currency) is { } amountRule)
         {
-            throw new TransactionRuleViolation(nameof(Amount), "An amount is greater than zero.");
-        }
-
-        if (!Amounts.IsValid(amount, currency))
-        {
-            throw new TransactionRuleViolation(nameof(Amount), $"An amount in {currency} has at most {currency.DecimalPlaces()} decimals and {Amounts.MaxIntegerDigits} digits before them.");
+            throw new TransactionRuleViolation(nameof(Amount), amountRule);
         }
 
         if (date > today)
@@ -450,6 +445,19 @@ public sealed class Transaction : IUserOwned
         Replace(lines, now);
     }
 
+    /// <summary>What rule an amount in this currency breaks, for a transaction, one of its lines or a recurring rule; null when it breaks none.</summary>
+    internal static string? AmountRuleBroken(decimal amount, Currency currency) =>
+        amount <= 0 ? "An amount is greater than zero."
+        : !Amounts.IsValid(amount, currency) ? $"An amount in {currency} has at most {currency.DecimalPlaces()} decimals and {Amounts.MaxIntegerDigits} digits before them."
+        : null;
+
+    /// <summary>What rule income or an expense on this category breaks (spec section 3, rule 13); null when it breaks none.</summary>
+    /// <param name="keeps">Whether it is on the category already, which an archived category keeps.</param>
+    internal static string? CategoryRuleBroken(Category category, TransactionType type, bool keeps) =>
+        category.IsArchived && !keeps ? "An archived category takes no new transactions."
+        : category.Kind != type.CategoryKind() ? (type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.")
+        : null;
+
     /// <summary>The rules of a transaction's lines, each broken one named by where it is: <c>Lines[1].Amount</c>.</summary>
     private void GuardLines(TransactionType type, Currency currency, decimal amount, IReadOnlyList<SplitLine> lines, bool split)
     {
@@ -469,26 +477,14 @@ public sealed class Transaction : IUserOwned
                 throw new ArgumentException($"A note is at most {MaxNoteLength} characters.", nameof(lines));
             }
 
-            if (line.Amount <= 0)
+            if (AmountRuleBroken(line.Amount, currency) is { } amountRule)
             {
-                throw new TransactionRuleViolation(at + nameof(Amount), "An amount is greater than zero.");
+                throw new TransactionRuleViolation(at + nameof(Amount), amountRule);
             }
 
-            if (!Amounts.IsValid(line.Amount, currency))
+            if (CategoryRuleBroken(category, type, categoriesItHas.Contains(category.Id)) is { } categoryRule)
             {
-                throw new TransactionRuleViolation(at + nameof(Amount), $"An amount in {currency} has at most {currency.DecimalPlaces()} decimals and {Amounts.MaxIntegerDigits} digits before them.");
-            }
-
-            if (category.IsArchived && !categoriesItHas.Contains(category.Id))
-            {
-                throw new TransactionRuleViolation(at + nameof(CategoryId), "An archived category takes no new transactions.");
-            }
-
-            if (category.Kind != type.CategoryKind())
-            {
-                throw new TransactionRuleViolation(
-                    at + nameof(CategoryId),
-                    type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.");
+                throw new TransactionRuleViolation(at + nameof(CategoryId), categoryRule);
             }
         }
 
