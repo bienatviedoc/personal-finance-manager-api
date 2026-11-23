@@ -27,6 +27,14 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     public Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt == null, cancellationToken);
 
+    public async Task<Transfer?> FindTransferAsync(Guid transferId, bool deletedToo, CancellationToken cancellationToken)
+    {
+        var legs = await db.Set<Transaction>()
+            .Where(transaction => transaction.TransferId == transferId && (deletedToo || transaction.DeletedAt == null))
+            .ToListAsync(cancellationToken);
+        return legs.Count == 0 ? null : Transfer.Of(legs);
+    }
+
     public Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken) =>
         db.Set<Transaction>()
             .AsNoTracking()
@@ -57,5 +65,11 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         var added = db.Set<Transaction>().Add(transaction);
         added.Property(TransactionConfiguration.IdempotencyKey).CurrentValue = request?.Key;
         added.Property(TransactionConfiguration.IdempotencyFingerprint).CurrentValue = request?.Fingerprint;
+    }
+
+    public void Add(Transfer transfer, IdempotentRequest? request)
+    {
+        Add(transfer.OutLeg, request);
+        Add(transfer.InLeg, request: null);
     }
 }

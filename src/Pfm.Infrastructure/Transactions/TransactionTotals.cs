@@ -13,7 +13,8 @@ namespace Pfm.Infrastructure.Transactions;
 internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage
 {
     /// <summary>
-    /// Income − expenses of each account (spec section 3, rule 2), leaving out deleted transactions. The
+    /// Income − expenses + transfers in − transfers out of each account (spec section 3, rule 2), leaving out
+    /// deleted transactions. The
     /// database adds up the amounts of each type; the sign of a type has one definition,
     /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
     /// </summary>
@@ -39,5 +40,5 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
 
     /// <summary>A deleted transaction still counts, as for an account: it would come back with a category of the wrong kind.</summary>
     public Task<bool> HasTransactionsAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
-        db.Set<Transaction>().AnyAsync(transaction => categoryIds.Contains(transaction.CategoryId), cancellationToken);
+        db.Set<Transaction>().AnyAsync(transaction => transaction.CategoryId != null && categoryIds.Contains(transaction.CategoryId.Value), cancellationToken);
 }

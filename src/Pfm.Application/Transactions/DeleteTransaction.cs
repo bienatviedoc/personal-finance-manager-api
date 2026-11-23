@@ -4,7 +4,11 @@ using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions;
 
-/// <summary>Deletes a transaction, softly: it leaves lists and balances at once and stays recoverable (spec section 3, rule 10).</summary>
+/// <summary>
+/// Deletes a transaction, softly: it leaves lists and balances at once and stays recoverable (spec section 3,
+/// rule 10). Deleting a leg of a transfer deletes the transfer: the other leg goes with it, in the same save
+/// (rule 3).
+/// </summary>
 public sealed record DeleteTransactionCommand(Guid Id);
 
 public sealed class DeleteTransactionValidator : AbstractValidator<DeleteTransactionCommand>
@@ -28,7 +32,16 @@ public sealed class DeleteTransactionHandler(
                 return (Done?)null;
             }
 
-            transaction.Delete(clock.GetUtcNow());
+            if (transaction.TransferId is { } transferId)
+            {
+                // The other leg deleted by another request in between fails the save, and the delete is made again.
+                (await transactions.FindTransferAsync(transferId, deletedToo: true, cancellationToken))!.Delete(clock.GetUtcNow());
+            }
+            else
+            {
+                transaction.Delete(clock.GetUtcNow());
+            }
+
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return new Done();
         });

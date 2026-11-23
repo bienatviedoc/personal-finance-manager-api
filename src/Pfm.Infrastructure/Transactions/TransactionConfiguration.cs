@@ -43,6 +43,11 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             table.HasCheckConstraint(
                 "CK_Transactions_Converted_Or_Not",
                 "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+            // The legs of a transfer, and only they, share a transfer id (decision record 0001); a leg is
+            // neither income nor spending, so it has no category.
+            table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_TransferId", "(\"Type\" IN ('TransferOut', 'TransferIn')) = (\"TransferId\" IS NOT NULL)");
+            table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_Category", "\"TransferId\" IS NULL OR \"CategoryId\" IS NULL");
         });
         transaction.HasKey(row => row.Id);
         transaction.Property(row => row.Id).ValueGeneratedNever();
@@ -76,6 +81,7 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         transaction.Ignore(row => row.IsDeleted);
         transaction.Ignore(row => row.SignedAmount);
         transaction.Ignore(row => row.IsConverted);
+        transaction.Ignore(row => row.IsTransferLeg);
 
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
@@ -86,6 +92,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
 
         // The transactions waiting for an exchange rate, which a fetch of new rates converts.
         transaction.HasIndex(row => row.UserId).HasFilter("\"BaseCurrencyAmount\" IS NULL").HasDatabaseName("IX_Transactions_UserId_NotConverted");
+
+        // Finds the other leg, and a transfer has one leg of each type, never two (spec section 10).
+        transaction.HasIndex(row => new { row.TransferId, row.Type }).IsUnique();
 
         // A retried request cannot record its transaction twice. Rows without a key never collide.
         transaction.HasIndex(nameof(Transaction.UserId), IdempotencyKey).IsUnique();

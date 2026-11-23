@@ -318,7 +318,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
 
-                    b.Property<Guid>("CategoryId")
+                    b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("CategoryKind")
@@ -362,6 +362,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAddOrUpdate()
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
+
+                    b.Property<Guid?>("TransferId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -410,6 +413,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("IX_Transactions_UserId_NotConverted")
                         .HasFilter("\"BaseCurrencyAmount\" IS NULL");
 
+                    b.HasIndex("TransferId", "Type")
+                        .IsUnique();
+
                     b.HasIndex("UserId", "IdempotencyKey")
                         .IsUnique();
 
@@ -423,6 +429,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
                             t.HasCheckConstraint("CK_Transactions_Converted_Or_Not", "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_Category", "\"TransferId\" IS NULL OR \"CategoryId\" IS NULL");
+
+                            t.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_TransferId", "(\"Type\" IN ('TransferOut', 'TransferIn')) = (\"TransferId\" IS NOT NULL)");
                         });
                 });
 
@@ -562,8 +572,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 #pragma warning restore 612, 618
         }
