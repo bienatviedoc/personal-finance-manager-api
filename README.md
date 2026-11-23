@@ -600,7 +600,8 @@ Registration uses it to create the new user's default categories.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its
-  name in camelCase (`"income"`, `"creditCard"`), never as a number; `JsonSetup` is the one place that says so. Enums are listed
+  name in camelCase (`"income"`, `"creditCard"`), never as a number; `EnumText` (`Pfm.Application.UseCases`) is the one place
+  that says so, for the JSON (`JsonSetup`), the export and the commands that read them. Enums are listed
   in the OpenAPI document, so the SPA's generated types know their values.
 - **Migrations** are forward-only and never run at start-up. `Pfm.Api migrate` applies them and exits;
   Compose and deployments run it as a separate step. Add one with:

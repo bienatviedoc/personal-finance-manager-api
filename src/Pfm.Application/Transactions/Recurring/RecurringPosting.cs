@@ -1,5 +1,5 @@
 using System.Globalization;
-using System.Text.Json;
+using Pfm.Application.UseCases;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Domain.Transactions;
@@ -107,7 +107,7 @@ public sealed class RecurringPosting(
     {
         var date = dueDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         return new CreateTransactionCommand(
-            JsonNamingPolicy.CamelCase.ConvertName(rule.Type.ToString()), rule.AccountId, rule.Amount.ToString(CultureInfo.InvariantCulture), date,
+            EnumText.Of(rule.Type), rule.AccountId, rule.Amount.ToString(CultureInfo.InvariantCulture), date,
             rule.CategoryId, rule.Payee, rule.Note, IdempotencyKey: string.Create(CultureInfo.InvariantCulture, $"recurring-rule:{rule.Id:N}:{date}"), RecurringRuleId: rule.Id);
     }
 }
