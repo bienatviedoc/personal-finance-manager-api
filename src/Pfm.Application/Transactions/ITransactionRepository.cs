@@ -9,10 +9,14 @@ namespace Pfm.Application.Transactions;
 public interface ITransactionRepository
 {
     /// <summary>
-    /// Up to <paramref name="take"/> transactions, newest date first and, within a date, last recorded first,
-    /// starting after <paramref name="after"/>.
+    /// Up to <paramref name="take"/> transactions that pass <paramref name="filter"/>, in the order of
+    /// <paramref name="sort"/>, starting after <paramref name="after"/>.
     /// </summary>
-    Task<IReadOnlyList<Transaction>> ListAsync(int take, TransactionCursor? after, CancellationToken cancellationToken);
+    Task<IReadOnlyList<Transaction>> ListAsync(
+        TransactionFilter filter, TransactionSort sort, int take, TransactionCursor? after, CancellationToken cancellationToken);
+
+    /// <summary>Every transaction that passes <paramref name="filter"/>, counted and added up by currency and type.</summary>
+    Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
