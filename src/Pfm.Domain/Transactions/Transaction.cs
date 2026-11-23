@@ -354,15 +354,25 @@ public sealed class Transaction : IUserOwned
         }
     }
 
-    /// <summary>Lines that already say what was entered stay as they are; otherwise the new ones take their place.</summary>
+    /// <summary>
+    /// The line at each position says what was entered there: the ones the transaction has are changed where
+    /// they stand, more are added after them and the ones past the last are removed.
+    /// </summary>
     private void Replace(IReadOnlyList<SplitLine> lines, DateTimeOffset now)
     {
-        if (_lines.Count == lines.Count && Lines.Select((line, position) => line.Says(position, lines[position])).All(same => same))
+        var has = Lines;
+        for (var position = 0; position < lines.Count; position++)
         {
-            return;
+            if (position < has.Count)
+            {
+                has[position].Become(lines[position]);
+            }
+            else
+            {
+                _lines.Add(new TransactionLine(position, lines[position], now));
+            }
         }
 
-        _lines.Clear();
-        _lines.AddRange(lines.Select((line, position) => new TransactionLine(position, line.Category, line.Amount, line.Note, now)));
+        _lines.RemoveAll(line => line.Position >= lines.Count);
     }
 }

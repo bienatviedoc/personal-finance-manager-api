@@ -3,7 +3,7 @@ namespace Pfm.Domain.Transactions;
 /// <summary>
 /// A part of a transaction's amount and the category it was for. A transaction has one line, with its whole
 /// amount, or several when it is split; its lines always sum exactly to its amount (spec section 3, rule 5).
-/// Lines are the transaction's own: they are written, replaced and deleted only through it.
+/// Lines are the transaction's own: they are written, changed and removed only through it.
 /// </summary>
 public sealed class TransactionLine
 {
@@ -12,14 +12,11 @@ public sealed class TransactionLine
     {
     }
 
-    internal TransactionLine(int position, Category category, decimal amount, string? note, DateTimeOffset now)
+    internal TransactionLine(int position, SplitLine entered, DateTimeOffset now)
     {
         Id = Guid.CreateVersion7(now);
         Position = position;
-        CategoryId = category.Id;
-        CategoryKind = category.Kind;
-        Amount = amount;
-        Note = Transaction.Normalised(note);
+        Become(entered);
     }
 
     public Guid Id { get; private set; }
@@ -41,10 +38,14 @@ public sealed class TransactionLine
     /// <summary>What this part was for; null when not entered. The transaction has a note of its own.</summary>
     public string? Note { get; private set; }
 
-    /// <summary>Whether the line already says this, so an edit that changes nothing about it leaves it alone.</summary>
-    internal bool Says(int position, SplitLine line) =>
-        Position == position && CategoryId == line.Category.Id && CategoryKind == line.Category.Kind && Amount == line.Amount
-        && Note == Transaction.Normalised(line.Note);
+    /// <summary>The line at this position now says what was entered there. The transaction has checked it.</summary>
+    internal void Become(SplitLine entered)
+    {
+        CategoryId = entered.Category.Id;
+        CategoryKind = entered.Category.Kind;
+        Amount = entered.Amount;
+        Note = Transaction.Normalised(entered.Note);
+    }
 }
 
 /// <summary>A line as it is entered: one of the user's categories, the part of the amount it takes and an optional note.</summary>
