@@ -61,6 +61,16 @@ public class TransferTests
     }
 
     [Fact]
+    public void A_leg_is_never_posted_by_a_recurring_rule()
+    {
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+
+        Assert.Throws<InvalidOperationException>(() => transfer.OutLeg.PostedBy(Guid.CreateVersion7()));
+        Assert.Throws<InvalidOperationException>(() => transfer.InLeg.PostedBy(Guid.CreateVersion7()));
+        Assert.Null(transfer.OutLeg.RecurringRuleId);
+    }
+
+    [Fact]
     public void A_leg_is_never_a_refund()
     {
         var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);

@@ -20,9 +20,10 @@ namespace Pfm.Application.Transactions;
 /// the first one recorded and records nothing; sending another transaction with it is refused.
 /// </param>
 /// <param name="Lines">The lines of a split, which sum exactly to the amount; <paramref name="CategoryId"/> is then left empty.</param>
+/// <param name="RecurringRuleId">The recurring rule posting the transaction as one of its occurrences; null when a user records it.</param>
 public sealed record CreateTransactionCommand(
     string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null,
-    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null)
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null, Guid? RecurringRuleId = null)
     : ITransactionCommand
 {
     public const int MaxIdempotencyKeyLength = 200;
@@ -94,6 +95,11 @@ public sealed class CreateTransactionHandler(
         catch (TransactionRuleViolation violation)
         {
             return Result<CreateTransactionOutcome>.Invalid(violation.AsErrors());
+        }
+
+        if (command.RecurringRuleId is { } recurringRuleId)
+        {
+            transaction.PostedBy(recurringRuleId);
         }
 
         await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);

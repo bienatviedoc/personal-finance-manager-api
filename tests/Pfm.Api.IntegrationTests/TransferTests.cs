@@ -514,6 +514,25 @@ public class TransferTests(PfmApi api)
         Assert.Equal(cash, quickAdd.LastAccountId);
     }
 
+    [Theory]
+    [InlineData("transferOut")]
+    [InlineData("transferIn")]
+    public async Task A_recurring_rule_is_for_income_or_an_expense_and_never_posts_a_leg_of_a_transfer(string type)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "5000");
+
+        var response = await browser.PostAsync("/api/v1/recurring-rules", new
+        {
+            type, accountId = everyday, amount = "1000", categoryId = await CategoryAsync(browser, "Groceries"), frequency = "monthly", startDate = "2026-11-01",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(["type"], await response.ErrorFieldsAsync());
+        Assert.Empty(await LegsAsync(browser));
+        Assert.Equal("5000.00", await BalanceAsync(browser, everyday));
+    }
+
     [Fact]
     public async Task An_accounts_currency_is_fixed_once_a_transfer_goes_through_it()
     {

@@ -201,14 +201,16 @@ public sealed record TransactionLineRequest(Guid CategoryId, string Amount, stri
 /// <param name="CategoryId">The category of the first line: the transaction's only category unless it is split.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the transaction.</param>
 /// <param name="Lines">One line with the whole amount, or, for a split transaction, its lines in the order they were entered; their amounts sum exactly to <paramref name="Amount"/>.</param>
+/// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
-    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines)
+    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion.ToString(CultureInfo.InvariantCulture),
-            transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))]);
+            transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
+            transaction.RecurringRuleId);
 }
 
 /// <summary>What quick add starts a new transaction from.</summary>

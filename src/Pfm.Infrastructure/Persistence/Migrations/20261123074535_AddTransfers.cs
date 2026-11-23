@@ -37,6 +37,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                 sql: "\"TransferId\" IS NULL OR \"CategoryId\" IS NULL");
 
             migrationBuilder.AddCheckConstraint(
+                name: "CK_Transactions_Transfer_Leg_Has_No_RecurringRule",
+                table: "Transactions",
+                sql: "\"TransferId\" IS NULL OR \"RecurringRuleId\" IS NULL");
+
+            migrationBuilder.AddCheckConstraint(
                 name: "CK_Transactions_Transfer_Leg_Has_TransferId",
                 table: "Transactions",
                 sql: "(\"Type\" IN ('TransferOut', 'TransferIn')) = (\"TransferId\" IS NOT NULL)");
@@ -51,6 +56,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
             migrationBuilder.DropCheckConstraint(
                 name: "CK_Transactions_Transfer_Leg_Has_No_Category",
+                table: "Transactions");
+
+            migrationBuilder.DropCheckConstraint(
+                name: "CK_Transactions_Transfer_Leg_Has_No_RecurringRule",
                 table: "Transactions");
 
             migrationBuilder.DropCheckConstraint(
