@@ -70,6 +70,9 @@ public class DataExportTests(PfmApi api)
         // What the user deleted is still held for a while, so it is theirs to take too.
         Assert.Equal("Phở Thìn", deleted["payee"]);
         Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$", deleted["deletedAt"]);
+        // A refund is an expense flagged as money coming back.
+        Assert.Equal("false", kept["isRefund"]);
+        Assert.Equal(("expense", "true"), (Row(transactions, 3)["type"], Row(transactions, 3)["isRefund"]));
         // An account, an institution and a category are named by the id their own file lists them under.
         var account = Row(Csv(files["accounts.csv"]), 1);
         Assert.Equal(account["id"], kept["accountId"]);

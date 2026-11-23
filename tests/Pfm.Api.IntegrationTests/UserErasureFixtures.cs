@@ -47,6 +47,7 @@ public static class UserErasureFixtures
         await RecordAsync(browser, accountId, streetFood, "45000", "Bánh mì Huỳnh Hoa");
         var deleted = await RecordAsync(browser, accountId, food, "120000", "Phở Thìn");
         (await browser.DeleteAsync($"/api/v1/transactions/{deleted}")).EnsureSuccessStatusCode();
+        await RecordAsync(browser, accountId, streetFood, "15000", "Bánh mì Huỳnh Hoa", isRefund: true);
 
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
@@ -54,13 +55,13 @@ public static class UserErasureFixtures
             ["Accounts"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
-            ["Transactions"] = 2,
+            ["Transactions"] = 3,
         };
     }
 
-    private static async Task<Guid> RecordAsync(Browser browser, Guid accountId, Guid categoryId, string amount, string payee)
+    private static async Task<Guid> RecordAsync(Browser browser, Guid accountId, Guid categoryId, string amount, string payee, bool isRefund = false)
     {
-        var response = await browser.PostAsync("/api/v1/transactions", new { type = "expense", accountId, amount, date = "2026-11-02", categoryId, payee, note = "Lunch, with \"extra\" chilli" });
+        var response = await browser.PostAsync("/api/v1/transactions", new { type = "expense", accountId, amount, date = "2026-11-02", categoryId, payee, isRefund, note = "Lunch, with \"extra\" chilli" });
         response.EnsureSuccessStatusCode();
         return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;
     }
