@@ -25,7 +25,7 @@ public static class TransactionEndpoints
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
-            .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing, and a different transaction sent with a key already used answers 422.")
+            .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. An expense flagged isRefund is a refund and raises the balance. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing, and a different transaction sent with a key already used answers 422.")
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         transactions.MapPut("/{id:guid}", Edit).WithName("EditTransaction")
             .WithDescription("Changes a transaction; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
@@ -101,7 +101,8 @@ public static class TransactionEndpoints
     {
         var result = await handler.HandleAsync(
             new CreateTransactionCommand(
-                request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId, request.Payee, request.Note, idempotencyKey),
+                request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId, request.Payee, request.Note, idempotencyKey,
+                request.IsRefund),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -130,7 +131,8 @@ public static class TransactionEndpoints
 
         var result = await handler.HandleAsync(
             new EditTransactionCommand(
-                id, rowVersion, request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId, request.Payee, request.Note),
+                id, rowVersion, request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId, request.Payee, request.Note,
+                request.IsRefund),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -172,20 +174,22 @@ public static class TransactionEndpoints
 /// <param name="CategoryId">One of the user's categories that is not archived: an income category for income, an expense category for an expense.</param>
 /// <param name="Payee">Who was paid, or who paid; at most 200 characters.</param>
 /// <param name="Note">At most 1000 characters.</param>
+/// <param name="IsRefund">Whether the expense is a refund: money coming back from a purchase, which raises the account's balance and lowers spent in its category. Only an expense can be one; false when left out.</param>
 public sealed record TransactionRequest(
-    string Type, Guid AccountId, string Amount, string Date, Guid CategoryId, string? Payee = null, string? Note = null);
+    string Type, Guid AccountId, string Amount, string Date, Guid CategoryId, string? Payee = null, string? Note = null, bool IsRefund = false);
 
 /// <summary>A transaction.</summary>
-/// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign.</param>
+/// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign, except that a refund raises the balance.</param>
+/// <param name="IsRefund">Whether the expense is a refund: money coming back, which raises the account's balance and lowers spent in its category.</param>
 /// <param name="Currency">The currency of the transaction's account.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the transaction.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid CategoryId, string? Payee, string? Note,
-    string RowVersion)
+    string RowVersion, bool IsRefund)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
-            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture));
+            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture), transaction.IsRefund);
 }
 
 /// <summary>What quick add starts a new transaction from.</summary>

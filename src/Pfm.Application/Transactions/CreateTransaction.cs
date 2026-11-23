@@ -14,12 +14,14 @@ namespace Pfm.Application.Transactions;
 /// <param name="Amount">A decimal string greater than zero, such as <c>"125000.00"</c>.</param>
 /// <param name="Date">A calendar date, <c>YYYY-MM-DD</c>, not after today in the user's time zone.</param>
 /// <param name="CategoryId">A category of the kind the type takes.</param>
+/// <param name="IsRefund">Whether the expense is a refund: money coming back, which raises the balance. Only an expense can be one.</param>
 /// <param name="IdempotencyKey">
 /// A key the caller made up for this transaction. Sending the command again with it answers the transaction
 /// the first one recorded and records nothing; sending another transaction with it is refused.
 /// </param>
 public sealed record CreateTransactionCommand(
-    string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null)
+    string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null,
+    bool IsRefund = false)
     : ITransactionCommand
 {
     public const int MaxIdempotencyKeyLength = 200;
@@ -82,7 +84,7 @@ public sealed class CreateTransactionHandler(
         {
             transaction = Transaction.Record(
                 fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                command.Note, against.Today, clock.GetUtcNow());
+                command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
         }
         catch (TransactionRuleViolation violation)
         {

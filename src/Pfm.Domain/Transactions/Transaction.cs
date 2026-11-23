@@ -2,8 +2,9 @@ namespace Pfm.Domain.Transactions;
 
 /// <summary>
 /// One movement of money on one account on one calendar date: income or an expense. Its amount is
-/// positive and its type gives the sign; its currency is its account's. Deleting it is soft: it leaves
-/// lists and balances at once and stays recoverable.
+/// positive and its type gives the sign; its currency is its account's. The one exception to the type
+/// giving the sign is a refund: an expense flagged as money coming back, which raises the balance. Deleting
+/// it is soft: it leaves lists and balances at once and stays recoverable.
 /// </summary>
 /// <remarks>
 /// Its amount is converted into the user's base currency once, at the exchange rate of its date, and never
@@ -35,8 +36,14 @@ public sealed class Transaction : IUserOwned
 
     public TransactionType Type { get; private set; }
 
-    /// <summary>Always greater than zero; <see cref="Type"/> gives the sign.</summary>
+    /// <summary>Always greater than zero; <see cref="Type"/> gives the sign, and <see cref="IsRefund"/> turns an expense's round.</summary>
     public decimal Amount { get; private set; }
+
+    /// <summary>
+    /// Whether the expense is a refund: money coming back from a purchase, which raises the account balance
+    /// and lowers spent in its category instead of counting as income. Only an expense can be one.
+    /// </summary>
+    public bool IsRefund { get; private set; }
 
     /// <summary>Copied from the account the transaction is on.</summary>
     public Currency Currency { get; private set; }
@@ -74,9 +81,16 @@ public sealed class Transaction : IUserOwned
 
     /// <summary>
     /// What the transaction does to its account's balance: nothing once deleted. An account's balance is its
-    /// opening balance plus this of each of its transactions: income − expenses (spec section 3, rule 2).
+    /// opening balance plus this of each of its transactions: income − expenses + refunds (spec section 3, rule 2).
     /// </summary>
-    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount);
+    public decimal SignedAmount => IsDeleted ? 0 : Type.Signed(Amount, IsRefund);
+
+    /// <summary>
+    /// What the transaction does to spent in its category, in the base currency: an expense adds its converted
+    /// amount and a refund takes its own away (spec section 6). Nothing for income, once deleted, or while
+    /// not converted, which is left out of totals (spec section 3, rule 7).
+    /// </summary>
+    public decimal SpentAmount => !IsDeleted && Conversion is { Amount: { } converted } ? Spent.Signed(Type, converted, IsRefund) : 0;
 
     public static bool IsValidPayee(string? payee) => payee is null || payee.Trim().Length <= MaxPayeeLength;
 
@@ -88,9 +102,10 @@ public sealed class Transaction : IUserOwned
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
     /// <param name="category">One of the user's categories that is not archived, of the kind the type takes.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public static Transaction Record(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(category);
         if (category.IsArchived)
@@ -99,7 +114,7 @@ public sealed class Transaction : IUserOwned
         }
 
         var transaction = new Transaction(now);
-        transaction.Set(type, accountId, currency, amount, date, category, payee, note, today, now);
+        transaction.Set(type, accountId, currency, amount, date, category, payee, note, today, now, isRefund);
         return transaction;
     }
 
@@ -109,9 +124,10 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     /// <param name="currency">The currency of the account the transaction is now on.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public void Edit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         ArgumentNullException.ThrowIfNull(category);
         if (IsDeleted)
@@ -124,7 +140,7 @@ public sealed class Transaction : IUserOwned
             throw new TransactionRuleViolation(nameof(CategoryId), "An archived category takes no new transactions.");
         }
 
-        Set(type, accountId, currency, amount, date, category, payee, note, today, now);
+        Set(type, accountId, currency, amount, date, category, payee, note, today, now, isRefund);
     }
 
     /// <summary>Whether the amount is already converted into this base currency, and so is not converted again.</summary>
@@ -186,7 +202,7 @@ public sealed class Transaction : IUserOwned
 
     private void Set(
         TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now)
+        DateOnly today, DateTimeOffset now, bool isRefund = false)
     {
         if (!Enum.IsDefined(type))
         {
@@ -235,6 +251,11 @@ public sealed class Transaction : IUserOwned
                 type == TransactionType.Income ? "An income transaction takes an income category." : "An expense takes an expense category.");
         }
 
+        if (isRefund && type != TransactionType.Expense)
+        {
+            throw new TransactionRuleViolation(nameof(IsRefund), "Only an expense can be a refund.");
+        }
+
         // What was converted is no longer what the transaction says: it is converted again, at its date's rate.
         if (amount != Amount || date != Date || accountId != AccountId)
         {
@@ -245,6 +266,7 @@ public sealed class Transaction : IUserOwned
         AccountId = accountId;
         Currency = currency;
         Amount = amount;
+        IsRefund = isRefund;
         Date = date;
         CategoryId = category.Id;
         Payee = Normalised(payee);
