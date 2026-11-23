@@ -45,7 +45,12 @@ public static class TransactionIntegrity
     }
 
     private static TransferDrift? ProblemWith(IReadOnlyList<Transaction> legs) =>
-        legs.Count != 2 ? TransferDrift.NotTwoLegs : null;
+        legs.Count != 2 ? TransferDrift.NotTwoLegs
+        : legs[0].AccountId == legs[1].AccountId ? TransferDrift.OneAccount
+        : legs[0].IsDeleted != legs[1].IsDeleted ? TransferDrift.OneLegDeleted
+        : legs[0].Currency == legs[1].Currency && legs[0].Amount != legs[1].Amount ? TransferDrift.AmountsDiffer
+        : legs[0].Date != legs[1].Date ? TransferDrift.DatesDiffer
+        : null;
 
     /// <summary>
     /// Each account's balance worked out again here, one transaction at a time from its own
@@ -97,4 +102,16 @@ public enum TransferDrift
 {
     /// <summary>The transfer id is on one transaction, or on more than two.</summary>
     NotTwoLegs,
+
+    /// <summary>One leg is deleted and the other is not, so the money left one account and never arrived, or the other way round.</summary>
+    OneLegDeleted,
+
+    /// <summary>Both legs are on one account, so nothing moved between two.</summary>
+    OneAccount,
+
+    /// <summary>The two accounts are in one currency, and the legs moved different amounts (spec section 3, rule 4).</summary>
+    AmountsDiffer,
+
+    /// <summary>The legs are on different dates, so for a while the money is on neither account or on both.</summary>
+    DatesDiffer,
 }
