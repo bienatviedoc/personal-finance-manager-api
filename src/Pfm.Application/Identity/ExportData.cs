@@ -13,8 +13,11 @@ namespace Pfm.Application.Identity;
 public sealed record ExportData;
 
 /// <param name="FileName">The name to save the download under, with the user's date of the export.</param>
-/// <param name="Zip">A ZIP archive of open formats: <c>profile.json</c> and one CSV file for each kind of data.</param>
-public sealed record DataExport(string FileName, byte[] Zip);
+/// <param name="WriteZipAsync">
+/// Writes a ZIP archive of open formats, <c>profile.json</c> and one CSV file for each kind of data, to the stream
+/// as it goes: the attached files can come to far more than is wise to hold in memory, so none is held whole.
+/// </param>
+public sealed record DataExport(string FileName, Func<Stream, CancellationToken, Task> WriteZipAsync);
 
 /// <summary>
 /// The export is the user's profile and every row they own (<see cref="IUserData"/>), a file for each table:
@@ -63,38 +66,42 @@ public sealed class ExportDataHandler(
             return null;
         }
 
+        var today = await calendar.TodayAsync(cancellationToken);
+        return new DataExport(
+            $"personal-finance-manager-{today:yyyy-MM-dd}.zip",
+            (target, cancel) => WriteZipAsync(target, user, profile, cancel));
+    }
+
+    private async Task WriteZipAsync(Stream target, UserDetails user, ProfileDetails profile, CancellationToken cancellationToken)
+    {
         var tables = await userData.ReadEverythingAsync(cancellationToken);
         var now = clock.GetUtcNow();
 
-        using var buffer = new MemoryStream();
-        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        await using var zip = await ZipArchive.CreateAsync(target, ZipArchiveMode.Create, leaveOpen: true, entryNameEncoding: null, cancellationToken);
+        await AddAsync(zip, "README.txt", now, writer => writer.Write(ReadMe.ReplaceLineEndings("\r\n")), cancellationToken);
+        await AddAsync(zip, "profile.json", now, writer => writer.Write(JsonSerializer.Serialize(Profile(user, profile), Indented)), cancellationToken);
+        foreach (var table in tables)
         {
-            Add(zip, "README.txt", now, writer => writer.Write(ReadMe.ReplaceLineEndings("\r\n")));
-            Add(zip, "profile.json", now, writer => writer.Write(JsonSerializer.Serialize(Profile(user, profile), Indented)));
-            foreach (var table in tables)
-            {
-                Add(zip, $"{KebabCase(table.Name)}.csv", now, writer => Csv.Write(writer, [.. table.Columns.Select(CamelCase)], table.Rows), CsvEncoding);
-            }
-
-            foreach (var file in await attachmentFiles.ListAsync(cancellationToken))
-            {
-                // A file storage has lost keeps its line in attachments.csv and is left out here.
-                await using var content = await attachmentFiles.OpenAsync(file, cancellationToken);
-                if (content is null)
-                {
-                    continue;
-                }
-
-                // The id keeps two files of one name apart. JPEG, PNG and PDF are compressed already.
-                var entry = zip.CreateEntry($"attachments/{file.Id}-{file.FileName}", CompressionLevel.NoCompression);
-                entry.LastWriteTime = now;
-                await using var target = entry.Open();
-                await content.CopyToAsync(target, cancellationToken);
-            }
+            await AddAsync(
+                zip, $"{KebabCase(table.Name)}.csv", now, writer => Csv.Write(writer, [.. table.Columns.Select(CamelCase)], table.Rows), cancellationToken,
+                CsvEncoding);
         }
 
-        var today = await calendar.TodayAsync(cancellationToken);
-        return new DataExport($"personal-finance-manager-{today:yyyy-MM-dd}.zip", buffer.ToArray());
+        foreach (var file in await attachmentFiles.ListAsync(cancellationToken))
+        {
+            // A file storage has lost keeps its line in attachments.csv and is left out here.
+            await using var content = await attachmentFiles.OpenAsync(file, cancellationToken);
+            if (content is null)
+            {
+                continue;
+            }
+
+            // The id keeps two files of one name apart. JPEG, PNG and PDF are compressed already.
+            var entry = zip.CreateEntry($"attachments/{file.Id}-{file.FileName}", CompressionLevel.NoCompression);
+            entry.LastWriteTime = now;
+            await using var entryStream = await entry.OpenAsync(cancellationToken);
+            await content.CopyToAsync(entryStream, cancellationToken);
+        }
     }
 
     /// <summary>The names and values of the settings <c>GET /me</c> answers, and whether two-factor sign-in is on.</summary>
@@ -109,11 +116,12 @@ public sealed class ExportDataHandler(
         ["twoFactorSignIn"] = user.TwoFactorEnabled,
     };
 
-    private static void Add(ZipArchive zip, string name, DateTimeOffset now, Action<TextWriter> write, Encoding? encoding = null)
+    private static async Task AddAsync(
+        ZipArchive zip, string name, DateTimeOffset now, Action<TextWriter> write, CancellationToken cancellationToken, Encoding? encoding = null)
     {
         var entry = zip.CreateEntry(name, CompressionLevel.Optimal);
         entry.LastWriteTime = now;
-        using var writer = new StreamWriter(entry.Open(), encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        await using var writer = new StreamWriter(await entry.OpenAsync(cancellationToken), encoding ?? new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         write(writer);
     }
 

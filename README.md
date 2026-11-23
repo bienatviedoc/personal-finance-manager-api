@@ -465,7 +465,8 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
   it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
   object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
-  transactions included. The archive is built in memory, attachments and all.
+  transactions included. The archive is written to the response as it is made (`AsynchronousBody` takes the few writes a ZIP
+  archive makes synchronously), so the attached files are never all in memory at once.
 - **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
   (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
   they have, and the session that asked is signed out at once. Nothing is erased yet.
