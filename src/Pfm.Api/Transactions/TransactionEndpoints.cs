@@ -20,6 +20,8 @@ public static class TransactionEndpoints
 
         transactions.MapGet("/", List).WithName("ListTransactions")
             .WithDescription("The user's transactions that pass every filter sent, a page at a time, with the total of all that pass, whichever page is asked for. Newest date first and, within a date, last recorded first, unless sort and order say otherwise. A deleted transaction is never listed or counted.");
+        transactions.MapGet("/quick-add", QuickAdd).WithName("GetQuickAdd")
+            .WithDescription("What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before.");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
@@ -84,6 +86,26 @@ public static class TransactionEndpoints
         var list = await handler.HandleAsync(new ListTransactions(filter, sorted, limit, after), cancellationToken);
         return TypedResults.Ok(new TransactionListResponse(
             [.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor, FilteredTotalResponse.From(list.Total)));
+    }
+
+    /// <param name="type"><c>income</c> or <c>expense</c>: only a category of the kind it takes is suggested. Left out, a category of either kind is.</param>
+    /// <param name="payee">Who is being paid, or is paying; at most 200 characters. Left out, no category is suggested.</param>
+    private static async Task<Results<Ok<QuickAddResponse>, ValidationProblem>> QuickAdd(
+        GetQuickAddHandler handler, CancellationToken cancellationToken, string? type = null, string? payee = null)
+    {
+        var read = EnumText<TransactionType>.Read(type);
+        if (type is not null && read is null)
+        {
+            return PagingProblems.For("type", $"Choose one of: {string.Join(", ", EnumText<TransactionType>.Names)}.");
+        }
+
+        if (!Transaction.IsValidPayee(payee))
+        {
+            return PagingProblems.For("payee", $"Enter a payee of at most {Transaction.MaxPayeeLength} characters.");
+        }
+
+        var quickAdd = await handler.HandleAsync(new GetQuickAdd(read, payee), cancellationToken);
+        return TypedResults.Ok(new QuickAddResponse(quickAdd.LastAccountId, quickAdd.SuggestedCategoryId));
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
@@ -210,6 +232,11 @@ public sealed record TransactionResponse(
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.RowVersion.ToString(CultureInfo.InvariantCulture), transaction.IsRefund,
             [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))]);
 }
+
+/// <summary>What quick add starts a new transaction from.</summary>
+/// <param name="LastAccountId">The account, not archived, that the user recorded a transaction on last; null when they have recorded none.</param>
+/// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; null when they never used the payee.</param>
+public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId);
 
 /// <summary>A line of a transaction.</summary>
 /// <param name="Amount">A decimal string in the transaction's currency, greater than zero.</param>
