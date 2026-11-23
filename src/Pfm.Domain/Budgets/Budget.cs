@@ -53,13 +53,26 @@ public sealed class Budget : IUserOwned
     public static Budget Set(
         BudgetCategory category, BudgetMonth month, decimal amount, Currency baseCurrency, IReadOnlyCollection<Guid> budgetedThisMonth, DateTimeOffset now)
     {
-        ArgumentNullException.ThrowIfNull(category);
-        ArgumentNullException.ThrowIfNull(budgetedThisMonth);
         if (!Enum.IsDefined(baseCurrency))
         {
             throw new ArgumentOutOfRangeException(nameof(baseCurrency), baseCurrency, "Not a supported currency.");
         }
 
+        EnsureCanBeSetOn(category, budgetedThisMonth);
+        var budget = new Budget(category.Id, month, baseCurrency, now);
+        budget.SetAmount(amount);
+        return budget;
+    }
+
+    /// <summary>
+    /// Refuses a category that takes no new budget in a month: an income or archived one, or one whose parent
+    /// or subcategory already has a budget that month (spec section 3, rule 6).
+    /// </summary>
+    /// <param name="budgetedThisMonth">The other categories that have a budget in the month.</param>
+    public static void EnsureCanBeSetOn(BudgetCategory category, IReadOnlyCollection<Guid> budgetedThisMonth)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        ArgumentNullException.ThrowIfNull(budgetedThisMonth);
         if (budgetedThisMonth.Contains(category.Id))
         {
             throw new ArgumentException("The category already has a budget this month: change its amount instead.", nameof(budgetedThisMonth));
@@ -84,10 +97,6 @@ public sealed class Budget : IUserOwned
         {
             throw new BudgetRuleViolation(nameof(CategoryId), "One of its subcategories already has a budget this month. Remove that budget first.");
         }
-
-        var budget = new Budget(category.Id, month, baseCurrency, now);
-        budget.SetAmount(amount);
-        return budget;
     }
 
     public void ChangeAmount(decimal amount, DateTimeOffset now)

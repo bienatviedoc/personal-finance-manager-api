@@ -19,4 +19,7 @@ public sealed class User : IdentityUser<Guid>
     public string TimeZone { get; set; } = ProfileSettings.Default.TimeZone;
 
     public Locale? Locale { get; set; } = ProfileSettings.Default.Locale;
+
+    /// <summary>The share of a budget, in whole percent, at which its state becomes a warning.</summary>
+    public int BudgetWarningPercent { get; set; } = ProfileSettings.Default.BudgetWarningPercent;
 }

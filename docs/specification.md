@@ -334,7 +334,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Area | Method and path | Purpose |
 | --- | --- | --- |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
-| Auth | `GET /me`, `PATCH /me` | Profile, base currency, time zone, locale |
+| Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
