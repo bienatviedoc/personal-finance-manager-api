@@ -9,12 +9,12 @@ namespace Pfm.Application.Transactions.Transfers;
 /// <param name="ToAmount">What arrived on the destination account, in <paramref name="ToCurrency"/>.</param>
 /// <param name="OutTransactionId">The Transfer out leg, as the transaction list shows it.</param>
 /// <param name="InTransactionId">The Transfer in leg, as the transaction list shows it.</param>
-/// <param name="RowVersion">The version an edit must name: the Transfer out leg's, which changes with every edit of the transfer.</param>
+/// <param name="RowVersion">The version an edit must name (<see cref="Transfer.RowVersion"/>).</param>
 public sealed record TransferDetails(
     Guid Id, Guid FromAccountId, Guid ToAccountId, decimal Amount, Currency Currency, decimal ToAmount, Currency ToCurrency, DateOnly Date, string? Note,
     Guid OutTransactionId, Guid InTransactionId, uint RowVersion)
 {
     public static TransferDetails Of(Transfer transfer) =>
         new(transfer.Id, transfer.FromAccountId, transfer.ToAccountId, transfer.Amount, transfer.OutLeg.Currency, transfer.ToAmount, transfer.InLeg.Currency,
-            transfer.Date, transfer.Note, transfer.OutLeg.Id, transfer.InLeg.Id, transfer.OutLeg.RowVersion);
+            transfer.Date, transfer.Note, transfer.OutLeg.Id, transfer.InLeg.Id, transfer.RowVersion);
 }

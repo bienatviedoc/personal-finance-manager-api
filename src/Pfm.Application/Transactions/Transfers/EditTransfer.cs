@@ -65,7 +65,7 @@ public sealed class EditTransferHandler(
             return (EditTransferOutcome?)null;
         }
 
-        if (transfer.OutLeg.RowVersion != command.RowVersion)
+        if (transfer.RowVersion != command.RowVersion)
         {
             return EditTransferOutcome.Stale;
         }

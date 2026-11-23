@@ -46,6 +46,15 @@ public sealed class Transfer
 
     public bool IsDeleted => OutLeg.IsDeleted;
 
+    /// <summary>
+    /// The version an edit of the transfer names: the Transfer out leg's. It stands for both legs because the user
+    /// changes a leg only through this type, which changes both together (a leg alone is refused), so an edit
+    /// moves both versions at once. What changes one leg alone, converting it into the base currency once a rate
+    /// arrives, is no edit to call stale. The in leg's own version still guards the save: one changed in between
+    /// fails it as a concurrent change.
+    /// </summary>
+    public uint RowVersion => OutLeg.RowVersion;
+
     /// <param name="from">What leaves the source account.</param>
     /// <param name="to">What arrives on the destination account.</param>
     /// <param name="today">Today's date in the user's time zone.</param>
