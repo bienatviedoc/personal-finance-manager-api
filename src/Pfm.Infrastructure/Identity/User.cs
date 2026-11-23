@@ -20,6 +20,12 @@ public sealed class User : IdentityUser<Guid>
 
     public Locale? Locale { get; set; } = ProfileSettings.Default.Locale;
 
+    /// <summary>
+    /// When the user asked to be deleted; null for a user who has not, or who cancelled by signing in again.
+    /// See <see cref="Deactivation"/> for what happens after.
+    /// </summary>
+    public DateTimeOffset? DeactivatedAt { get; set; }
+
     /// <summary>The share of a budget, in whole percent, at which its state becomes a warning.</summary>
     public int BudgetWarningPercent { get; set; } = ProfileSettings.Default.BudgetWarningPercent;
 }

@@ -195,6 +195,25 @@ public class RecurringPostingTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Nothing_is_posted_for_a_deactivated_user_and_what_was_due_meanwhile_is_posted_once_they_cancel_the_deletion()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Etc/UTC" })).EnsureSuccessStatusCode();
+        var userId = (await browser.Http.GetFromJsonAsync<Identified>("/api/v1/me"))!.Id;
+        var rule = await AddRuleAsync(browser, "expense", await AddAccountAsync(browser, "Everyday"), "100", Today.AddDays(-7));
+        (await browser.PostAsync("/api/v1/me/deletion", new { password = PfmApi.Password })).EnsureSuccessStatusCode();
+
+        await PostDueAsync();
+        Assert.DoesNotContain("Transactions", (await api.RowsOwnedByAsync(userId)).Keys);
+
+        // Signing in within the 30 days cancels the deletion.
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+        await PostDueAsync();
+        Assert.Equal([Text(Today), Text(Today.AddDays(-7))], (await TransactionsAsync(browser)).Select(transaction => transaction.Date));
+        Assert.Equal(Text(Today.AddDays(7)), (await RuleAsync(browser, rule.Id)).NextRunDate);
+    }
+
+    [Fact]
     public async Task A_transaction_a_user_records_is_linked_to_no_rule()
     {
         var browser = await SignedInOnUtcAsync();
@@ -244,6 +263,8 @@ public class RecurringPostingTests(PfmApi api)
         (await browser.Http.GetFromJsonAsync<TransactionList>(Transactions))!.Items;
 
     private static string Text(DateOnly date) => date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+    private sealed record Identified(Guid Id);
 
     private sealed record RuleBody(Guid Id, Guid CategoryId, string? NextRunDate);
 

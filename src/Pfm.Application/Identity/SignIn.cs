@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.UseCases;
+using Pfm.Domain.Identity;
 
 namespace Pfm.Application.Identity;
 
@@ -29,9 +30,13 @@ public enum SignInOutcome
 {
     SignedIn,
 
+    /// <summary>Signed in, and that cancelled the deletion the user had asked for: they were a deactivated user.</summary>
+    SignedInAndDeletionCancelled,
+
     /// <summary>
-    /// No user has the email, the password is wrong, or signing in is locked for now after too many wrong
-    /// attempts. Which one is not said.
+    /// No user has the email, the password is wrong, signing in is locked for now after too many wrong
+    /// attempts, or the user was deactivated more than 30 days ago and is waiting to be erased. Which one is
+    /// not said.
     /// </summary>
     WrongEmailOrPassword,
 
@@ -51,7 +56,13 @@ public enum SignInOutcome
 /// A wrong password or code counts towards locking sign-in for the user (<see cref="IUsers.RecordFailedSignInAsync"/>);
 /// while locked even the right password is refused, the same way a wrong one is.
 /// </summary>
-public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers users, ITwoFactor twoFactor, ISessions sessions)
+/// <remarks>
+/// Signing in is how a deactivated user cancels their deletion (spec section 8, Privacy): only a sign-in that
+/// gets all the way through does, so the password alone is not enough for a user who signs in with two factors.
+/// Once their 30 days are over there is nothing left to cancel, and they are refused as a wrong password is.
+/// </remarks>
+public sealed class SignInHandler(
+    IValidator<SignInCommand> validator, IUsers users, ITwoFactor twoFactor, ISessions sessions, TimeProvider clock)
     : CommandHandler<SignInCommand, SignInOutcome>(validator)
 {
     protected override async Task<Result<SignInOutcome>> ExecuteAsync(SignInCommand command, CancellationToken cancellationToken)
@@ -73,6 +84,11 @@ public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers us
         if (!passwordIsRight)
         {
             await users.RecordFailedSignInAsync(user.Id);
+            return SignInOutcome.WrongEmailOrPassword;
+        }
+
+        if (user.DeactivatedAt is { } deactivatedAt && Deactivation.IsDueForErasure(deactivatedAt, clock.GetUtcNow()))
+        {
             return SignInOutcome.WrongEmailOrPassword;
         }
 
@@ -100,7 +116,12 @@ public sealed class SignInHandler(IValidator<SignInCommand> validator, IUsers us
         }
 
         await users.ClearFailedSignInsAsync(user.Id);
+        if (user.DeactivatedAt is not null)
+        {
+            await users.ReactivateAsync(user.Id);
+        }
+
         await sessions.SignInAsync(user.Id);
-        return SignInOutcome.SignedIn;
+        return user.DeactivatedAt is null ? SignInOutcome.SignedIn : SignInOutcome.SignedInAndDeletionCancelled;
     }
 }

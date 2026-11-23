@@ -38,6 +38,7 @@ public static class ApplicationServices
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
         services.AddScoped<IUserCalendar, UserCalendar>();
+        services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();
         services.AddScoped<RecurringRuleContext>();
         services.AddScoped<RecurringPosting>();

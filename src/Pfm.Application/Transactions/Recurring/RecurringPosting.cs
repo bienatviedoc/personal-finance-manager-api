@@ -18,11 +18,13 @@ public sealed record OccurrencesPosted(int Occurrences, int RulesNotPosted);
 /// <summary>
 /// Posts every occurrence of a recurring rule that is due, as a transaction dated on its due date in the
 /// user's time zone (spec REC-2). The worker runs it every few minutes; no user can. An occurrence missed
-/// while the worker was down is posted by the next run, with its original due date. Each one is recorded by
+/// while the worker was down is posted by the next run, with its original due date. Nothing is posted for a
+/// deactivated user. Each occurrence is recorded by
 /// <see cref="CreateTransactionHandler"/>, so it is held to the rules of a transaction a user records.
 /// </summary>
 public sealed class RecurringPosting(
-    IRecurringRuleRepository rules, CreateTransactionHandler recordTransaction, IUserCalendar calendar, IActForUser actFor, IUnitOfWork unitOfWork,
+    IRecurringRuleRepository rules, CreateTransactionHandler recordTransaction, IUserCalendar calendar, IUserDeactivation deactivation,
+    IActForUser actFor, IUnitOfWork unitOfWork,
     TimeProvider clock)
 {
     /// <summary>Runs for no user, so it acts for each user who may have something due in turn.</summary>
@@ -33,6 +35,13 @@ public sealed class RecurringPosting(
         var (occurrences, rulesNotPosted) = (0, 0);
         foreach (var userId in await rules.UsersWithDueRulesAsync(latestToday, cancellationToken))
         {
+            // A deactivated user's data is left as it is. When they cancel the deletion, what was due meanwhile is
+            // posted like any other missed occurrence.
+            if (await deactivation.IsDeactivatedAsync(userId, cancellationToken))
+            {
+                continue;
+            }
+
             using var _ = actFor.ActFor(userId);
             var today = await calendar.TodayAsync(cancellationToken);
             foreach (var ruleId in await rules.ListDueAsync(today, cancellationToken))
