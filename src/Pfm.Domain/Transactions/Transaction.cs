@@ -199,6 +199,37 @@ public sealed class Transaction : IUserOwned
     internal void EditLeg(LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
         Set(Type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
 
+    /// <summary>
+    /// Makes income or an expense a leg of a transfer, for <see cref="Transfer.Mark"/> alone, which makes the
+    /// other leg with it. It keeps its account, amount, date, note and conversion, and drops what a leg has none
+    /// of: its lines, category and payee. It is no longer an occurrence of the recurring rule that posted it,
+    /// which posts income and expenses only.
+    /// </summary>
+    internal void BecomeLeg(Guid transferId, TransactionType type, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        Type = type;
+        TransferId = transferId;
+        CategoryId = null;
+        Payee = null;
+        RecurringRuleId = null;
+        UpdatedAt = now;
+        _lines.Clear();
+    }
+
+    /// <summary>
+    /// Makes a leg of a transfer income or an expense again, on one line with its whole amount, for
+    /// <see cref="Transfer.Unmark"/> alone, which does the same to the other leg.
+    /// </summary>
+    internal void BecomeOrdinary(TransactionType type, Category category, DateTimeOffset now)
+    {
+        Type = type;
+        TransferId = null;
+        CategoryId = category.Id;
+        UpdatedAt = now;
+        Replace([new SplitLine(category, Amount)], now);
+    }
+
     /// <summary>Records a transaction split across several categories.</summary>
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
     /// <param name="lines">
