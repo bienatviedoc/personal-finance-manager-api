@@ -29,6 +29,8 @@ public sealed class IntegrityCheck(ITransactionRepository transactions, IAccount
         {
             using (actFor.ActFor(userId))
             {
+                // Both reads see one snapshot, so a transaction the user records in between is not taken for drift.
+                await using var snapshot = await unitOfWork.BeginSnapshotAsync(cancellationToken);
                 var ofUser = await transactions.ListEveryAsync(cancellationToken);
                 var shown = await balances.NetByAccountAsync([.. ofUser.Select(transaction => transaction.AccountId).Distinct()], cancellationToken);
                 drift.AddRange(TransactionIntegrity.Check(ofUser, shown).Select(found => new UserDrift(userId, found)));

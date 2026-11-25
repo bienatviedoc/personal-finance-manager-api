@@ -77,6 +77,10 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginTransactionAsync(CancellationToken cancellationToken) =>
         new Transaction(await Database.BeginTransactionAsync(cancellationToken));
 
+    /// <summary>PostgreSQL's repeatable read: one snapshot, taken at the transaction's first statement.</summary>
+    async Task<IUnitOfWorkTransaction> IUnitOfWork.BeginSnapshotAsync(CancellationToken cancellationToken) =>
+        new Transaction(await Database.BeginTransactionAsync(System.Data.IsolationLevel.RepeatableRead, cancellationToken));
+
     private sealed class Transaction(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction transaction) : IUnitOfWorkTransaction
     {
         public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
