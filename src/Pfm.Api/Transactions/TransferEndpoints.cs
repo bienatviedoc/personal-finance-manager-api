@@ -27,6 +27,10 @@ public static class TransferEndpoints
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         transfers.MapDelete("/{id:guid}", Delete).WithName("DeleteTransfer")
             .WithDescription("Deletes the transfer, both legs together: they leave the transaction list and both accounts' balances at once.");
+        transfers.MapPost("/mark", Mark).WithName("MarkAsTransfer")
+            .WithDescription("Marks an expense on one account and income on another as one transfer, such as the two rows imported statements show for paying a card: the expense becomes its transferOut leg and the income its transferIn leg, each keeping its id, account, amount, date and note and losing its category and payee, so neither counts as spending or income any more. The two must be on different accounts, on the same date and, between accounts in one currency, of the same amount; an expense that is a refund, or a transaction that is a leg of a transfer already, is refused. Nothing is matched automatically.");
+        transfers.MapPost("/{id:guid}/unmark", Unmark).WithName("UnmarkTransfer")
+            .WithDescription("Turns a transfer back into two ordinary transactions: its transferOut leg becomes an expense on expenseCategoryId and its transferIn leg income on incomeCategoryId, each keeping its id, account, amount, date and note. Any transfer can be unmarked, marked or recorded. Answers the two transactions; the transfer is no more.");
 
         return api;
     }
@@ -101,6 +105,32 @@ public static class TransferEndpoints
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 
+    private static async Task<Results<Created<TransferResponse>, ValidationProblem>> Mark(
+        MarkAsTransferRequest request, MarkAsTransferHandler handler, HttpContext http, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new MarkAsTransferCommand(request.ExpenseId, request.IncomeId), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return TypedResults.Created($"/api/v1/transfers/{result.Outcome.Id}", Versioned(http, TransferResponse.From(result.Outcome)));
+    }
+
+    private static async Task<Results<Ok<UnmarkedTransferResponse>, NotFound, ValidationProblem>> Unmark(
+        Guid id, UnmarkTransferRequest request, UnmarkTransferHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new UnmarkTransferCommand(id, request.ExpenseCategoryId, request.IncomeCategoryId), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome is { } unmarked
+            ? TypedResults.Ok(new UnmarkedTransferResponse(TransactionResponse.From(unmarked.Expense), TransactionResponse.From(unmarked.Income)))
+            : TypedResults.NotFound();
+    }
+
     private static TransferResponse Versioned(HttpContext http, TransferResponse transfer)
     {
         http.SendAsETag(transfer.RowVersion);
@@ -116,6 +146,19 @@ public static class TransferEndpoints
 /// <param name="Date">A calendar date, <c>YYYY-MM-DD</c>, not after today in the user's time zone.</param>
 /// <param name="Note">At most 1000 characters; both legs carry it.</param>
 public sealed record TransferRequest(Guid FromAccountId, Guid ToAccountId, string Amount, string Date, string? ToAmount = null, string? Note = null);
+
+/// <summary>The two transactions marked as one transfer.</summary>
+/// <param name="ExpenseId">An expense, not a refund, on the account the money left: it becomes the transferOut leg.</param>
+/// <param name="IncomeId">Income on another account, on the same date (and of the same amount between accounts in one currency): it becomes the transferIn leg.</param>
+public sealed record MarkAsTransferRequest(Guid ExpenseId, Guid IncomeId);
+
+/// <summary>The categories a transfer's legs take once it is unmarked.</summary>
+/// <param name="ExpenseCategoryId">An expense category, not archived, for the transferOut leg, which becomes an expense.</param>
+/// <param name="IncomeCategoryId">An income category, not archived, for the transferIn leg, which becomes income.</param>
+public sealed record UnmarkTransferRequest(Guid ExpenseCategoryId, Guid IncomeCategoryId);
+
+/// <summary>What a transfer became once unmarked: an expense on the account the money left, and income on the one it arrived on.</summary>
+public sealed record UnmarkedTransferResponse(TransactionResponse Expense, TransactionResponse Income);
 
 /// <summary>A transfer: its two legs as one movement.</summary>
 /// <param name="Id">The <c>transferId</c> its two legs carry in the transaction list.</param>
