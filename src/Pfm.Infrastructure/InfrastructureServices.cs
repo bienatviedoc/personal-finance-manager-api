@@ -79,6 +79,7 @@ public static class InfrastructureServices
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddScoped<ICategorySpending, TransactionTotals>();
+        services.AddScoped<IIncomeAndSpending, TransactionTotals>();
         services.AddScoped<ITransactionTrends, TransactionTrends>();
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddExchangeRates();

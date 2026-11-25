@@ -10,7 +10,7 @@ namespace Pfm.Infrastructure.Transactions;
 /// What the user's transactions come to, asked of the database each time: nothing derived from them is
 /// stored (spec section 10).
 /// </summary>
-internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending
+internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending, IIncomeAndSpending
 {
     /// <summary>
     /// Income − expenses + refunds + transfers in − transfers out of each account (spec section 3, rule 2),
@@ -80,6 +80,38 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
                 expense.Lines.Where(line => line.CategoryId == categoryId).Sum(line => line.Amount), expense.Currency, expense.IsRefund,
                 expense.Lines.Any(line => line.CategoryId != categoryId),
                 expense.IsConverted ? expense.SpentAmountIn([categoryId]) : null)),
+        ];
+    }
+
+    /// <summary>
+    /// Read and added up here by the domain's own definitions (<see cref="Transaction.IncomeAmountIn"/>,
+    /// <see cref="Transaction.SpentAmountIn"/>). Only the types Income and Expense are read, so the legs of a
+    /// transfer never count.
+    /// </summary>
+    public async Task<IReadOnlyList<MoneyInOrOut>> IncomeAndExpensesAsync(
+        DateOnly from, DateOnly to, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
+    {
+        var transactions = db.Set<Transaction>().AsNoTracking()
+            .Where(transaction => (transaction.Type == TransactionType.Income || transaction.Type == TransactionType.Expense)
+                && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to);
+        if (accountId is { } account)
+        {
+            transactions = transactions.Where(transaction => transaction.AccountId == account);
+        }
+
+        if (categoryIds is not null)
+        {
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line => categoryIds.Contains(line.CategoryId)));
+        }
+
+        return
+        [
+            .. (await transactions.ToListAsync(cancellationToken)).Select(transaction =>
+            {
+                var inThese = categoryIds ?? [.. transaction.Lines.Select(line => line.CategoryId)];
+                return new MoneyInOrOut(
+                    transaction.Id, transaction.Date, transaction.IncomeAmountIn(inThese), transaction.SpentAmountIn(inThese), transaction.IsConverted);
+            }),
         ];
     }
 
