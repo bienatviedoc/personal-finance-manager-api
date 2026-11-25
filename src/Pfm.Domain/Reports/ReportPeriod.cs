@@ -29,6 +29,16 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
+    /// The calendar months the period touches, whole: from the 1st of its first month to the last day of its last.
+    /// A period of whole months is its own.
+    /// </summary>
+    public ReportPeriod WholeMonths =>
+        new(new DateOnly(From.Year, From.Month, 1), new DateOnly(To.Year, To.Month, DateTime.DaysInMonth(To.Year, To.Month)));
+
+    /// <summary>How many calendar months the period touches, the first and last counted even when only part of them is in it.</summary>
+    public int Months => ((To.Year - From.Year) * 12) + To.Month - From.Month + 1;
+
+    /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of
     /// whole calendar months, from a 1st to the last day of a month, is compared with as many whole months just
     /// before it, so March is compared with February and a year with the year before; any other period with as
