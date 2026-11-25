@@ -49,6 +49,28 @@ public class ReportPeriodTests
     }
 
     [Fact]
+    public void A_period_is_made_of_the_calendar_months_it_touches_the_first_and_last_cut_to_the_period()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 3, 10));
+
+        Assert.Equal(
+            [
+                new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 1, 31)),
+                new ReportPeriod(new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28)),
+                new ReportPeriod(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 10)),
+            ],
+            period.Months);
+    }
+
+    [Fact]
+    public void A_period_within_one_month_is_one_month()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 3, 5), new DateOnly(2026, 3, 14));
+
+        Assert.Equal([period], period.Months);
+    }
+
+    [Fact]
     public void The_month_ends_of_a_period_are_the_last_day_of_each_month_in_it()
     {
         var firstQuarter = new ReportPeriod(new DateOnly(2028, 1, 1), new DateOnly(2028, 3, 31));

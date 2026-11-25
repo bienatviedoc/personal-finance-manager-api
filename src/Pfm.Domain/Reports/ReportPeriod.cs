@@ -29,23 +29,39 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
-    /// The days net worth is shown on (spec RPT-5): the last day of each month that ends in the period, and the
-    /// period's own last day when the period ends inside a month, so even a few days have one.
+    /// The calendar months the period touches, in order, each cut to the period: a period from the 15th of one
+    /// month starts with the rest of that month, and one ending on the 10th ends with its first ten days.
     /// </summary>
-    public IReadOnlyList<DateOnly> MonthEnds
+    public IReadOnlyList<ReportPeriod> Months
     {
         get
         {
-            var ends = new List<DateOnly>();
-            for (var month = new DateOnly(From.Year, From.Month, 1); month <= To; month = month.AddMonths(1))
+            var months = new List<ReportPeriod>();
+            for (var first = new DateOnly(From.Year, From.Month, 1); first <= To; first = first.AddMonths(1))
             {
-                var end = month.AddMonths(1).AddDays(-1);
-                ends.Add(end <= To ? end : To);
+                var last = first.AddMonths(1).AddDays(-1);
+                months.Add(new ReportPeriod(first < From ? From : first, last > To ? To : last));
             }
 
-            return ends;
+            return months;
         }
     }
+
+    /// <summary>
+    /// The days net worth is shown on (spec RPT-5): the last day of each month that ends in the period, and the
+    /// period's own last day when the period ends inside a month, so even a few days have one.
+    /// </summary>
+    public IReadOnlyList<DateOnly> MonthEnds => [.. Months.Select(month => month.To)];
+
+    /// <summary>
+    /// The months of the period compared with (<see cref="Previous"/>), one for each of <see cref="Months"/> and in
+    /// the same order, so the two can be set side by side by place. Before whole calendar months they are as many
+    /// whole months; before any other period each is the month at the same place moved back by the period's days,
+    /// which need not start on a 1st: 10 March to 20 April is set against 27 January to 17 February and 18 February
+    /// to 9 March.
+    /// </summary>
+    public IReadOnlyList<ReportPeriod> PreviousMonths =>
+        IsWholeMonths(out _) ? Previous.Months : [.. Months.Select(month => new ReportPeriod(month.From.AddDays(-Days), month.To.AddDays(-Days)))];
 
     /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of

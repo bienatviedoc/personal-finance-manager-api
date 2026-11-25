@@ -229,6 +229,15 @@ already uses it can still show it. An account can be archived at any balance.
   deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
   `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
   one transfer, never one of each.
+- **Mark as transfer** (spec IMP-7). `POST /transfers/mark` joins an `expenseId` on one account and an `incomeId` on
+  another, which the user picked, into one transfer (`Transfer.Mark`): the expense becomes the `transferOut` leg and
+  the income the `transferIn` leg. Each keeps its id, account, amount, date, note and conversion and loses its lines,
+  category and payee, so the two drop out of income, expense and budget totals. They must be on different accounts,
+  on the same date and, between accounts in one currency, of the same amount; a refund, a leg of a transfer already,
+  and income sent as the expense (or the other way round) are refused on the id at fault. Nothing is matched
+  automatically. `POST /transfers/{id}/unmark` turns any transfer back (`Transfer.Unmark`): the `transferOut` leg
+  becomes an expense on `expenseCategoryId` and the `transferIn` leg income on `incomeCategoryId`, as a leg has no
+  category to go back to. Reconciliation does not exist yet; once it does, a reconciled transaction is refused too.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
@@ -391,6 +400,12 @@ already uses it can still show it. An account can be archived at any balance.
 - **Not converted.** An expense with no exchange rate on or before its date is left out of spent and counted in
   `notConverted`, on its budget and on the totals, until a rate arrives. A split is one expense, counted once
   however many of a budget's categories, or of the month's budgets, its lines are in.
+- **Drilling down** (BUD-8): the transactions behind a budget are the transaction list filtered by its category
+  (which takes in its subcategories) and the first and last days of its month. Filtered by a category, the list's
+  `total` also answers `spent`: what those transactions spent there in the base currency, with how many are
+  `notConverted`, added up by `Transaction.SpentAmountIn` like the budget's, so a split counts only its lines there
+  and a refund comes off. The per-currency totals beside it are in each transaction's own currency, so only
+  `spent` is sure to equal the budget's figure.
 - **The base currency locks once a budget exists** (rule 12,
   [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)). `GET /me` says so
   (`baseCurrencyLocked`), and `PATCH /me` refuses another `baseCurrency` by name while the user has a budget;
@@ -414,7 +429,7 @@ already uses it can still show it. An account can be archived at any balance.
   before any other.
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
-- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ICategoryLookup`)
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`, `ICategoryLookup`)
   and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
@@ -426,6 +441,20 @@ already uses it can still show it. An account can be archived at any balance.
   lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+- **Trends** (RPT-7). `GET /reports/trends` follows one category (`categoryId`, with its subcategories) or one payee
+  (`payee`, matched whole, trimmed and in any case) over the period: `months` lists every calendar month the period
+  touches, cut to it at either end and at zero when nothing happened, each with its `total` and its `change` from
+  the month before as an `amount` and a `percent` (of the earlier total's size, to one decimal; none from zero; the first
+  month's is from the last month of the period compared with, and none without `compare`). `PeriodChange` and `Trend` (`Pfm.Domain.Reports`) work that out. An expense category
+  adds up spent, by the same definition as spending by category; an income category adds up the income received in
+  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it, or with `type=income` the
+  income received from it; with `categoryId` as well, only in that category, whose kind says which (so `type` is
+  refused with it). `ReportParameters` reads `payee` and `type` beside the filters. A category the user does not have is not found, as the trend is of
+  it. With `compare`, `previous` is the trend over the period before and `change` how the total
+  moved from it. `previous.months` has one month for each of `months`, at the same place, so the two pair up by
+  position (`ReportPeriod.PreviousMonths`): before whole calendar months, as many calendar months; before any other
+  period, each month moved back by the period's days, so 10 March to 20 April is set against 27 January to
+  17 February and 18 February to 9 March.
 
 ## Signing in
 
