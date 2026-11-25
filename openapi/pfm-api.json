@@ -4131,7 +4131,7 @@
             "format": "int32"
           },
           "state": {
-            "$ref": "#/components/schemas/ComparedBudgetState"
+            "$ref": "#/components/schemas/BudgetVsActualState"
           },
           "notConverted": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -4203,6 +4203,13 @@
             "$ref": "#/components/schemas/UnbudgetedTotalResponse"
           }
         }
+      },
+      "BudgetVsActualState": {
+        "enum": [
+          "onTrack",
+          "warning",
+          "over"
+        ]
       },
       "BudgetVsActualTotalsResponse": {
         "required": [
@@ -4366,13 +4373,6 @@
             "type": "string"
           }
         }
-      },
-      "ComparedBudgetState": {
-        "enum": [
-          "onTrack",
-          "warning",
-          "over"
-        ]
       },
       "CopiedBudgetsResponse": {
         "required": [

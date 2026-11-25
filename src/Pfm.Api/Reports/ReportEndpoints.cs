@@ -175,11 +175,31 @@ public sealed record SpendingByCategoryResponse(
 /// <param name="State">Over above what was budgeted, a warning at or above the user's warning threshold, otherwise on track.</param>
 /// <param name="NotConverted">How many expenses are left out of spent because no exchange rate exists on or before their date yet.</param>
 public sealed record BudgetVsActualItemResponse(
-    ReportCategoryResponse Category, int Months, string Budgeted, string Spent, string Remaining, int? PercentSpent, ComparedBudgetState State, int NotConverted)
+    ReportCategoryResponse Category, int Months, string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetVsActualState State, int NotConverted)
 {
     public static BudgetVsActualItemResponse From(BudgetedCategoryDetails item) =>
         new(ReportCategoryResponse.From(item.Category), item.Budget.Months, AmountJson.Text(item.Budget.Budgeted), AmountJson.Text(item.Budget.Spent),
-            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, item.Budget.State, item.Budget.NotConverted.Count);
+            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, StateOf(item.Budget.State), item.Budget.NotConverted.Count);
+
+    private static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
+    {
+        ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
+        ComparedBudgetState.Warning => BudgetVsActualState.Warning,
+        _ => BudgetVsActualState.Over,
+    };
+}
+
+/// <summary>Whether a category's budgets were kept to over the months compared, named as the budget screen names a budget's state (spec BUD-3).</summary>
+public enum BudgetVsActualState
+{
+    /// <summary>Spent is below the user's warning threshold.</summary>
+    OnTrack = 1,
+
+    /// <summary>Spent is at or above the user's warning threshold and not above what was budgeted.</summary>
+    Warning = 2,
+
+    /// <summary>Spent is above what was budgeted.</summary>
+    Over = 3,
 }
 
 /// <summary>What was spent in one category in the months compared where no budget covered it: none on the category, nor on its parent.</summary>
