@@ -3,7 +3,8 @@ namespace Pfm.Domain.Budgets;
 /// <summary>
 /// A spending limit for one expense category in one budget month, in the base currency. Spending in a
 /// subcategory counts toward a budget on its parent, so a parent and its subcategory never both have one in
-/// the same month (spec section 3, rule 6). What was spent against it is never kept here: it is worked out
+/// the same month (spec section 3, rule 6). A budget on no category is the month's overall budget: a cap on
+/// all of its spending, independent of the category budgets (spec BUD-5). What was spent against it is never kept here: it is worked out
 /// from transactions each time (<see cref="BudgetProgress"/>).
 /// </summary>
 public sealed class Budget : IUserOwned
@@ -13,8 +14,13 @@ public sealed class Budget : IUserOwned
     {
     }
 
-    private Budget(Guid categoryId, BudgetMonth month, Currency currency, DateTimeOffset now)
+    private Budget(Guid? categoryId, BudgetMonth month, Currency currency, DateTimeOffset now)
     {
+        if (!Enum.IsDefined(currency))
+        {
+            throw new ArgumentOutOfRangeException(nameof(currency), currency, "Not a supported currency.");
+        }
+
         Id = Guid.CreateVersion7(now);
         CategoryId = categoryId;
         Month = month;
@@ -27,7 +33,11 @@ public sealed class Budget : IUserOwned
 
     public Guid UserId { get; private set; }
 
-    public Guid CategoryId { get; private set; }
+    /// <summary>The category the budget is on; null for the month's overall budget.</summary>
+    public Guid? CategoryId { get; private set; }
+
+    /// <summary>Whether this is the month's overall budget, which tracks every expense of the month.</summary>
+    public bool IsOverall => CategoryId is null;
 
     public BudgetMonth Month { get; private set; }
 
@@ -53,13 +63,20 @@ public sealed class Budget : IUserOwned
     public static Budget Set(
         BudgetCategory category, BudgetMonth month, decimal amount, Currency baseCurrency, IReadOnlyCollection<Guid> budgetedThisMonth, DateTimeOffset now)
     {
-        if (!Enum.IsDefined(baseCurrency))
-        {
-            throw new ArgumentOutOfRangeException(nameof(baseCurrency), baseCurrency, "Not a supported currency.");
-        }
-
         EnsureCanBeSetOn(category, budgetedThisMonth);
         var budget = new Budget(category.Id, month, baseCurrency, now);
+        budget.SetAmount(amount);
+        return budget;
+    }
+
+    /// <summary>
+    /// Sets the overall budget of a month: a cap on all of its spending, whether or not a category has a budget
+    /// of its own (spec BUD-5). A month has at most one.
+    /// </summary>
+    /// <param name="baseCurrency">The user's base currency.</param>
+    public static Budget SetOverall(BudgetMonth month, decimal amount, Currency baseCurrency, DateTimeOffset now)
+    {
+        var budget = new Budget(categoryId: null, month, baseCurrency, now);
         budget.SetAmount(amount);
         return budget;
     }

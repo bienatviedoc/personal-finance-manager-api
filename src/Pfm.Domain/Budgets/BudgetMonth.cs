@@ -22,7 +22,16 @@ public readonly record struct BudgetMonth
     /// <summary>The 1st of the month. A default budget month is January of the year 1.</summary>
     public DateOnly FirstDay { get; }
 
-    public DateOnly LastDay => new(FirstDay.Year, FirstDay.Month, DateTime.DaysInMonth(FirstDay.Year, FirstDay.Month));
+    public DateOnly LastDay => new(FirstDay.Year, FirstDay.Month, Days);
+
+    /// <summary>How many days the month has.</summary>
+    public int Days => DateTime.DaysInMonth(FirstDay.Year, FirstDay.Month);
+
+    /// <summary>
+    /// The share of the month elapsed by the end of <paramref name="today"/>, as whole percent rounded down;
+    /// null unless today is in this month: a past month is over, and one still to come has not begun.
+    /// </summary>
+    public int? PercentElapsedOn(DateOnly today) => Of(today) == this ? today.Day * 100 / Days : null;
 
     /// <summary>The budget month a calendar date is in.</summary>
     public static BudgetMonth Of(DateOnly date) => new(date.Year, date.Month);
