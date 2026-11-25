@@ -60,6 +60,9 @@ internal sealed class CategoryTree(IReadOnlyList<CategorySummary> categories)
     public BudgetCategory? BudgetCategory(Guid id) =>
         Find(id) is { } category ? new BudgetCategory(category.Id, category.ParentId, [.. _subcategories[category.Id]], category.IsExpense, category.IsArchived) : null;
 
+    /// <summary>Every category as the domain's budget rules take it.</summary>
+    public IReadOnlyList<BudgetCategory> BudgetCategories() => [.. _byId.Keys.Select(id => BudgetCategory(id)!)];
+
     /// <summary>The name a category is ordered under: its parent's when it has one, else its own.</summary>
     public string TopLevelName(CategorySummary category) =>
         category.ParentId is { } parentId && Find(parentId) is { } parent ? parent.Name : category.Name;
