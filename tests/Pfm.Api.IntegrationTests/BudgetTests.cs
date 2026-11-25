@@ -435,7 +435,7 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         var response = await CopyAsync(browser, ThisMonth, LastMonth);
 
         Assert.Equal(1, await CopiedAsync(response));
-        Assert.Equal([fuel, groceries], (await MonthAsync(browser, ThisMonth)).Items.Select(budget => budget.CategoryId).Order());
+        Assert.Equal(new[] { fuel, groceries }.Order(), (await MonthAsync(browser, ThisMonth)).Items.Select(budget => budget.CategoryId).Order());
     }
 
     // Spent (the calculation of section 6).
