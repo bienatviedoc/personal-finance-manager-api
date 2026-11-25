@@ -693,7 +693,11 @@ Registration uses it to create the new user's default categories.
   transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
   so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
   not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
-  nothing, so a late retry cannot bring back what the user deleted.
+  nothing, so a late retry cannot bring back what the user deleted. A transfer unmarked since
+  (`POST /transfers/{id}/unmark`) keeps its key on what was its Transfer out leg, so it is not recorded twice
+  either; as there is no transfer to answer any more, its retry answers 409 with the problem type
+  `urn:pfm:problem:transfer-unmarked` (`CreateTransferOutcome.Unmarked`), whose detail says a new transfer needs a
+  new key. The same key with a different transfer still answers 422 `idempotency-key-reused`.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its

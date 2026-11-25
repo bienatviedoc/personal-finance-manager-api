@@ -40,12 +40,22 @@ public sealed class CreateTransferValidator : AbstractValidator<CreateTransferCo
     }
 }
 
-/// <summary>What recording a transfer came to: the transfer, or nothing recorded because its idempotency key was already used.</summary>
-/// <param name="Recorded">Null when the key was used before, for something else.</param>
-public sealed record CreateTransferOutcome(TransferDetails? Recorded)
+/// <summary>
+/// What recording a transfer came to: the transfer, or nothing recorded because its idempotency key was already
+/// used, for something else or for this transfer, unmarked since.
+/// </summary>
+/// <param name="Recorded">Null when nothing is answered: the key was used before, for something else, or the transfer it recorded was unmarked.</param>
+/// <param name="WasUnmarked">True when the key recorded this very transfer, which was unmarked since into an expense and income.</param>
+public sealed record CreateTransferOutcome(TransferDetails? Recorded, bool WasUnmarked = false)
 {
     /// <summary>The idempotency key already recorded a transaction or transfer that is not this one; nothing was recorded.</summary>
     public static readonly CreateTransferOutcome KeyReused = new((TransferDetails?)null);
+
+    /// <summary>
+    /// The idempotency key already recorded this transfer, which was unmarked since: there is no transfer to
+    /// answer any more, and nothing was recorded, so it is not recorded twice.
+    /// </summary>
+    public static readonly CreateTransferOutcome Unmarked = new(null, WasUnmarked: true);
 }
 
 /// <summary>
@@ -104,11 +114,25 @@ public sealed class CreateTransferHandler(
         return new CreateTransferOutcome(TransferDetails.Of(transfer));
     }
 
-    /// <summary>The same request again answers what it recorded, deleted since or not; anything else with its key records nothing.</summary>
-    private async Task<CreateTransferOutcome> AlreadyRecordedAsync(RecordedRequest recorded, IdempotentRequest request, CancellationToken cancellationToken) =>
-        recorded.Fingerprint == request.Fingerprint
-        && recorded.Transaction.TransferId is { } transferId
-        && await transactions.FindTransferAsync(transferId, deletedToo: true, cancellationToken) is { } transfer
+    /// <summary>
+    /// The same request again answers what it recorded, deleted since or not, or that it was unmarked since;
+    /// anything else with its key records nothing. Only a transfer's fingerprint matches a transfer request, so a
+    /// keyed transaction that matches and is no leg any more is the Transfer out leg of a transfer unmarked since.
+    /// </summary>
+    private async Task<CreateTransferOutcome> AlreadyRecordedAsync(RecordedRequest recorded, IdempotentRequest request, CancellationToken cancellationToken)
+    {
+        if (recorded.Fingerprint != request.Fingerprint)
+        {
+            return CreateTransferOutcome.KeyReused;
+        }
+
+        if (recorded.Transaction.TransferId is not { } transferId)
+        {
+            return CreateTransferOutcome.Unmarked;
+        }
+
+        return await transactions.FindTransferAsync(transferId, deletedToo: true, cancellationToken) is { } transfer
             ? new CreateTransferOutcome(TransferDetails.Of(transfer))
             : CreateTransferOutcome.KeyReused;
+    }
 }
