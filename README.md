@@ -426,6 +426,15 @@ already uses it can still show it. An account can be archived at any balance.
   lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+- **Income vs expenses** (RPT-3). `GET /reports/income-vs-expenses` answers the `income`, `expenses` and `net` of
+  every calendar month the period touches, in order and empty ones included, each with its own `from` and `to` (a
+  period starting or ending inside a month covers only its days there), and the same over the whole period as
+  `total` (`IncomeVsExpenses`). Income is what income transactions brought in (`Transaction.IncomeAmount`);
+  expenses are spent, by the same definition as spending by category, so a refund lowers them; transfers are
+  neither. Net is income minus expenses, and the `savingsRate` is net as a percentage of income, to one decimal,
+  none when income is not above zero. Reports reads them through `IIncomeAndSpending`. With `categoryId`, only
+  the lines in that category and its subcategories count. With `compare`, `previous` has the period before's
+  months and total.
 
 ## Signing in
 

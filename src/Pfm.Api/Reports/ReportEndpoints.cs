@@ -19,7 +19,29 @@ public static class ReportEndpoints
         reports.MapGet("/spending-by-category/transactions", SpendingTransactions).WithName("GetSpendingTransactions")
             .WithDescription("The last step of drilling down spending by category: the expenses with a line on one category itself (not on its subcategories) over a period, newest first, each with what it spent there in the base currency, so they add up to that category's spent in the report. A split shows only its lines on the category; a refund spends a negative amount; one that is not converted spends nothing yet and is counted in notConverted. Not paged: one category's expenses over one period.");
 
+        reports.MapGet("/income-vs-expenses", IncomeVsExpenses).WithName("GetIncomeVsExpenses")
+            .WithDescription("Am I saving: income, expenses and net in each calendar month of a period, with the savings rate, and the same over the whole period, in the user's base currency. Expenses are spent: refunds lower them. Net is income minus expenses; the savings rate is net as a percentage of income, to one decimal, and none when income is not above zero. Each transaction counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers are neither income nor expenses and never count. With categoryId, only the lines in that category and its subcategories count.");
+
         return api;
+    }
+
+    /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>; on or after <paramref name="from"/>.</param>
+    /// <param name="accountId">One of the user's accounts: only its income and expenses count.</param>
+    /// <param name="categoryId">One of the user's categories: only what is in it, and in its subcategories when it has any, counts.</param>
+    /// <param name="compare">Also work out the period before: as many whole months before a period of whole calendar months, otherwise as many days.</param>
+    private static async Task<Results<Ok<IncomeVsExpensesResponse>, ValidationProblem>> IncomeVsExpenses(
+        GetIncomeVsExpensesHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, string? accountId = null, string? categoryId = null, bool compare = false)
+    {
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId, compare);
+        if (filter is null)
+        {
+            return TypedResults.ValidationProblem(parameters.Refused);
+        }
+
+        return TypedResults.Ok(IncomeVsExpensesResponse.Of(await handler.HandleAsync(new GetIncomeVsExpenses(filter), cancellationToken)));
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
@@ -142,4 +164,53 @@ public sealed record SpendingTransactionsResponse(
     public static SpendingTransactionsResponse Of(SpendingTransactionsDetails list) =>
         new(list.Period.From, list.Period.To, list.Currency, ReportCategoryResponse.From(list.Category), AmountJson.Text(list.Total), list.NotConverted,
             [.. list.Items.Select(SpendingTransactionResponse.From)]);
+}
+
+/// <summary>Income against expenses over some dates. Amounts are decimal strings in the user's base currency.</summary>
+/// <param name="Expenses">Spent: what the expenses came to, minus refunds.</param>
+/// <param name="Net">Income minus expenses; negative when more went out than came in.</param>
+/// <param name="SavingsRate">Net as a percentage of income, to one decimal; null when income is not above zero.</param>
+/// <param name="NotConverted">How many transactions are left out because no exchange rate exists on or before their date yet.</param>
+public sealed record IncomeAndExpensesResponse(string Income, string Expenses, string Net, decimal? SavingsRate, int NotConverted)
+{
+    public static IncomeAndExpensesResponse Of(IncomeAndExpenses flow) =>
+        new(AmountJson.Text(flow.Income), AmountJson.Text(flow.Expenses), AmountJson.Text(flow.Net), flow.SavingsRate, flow.NotConverted.Count);
+}
+
+/// <summary>One calendar month of income vs expenses. Amounts are decimal strings in the user's base currency.</summary>
+/// <param name="Month">The first day of the month.</param>
+/// <param name="From">The first day of it the report covers: the 1st unless the period starts later.</param>
+/// <param name="To">The last day of it the report covers: the month's last unless the period ends sooner.</param>
+/// <param name="Expenses">Spent: what the expenses came to, minus refunds.</param>
+/// <param name="Net">Income minus expenses.</param>
+/// <param name="SavingsRate">Net as a percentage of income, to one decimal; null when income is not above zero.</param>
+/// <param name="NotConverted">How many of its transactions are left out because they are not converted.</param>
+public sealed record MonthIncomeAndExpensesResponse(
+    DateOnly Month, DateOnly From, DateOnly To, string Income, string Expenses, string Net, decimal? SavingsRate, int NotConverted)
+{
+    public static MonthIncomeAndExpensesResponse Of(MonthOfIncomeAndExpenses month) =>
+        new(month.Month, month.Period.From, month.Period.To, AmountJson.Text(month.Flow.Income), AmountJson.Text(month.Flow.Expenses),
+            AmountJson.Text(month.Flow.Net), month.Flow.SavingsRate, month.Flow.NotConverted.Count);
+}
+
+/// <summary>Income vs expenses over the period compared with.</summary>
+/// <param name="Months">Every month it touches, in order.</param>
+public sealed record PreviousIncomeVsExpensesResponse(DateOnly From, DateOnly To, IncomeAndExpensesResponse Total, IReadOnlyList<MonthIncomeAndExpensesResponse> Months)
+{
+    public static PreviousIncomeVsExpensesResponse Of(PreviousIncomeVsExpensesDetails previous) =>
+        new(previous.Period.From, previous.Period.To, IncomeAndExpensesResponse.Of(previous.Report.Total), [.. previous.Report.Months.Select(MonthIncomeAndExpensesResponse.Of)]);
+}
+
+/// <summary>Income, expenses and net per month over a period, with the savings rate, unpaged.</summary>
+/// <param name="Currency">The user's base currency, which every amount is in.</param>
+/// <param name="Total">Over the whole period.</param>
+/// <param name="Months">Every calendar month the period touches, in order, one with nothing in it included.</param>
+/// <param name="Previous">The period before; null unless <c>compare</c> was asked for.</param>
+public sealed record IncomeVsExpensesResponse(
+    DateOnly From, DateOnly To, Currency Currency, IncomeAndExpensesResponse Total, IReadOnlyList<MonthIncomeAndExpensesResponse> Months,
+    PreviousIncomeVsExpensesResponse? Previous)
+{
+    public static IncomeVsExpensesResponse Of(IncomeVsExpensesDetails report) =>
+        new(report.Period.From, report.Period.To, report.Currency, IncomeAndExpensesResponse.Of(report.Report.Total),
+            [.. report.Report.Months.Select(MonthIncomeAndExpensesResponse.Of)], report.Previous is { } previous ? PreviousIncomeVsExpensesResponse.Of(previous) : null);
 }
