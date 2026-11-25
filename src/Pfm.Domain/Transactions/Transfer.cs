@@ -47,6 +47,12 @@ public sealed class Transfer
     public bool IsDeleted => OutLeg.IsDeleted;
 
     /// <summary>
+    /// Whether either leg is reconciled, which locks the whole transfer (spec section 3, rule 3): moving one leg
+    /// would move the other, and the reconciled one cannot move.
+    /// </summary>
+    public bool IsReconciled => OutLeg.IsReconciled || InLeg.IsReconciled;
+
+    /// <summary>
     /// The version an edit of the transfer names: the Transfer out leg's. It stands for both legs because the user
     /// changes a leg only through this type, which changes both together (a leg alone is refused), so an edit
     /// moves both versions at once. What changes one leg alone, converting it into the base currency once a rate
@@ -92,6 +98,7 @@ public sealed class Transfer
         }
 
         GuardCanMove(from, to);
+        GuardUnlocked(from, to, date);
 
         // Checked on a leg nobody keeps first, so the out leg is not left changed when the in leg is refused.
         OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to, date, note, today, now));
@@ -100,10 +107,38 @@ public sealed class Transfer
     }
 
     /// <summary>Deletes both legs together, so both accounts' balances are as before the transfer. Deleting it again changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">Either leg is reconciled.</exception>
     public void Delete(DateTimeOffset now)
     {
+        if (IsReconciled && !IsDeleted)
+        {
+            throw new InvalidOperationException("A reconciled transfer cannot be deleted until its reconciliation is reopened.");
+        }
+
         OutLeg.DeleteLeg(now);
         InLeg.DeleteLeg(now);
+    }
+
+    /// <summary>Refuses, while either leg is reconciled, a change to the accounts, the amounts or the date.</summary>
+    private void GuardUnlocked(LegAmount from, LegAmount to, DateOnly date)
+    {
+        if (!IsReconciled)
+        {
+            return;
+        }
+
+        var changed =
+            from.AccountId != FromAccountId ? nameof(FromAccountId)
+            : to.AccountId != ToAccountId ? nameof(ToAccountId)
+            : from.Amount != Amount ? nameof(Amount)
+            : to.Amount != ToAmount ? nameof(ToAmount)
+            : date != Date ? nameof(Date)
+            : null;
+        if (changed is not null)
+        {
+            throw new TransferRuleViolation(
+                changed, "This transfer is reconciled, so its accounts, amounts and date cannot change until its reconciliation is reopened.");
+        }
     }
 
     private static void GuardCanMove(LegAmount from, LegAmount to)
