@@ -66,7 +66,7 @@ public static class ReportEndpoints
             return TypedResults.ValidationProblem(parameters.Refused);
         }
 
-        return TypedResults.Ok(NetWorthResponse.Of(await handler.HandleAsync(new GetNetWorth(filter.Period, filter.AccountId), cancellationToken)));
+        return TypedResults.Ok(NetWorthResponse.Of(await handler.HandleAsync(new GetNetWorth(filter), cancellationToken)));
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
@@ -226,7 +226,8 @@ public sealed record BudgetVsActualItemResponse(
     {
         ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
         ComparedBudgetState.Warning => BudgetVsActualState.Warning,
-        _ => BudgetVsActualState.Over,
+        ComparedBudgetState.Over => BudgetVsActualState.Over,
+        _ => throw new ArgumentOutOfRangeException(nameof(state), state, "Not a budget state."),
     };
 }
 
