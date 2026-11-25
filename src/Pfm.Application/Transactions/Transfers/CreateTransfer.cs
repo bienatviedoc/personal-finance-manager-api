@@ -44,18 +44,23 @@ public sealed class CreateTransferValidator : AbstractValidator<CreateTransferCo
 /// What recording a transfer came to: the transfer, or nothing recorded because its idempotency key was already
 /// used, for something else or for this transfer, unmarked since.
 /// </summary>
-/// <param name="Recorded">Null when nothing is answered: the key was used before, for something else, or the transfer it recorded was unmarked.</param>
-/// <param name="WasUnmarked">True when the key recorded this very transfer, which was unmarked since into an expense and income.</param>
-public sealed record CreateTransferOutcome(TransferDetails? Recorded, bool WasUnmarked = false)
+public abstract record CreateTransferOutcome
 {
+    private CreateTransferOutcome()
+    {
+    }
+
+    /// <summary>The transfer recorded, now or by an earlier request with the same key, as it is now.</summary>
+    public sealed record Recorded(TransferDetails Transfer) : CreateTransferOutcome;
+
     /// <summary>The idempotency key already recorded a transaction or transfer that is not this one; nothing was recorded.</summary>
-    public static readonly CreateTransferOutcome KeyReused = new((TransferDetails?)null);
+    public sealed record KeyReused : CreateTransferOutcome;
 
     /// <summary>
-    /// The idempotency key already recorded this transfer, which was unmarked since: there is no transfer to
-    /// answer any more, and nothing was recorded, so it is not recorded twice.
+    /// The idempotency key already recorded this transfer, which was unmarked since into an expense and income:
+    /// there is no transfer to answer any more, and nothing was recorded, so it is not recorded twice.
     /// </summary>
-    public static readonly CreateTransferOutcome Unmarked = new(null, WasUnmarked: true);
+    public sealed record Unmarked : CreateTransferOutcome;
 }
 
 /// <summary>
@@ -111,7 +116,7 @@ public sealed class CreateTransferHandler(
             return await AlreadyRecordedAsync((await transactions.FindByIdempotencyKeyAsync(request.Key, cancellationToken))!, request, cancellationToken);
         }
 
-        return new CreateTransferOutcome(TransferDetails.Of(transfer));
+        return new CreateTransferOutcome.Recorded(TransferDetails.Of(transfer));
     }
 
     /// <summary>
@@ -123,16 +128,16 @@ public sealed class CreateTransferHandler(
     {
         if (recorded.Fingerprint != request.Fingerprint)
         {
-            return CreateTransferOutcome.KeyReused;
+            return new CreateTransferOutcome.KeyReused();
         }
 
         if (recorded.Transaction.TransferId is not { } transferId)
         {
-            return CreateTransferOutcome.Unmarked;
+            return new CreateTransferOutcome.Unmarked();
         }
 
         return await transactions.FindTransferAsync(transferId, deletedToo: true, cancellationToken) is { } transfer
-            ? new CreateTransferOutcome(TransferDetails.Of(transfer))
-            : CreateTransferOutcome.KeyReused;
+            ? new CreateTransferOutcome.Recorded(TransferDetails.Of(transfer))
+            : new CreateTransferOutcome.KeyReused();
     }
 }
