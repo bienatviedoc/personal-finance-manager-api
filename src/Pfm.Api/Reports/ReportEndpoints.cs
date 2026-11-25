@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Domain;
@@ -19,6 +20,9 @@ public static class ReportEndpoints
         reports.MapGet("/spending-by-category/transactions", SpendingTransactions).WithName("GetSpendingTransactions")
             .WithDescription("The last step of drilling down spending by category: the expenses with a line on one category itself (not on its subcategories) over a period, newest first, each with what it spent there in the base currency, so they add up to that category's spent in the report. A split shows only its lines on the category; a refund spends a negative amount; one that is not converted spends nothing yet and is counted in notConverted. Not paged: one category's expenses over one period.");
 
+        reports.MapGet("/budget-vs-actual", BudgetVsActual).WithName("GetBudgetVsActual")
+            .WithDescription("Am I within budget: each category's budgets against what was spent against them, in the user's base currency, over the whole budget months the period touches (one month, or several summed). A budget counts what was spent in its own month, in its category and, for a top-level one, in its subcategories, as on the budget screen; the account filter narrows what counts as spent, never the budgets. What was spent in a month where no budget covered its category is listed apart under unbudgeted. An expense that is not converted is left out of spent and counted in notConverted. Not compared with the previous period.");
+
         reports.MapGet("/trends", Trends).WithName("GetTrend")
             .WithDescription("One category or one payee over time: what it came to in each month of a period, in the user's base currency, and how each month changed from the one before, as an amount and a percentage. A category with its subcategories adds up spent (its expenses minus refunds) when it is an expense category, and the income received in it when it is an income one; a payee adds up what was spent with it, or with type income the income received from it, matched in any case, and with categoryId too only in that category. Each transaction counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers never count. With compare, the period before is worked out the same way, and change says how the total moved from it.");
 
@@ -26,6 +30,24 @@ public static class ReportEndpoints
             .WithDescription("Am I saving: income, expenses and net in each calendar month of a period, with the savings rate, and the same over the whole period, in the user's base currency. Expenses are spent: refunds lower them. Net is income minus expenses; the savings rate is net as a percentage of income, to one decimal, and none when income is not above zero. Each transaction counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers are neither income nor expenses and never count. With categoryId, only the lines in that category and its subcategories count.");
 
         return api;
+    }
+
+    /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>; the report starts on the 1st of its month.</param>
+    /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>, on or after <paramref name="from"/>; the report ends on the last day of its month.</param>
+    /// <param name="accountId">One of the user's accounts: only its expenses count as spent.</param>
+    /// <param name="categoryId">One of the user's categories: only it and its subcategories are shown.</param>
+    private static async Task<Results<Ok<BudgetVsActualResponse>, ValidationProblem>> BudgetVsActual(
+        GetBudgetVsActualHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, string? accountId = null, string? categoryId = null)
+    {
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId, compare: false);
+        if (filter is null)
+        {
+            return TypedResults.ValidationProblem(parameters.Refused);
+        }
+
+        return TypedResults.Ok(BudgetVsActualResponse.Of(await handler.HandleAsync(new GetBudgetVsActual(filter), cancellationToken)));
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
@@ -164,6 +186,80 @@ public sealed record SpendingByCategoryResponse(
         new(report.Period.From, report.Period.To, report.Currency, report.Parent is { } parent ? ReportCategoryResponse.From(parent) : null,
             AmountJson.Text(report.Total.Total), report.Total.NotConverted.Count, [.. report.Items.Select(SpendingByCategoryItemResponse.From)],
             report.Previous is { } previous ? PreviousSpendingResponse.Of(previous) : null);
+}
+
+/// <summary>One category's budgets in the months compared, summed, against what was spent against them. Amounts are decimal strings in the base currency.</summary>
+/// <param name="Months">How many of the months compared the category has a budget in.</param>
+/// <param name="Budgeted">Its budgets in those months, added up.</param>
+/// <param name="Spent">What was spent against them: in each of those months, in the category and, for a top-level one, its subcategories; negative when more came back than was spent.</param>
+/// <param name="Remaining">Budgeted minus spent; negative once over.</param>
+/// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when budgeted is zero.</param>
+/// <param name="State">Over above what was budgeted, a warning at or above the user's warning threshold, otherwise on track.</param>
+/// <param name="NotConverted">How many expenses are left out of spent because no exchange rate exists on or before their date yet.</param>
+public sealed record BudgetVsActualItemResponse(
+    ReportCategoryResponse Category, int Months, string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetVsActualState State, int NotConverted)
+{
+    public static BudgetVsActualItemResponse From(BudgetedCategoryDetails item) =>
+        new(ReportCategoryResponse.From(item.Category), item.Budget.Months, AmountJson.Text(item.Budget.Budgeted), AmountJson.Text(item.Budget.Spent),
+            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, StateOf(item.Budget.State), item.Budget.NotConverted.Count);
+
+    private static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
+    {
+        ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
+        ComparedBudgetState.Warning => BudgetVsActualState.Warning,
+        _ => BudgetVsActualState.Over,
+    };
+}
+
+/// <summary>Whether a category's budgets were kept to over the months compared, named as the budget screen names a budget's state (spec BUD-3).</summary>
+public enum BudgetVsActualState
+{
+    /// <summary>Spent is below the user's warning threshold.</summary>
+    OnTrack = 1,
+
+    /// <summary>Spent is at or above the user's warning threshold and not above what was budgeted.</summary>
+    Warning = 2,
+
+    /// <summary>Spent is above what was budgeted.</summary>
+    Over = 3,
+}
+
+/// <summary>What was spent in one category in the months compared where no budget covered it: none on the category, nor on its parent.</summary>
+/// <param name="Spent">A decimal string in the base currency.</param>
+/// <param name="NotConverted">How many expenses are left out of spent because they are not converted.</param>
+public sealed record UnbudgetedSpendingResponse(ReportCategoryResponse Category, string Spent, int NotConverted)
+{
+    public static UnbudgetedSpendingResponse From(UnbudgetedCategoryDetails item) =>
+        new(ReportCategoryResponse.From(item.Category), AmountJson.Text(item.Spending.Spent), item.Spending.NotConverted.Count);
+}
+
+/// <summary>Every budgeted item added up.</summary>
+/// <param name="NotConverted">How many expenses are left out of spent because they are not converted, each counted once.</param>
+public sealed record BudgetVsActualTotalsResponse(string Budgeted, string Spent, string Remaining, int NotConverted);
+
+/// <summary>Every unbudgeted item added up.</summary>
+/// <param name="NotConverted">How many expenses are left out of spent because they are not converted, each counted once.</param>
+public sealed record UnbudgetedTotalResponse(string Spent, int NotConverted);
+
+/// <summary>Budgeted against spent per category over whole budget months, unpaged.</summary>
+/// <param name="From">The 1st of the first budget month compared.</param>
+/// <param name="To">The last day of the last budget month compared.</param>
+/// <param name="Months">How many budget months are compared.</param>
+/// <param name="Currency">The user's base currency, which every amount is in.</param>
+/// <param name="WarningPercent">The user's warning threshold, which the states were worked out with.</param>
+/// <param name="Items">The categories with a budget in any of the months, as the category tree is ordered: by top-level category, then subcategory, each by name.</param>
+/// <param name="Unbudgeted">The categories where something was spent that no budget covered, by spent, most first, then by name.</param>
+public sealed record BudgetVsActualResponse(
+    DateOnly From, DateOnly To, int Months, Currency Currency, int WarningPercent, IReadOnlyList<BudgetVsActualItemResponse> Items,
+    BudgetVsActualTotalsResponse Totals, IReadOnlyList<UnbudgetedSpendingResponse> Unbudgeted, UnbudgetedTotalResponse UnbudgetedTotal)
+{
+    public static BudgetVsActualResponse Of(BudgetVsActualDetails report) =>
+        new(report.Period.From, report.Period.To, report.Period.Months.Count, report.Currency, report.WarningPercent,
+            [.. report.Items.Select(BudgetVsActualItemResponse.From)],
+            new BudgetVsActualTotalsResponse(
+                AmountJson.Text(report.Totals.Budgeted), AmountJson.Text(report.Totals.Spent), AmountJson.Text(report.Totals.Remaining), report.Totals.NotConverted),
+            [.. report.Unbudgeted.Select(UnbudgetedSpendingResponse.From)],
+            new UnbudgetedTotalResponse(AmountJson.Text(report.UnbudgetedTotal.Spent), report.UnbudgetedTotal.NotConverted));
 }
 
 /// <summary>One expense as it counts toward what was spent in a category.</summary>

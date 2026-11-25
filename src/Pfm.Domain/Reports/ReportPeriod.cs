@@ -29,6 +29,13 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
+    /// The calendar months the period touches, whole: from the 1st of its first month to the last day of its last.
+    /// A period of whole months is its own.
+    /// </summary>
+    public ReportPeriod WholeMonths =>
+        new(new DateOnly(From.Year, From.Month, 1), new DateOnly(To.Year, To.Month, DateTime.DaysInMonth(To.Year, To.Month)));
+
+    /// <summary>
     /// The calendar months the period touches, in order, each cut to the period: a period from the 15th of one
     /// month starts with the rest of that month, and one ending on the 10th ends with its first ten days.
     /// </summary>

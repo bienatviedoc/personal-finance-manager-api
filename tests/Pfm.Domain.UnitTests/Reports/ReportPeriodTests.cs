@@ -17,6 +17,16 @@ public class ReportPeriodTests
     }
 
     [Fact]
+    public void The_whole_months_of_a_period_run_from_the_1st_of_its_first_month_to_the_last_day_of_its_last()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 2, 3));
+
+        Assert.Equal(new ReportPeriod(new DateOnly(2026, 1, 1), new DateOnly(2026, 2, 28)), period.WholeMonths);
+        Assert.Equal(period.WholeMonths, period.WholeMonths.WholeMonths);
+        Assert.Equal(2, period.WholeMonths.Months.Count);
+    }
+
+    [Fact]
     public void A_period_cannot_end_before_it_starts() =>
         Assert.Throws<ArgumentOutOfRangeException>(() => new ReportPeriod(new DateOnly(2026, 11, 2), new DateOnly(2026, 11, 1)));
 

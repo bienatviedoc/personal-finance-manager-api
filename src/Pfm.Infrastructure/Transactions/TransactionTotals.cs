@@ -47,9 +47,23 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// </summary>
     public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
+        return SpentByCategory(await Expenses(from, to, accountId).ToListAsync(cancellationToken));
+    }
+
+    /// <summary>What each month's expenses spent in each category, by the same definition as <see cref="SpentByCategoryAsync"/>.</summary>
+    public async Task<IReadOnlyList<CategorySpentInMonth>> SpentByCategoryEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
+    {
         var expenses = await Expenses(from, to, accountId).ToListAsync(cancellationToken);
 
         return
+        [
+            .. expenses
+                .GroupBy(expense => new DateOnly(expense.Date.Year, expense.Date.Month, 1))
+                .SelectMany(month => SpentByCategory([.. month]).Select(spent => new CategorySpentInMonth(month.Key, spent))),
+        ];
+    }
+
+    private static List<CategorySpent> SpentByCategory(IReadOnlyList<Transaction> expenses) =>
         [
             .. expenses
                 .SelectMany(expense => expense.Lines.Select(line => line.CategoryId).Distinct().Select(categoryId => (CategoryId: categoryId, Expense: expense)))
@@ -59,7 +73,6 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
                     ofCategory.Sum(expense => expense.SpentAmountIn([ofCategory.Key])),
                     [.. ofCategory.Where(expense => !expense.IsConverted).Select(expense => expense.Id)])),
         ];
-    }
 
     /// <summary>
     /// The expenses with a line on the category, each with what it spent there by the same definition as

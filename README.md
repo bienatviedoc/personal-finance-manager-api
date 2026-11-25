@@ -517,6 +517,14 @@ already uses it can still show it. An account can be archived at any balance.
   position (`ReportPeriod.PreviousMonths`): before whole calendar months, as many calendar months; before any other
   period, each month moved back by the period's days, so 10 March to 20 April is set against 27 January to
   17 February and 18 February to 9 March.
+- **Budget vs actual** (RPT-6). `GET /reports/budget-vs-actual` sets each category's budgets against what was spent
+  against them over the whole budget months the period touches (`ReportPeriod.WholeMonths`): one month, or several
+  summed, `months` saying how many each category has a budget in. Budgets answers it through `IBudgetComparison`, by
+  its own rules (`BudgetComparison` in `Pfm.Domain.Budgets`): a budget counts what was spent in its own month, in its
+  category and, for a top-level one, its subcategories, and its `state` is worked out as on the budget screen with
+  the user's warning threshold. What was spent in a month where no budget covered its category is listed apart
+  under `unbudgeted`, most first. The account filter narrows spent, never the budgets; the category filter shows
+  only that category and its subcategories. Not compared with the period before.
 
 ## Signing in
 
