@@ -209,7 +209,7 @@ Reports answer five questions: where did the money go, where did it come from, a
 
 **Common behaviour**
 
-- Date presets: this month, last month, last 3, 6 and 12 months, this year, last year, custom.
+- Date presets: this month, last month, last 3, 6 and 12 months, this year, last year, custom. This month and this year are the whole month and year, to their last day, not up to today; compared with the previous period, they set a month or year still under way against a finished one.
 - Compare with the previous period on RPT-2, RPT-3 and RPT-7.
 - Every chart has a table view of the same numbers, for accessibility and copy-out.
 - Export: CSV for any report or transaction list (Must); PDF for the monthly summary (Should).
