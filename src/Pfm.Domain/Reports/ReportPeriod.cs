@@ -48,6 +48,16 @@ public sealed record ReportPeriod
     }
 
     /// <summary>
+    /// The months of the period compared with (<see cref="Previous"/>), one for each of <see cref="Months"/> and in
+    /// the same order, so the two can be set side by side by place. Before whole calendar months they are as many
+    /// whole months; before any other period each is the month at the same place moved back by the period's days,
+    /// which need not start on a 1st: 10 March to 20 April is set against 27 January to 17 February and 18 February
+    /// to 9 March.
+    /// </summary>
+    public IReadOnlyList<ReportPeriod> PreviousMonths =>
+        IsWholeMonths(out _) ? Previous.Months : [.. Months.Select(month => new ReportPeriod(month.From.AddDays(-Days), month.To.AddDays(-Days)))];
+
+    /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of
     /// whole calendar months, from a 1st to the last day of a month, is compared with as many whole months just
     /// before it, so March is compared with February and a year with the year before; any other period with as

@@ -111,7 +111,7 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
     /// </summary>
     private async Task<SpentTotal> SpentAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
     {
-        Guid[] categoryIds = [categoryId, .. (await categories.ListSubcategoriesAsync(categoryId, cancellationToken)).Select(category => category.Id)];
+        var categoryIds = await categories.ListIdsWithSubcategoriesAsync(categoryId, cancellationToken);
         var expenses = await transactions.ListExpensesAsync(filter, cancellationToken);
         return new SpentTotal(
             await baseCurrency.OfCurrentUserAsync(cancellationToken),

@@ -447,10 +447,14 @@ already uses it can still show it. An account can be archived at any balance.
   the month before as an `amount` and a `percent` (of the earlier total's size, to one decimal; none from zero, and
   none for the first month). `PeriodChange` and `Trend` (`Pfm.Domain.Reports`) work that out. An expense category
   adds up spent, by the same definition as spending by category; an income category adds up the income received in
-  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it; with
-  `categoryId` as well, only in that category. A category the user does not have is not found, as the trend is of
-  it. With `compare`, `previous` is the trend over the period before, month by month, and `change` how the total
-  moved from it.
+  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it, or with `type=income` the
+  income received from it; with `categoryId` as well, only in that category, whose kind says which (so `type` is
+  refused with it). `ReportParameters` reads `payee` and `type` beside the filters. A category the user does not have is not found, as the trend is of
+  it. With `compare`, `previous` is the trend over the period before and `change` how the total
+  moved from it. `previous.months` has one month for each of `months`, at the same place, so the two pair up by
+  position (`ReportPeriod.PreviousMonths`): before whole calendar months, as many calendar months; before any other
+  period, each month moved back by the period's days, so 10 March to 20 April is set against 27 January to
+  17 February and 18 February to 9 March.
 
 ## Signing in
 

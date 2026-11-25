@@ -64,7 +64,7 @@ public sealed class UnmarkTransferHandler(
         }
         catch (TransferRuleViolation violation)
         {
-            return Result<UnmarkedTransfer?>.Invalid(FieldError.On(violation.Property + "Id", violation.Message));
+            return Result<UnmarkedTransfer?>.Invalid(violation.AsErrors());
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);

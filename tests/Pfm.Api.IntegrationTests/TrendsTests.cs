@@ -167,6 +167,44 @@ public class TrendsTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(new ChangeBody("100000.00", 33.3m), trend.Change);
     }
 
+    [Fact]
+    public async Task Compared_with_the_days_before_a_period_that_is_not_whole_months_each_month_is_set_against_the_days_as_far_before_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var transport = await CategoryAsync(browser, "Transport");
+        await SpendAsync(browser, everyday, "Transport", "100000", new DateOnly(2026, 1, 27));
+        await SpendAsync(browser, everyday, "Transport", "70000", new DateOnly(2026, 2, 18));
+        await SpendAsync(browser, everyday, "Transport", "999000", new DateOnly(2026, 1, 26));
+
+        // 10 March to 20 April: two months, set against the 42 days before them, cut the same way.
+        var trend = await TrendAsync(browser, $"from=2026-03-10&to=2026-04-20&categoryId={transport}&compare=true");
+
+        Assert.Equal(
+            [
+                (new DateOnly(2026, 1, 27), new DateOnly(2026, 2, 17), "100000.00"),
+                (new DateOnly(2026, 2, 18), new DateOnly(2026, 3, 9), "70000.00"),
+            ],
+            trend.Previous!.Months.Select(month => (month.From, month.To, month.Total)));
+        Assert.Equal(trend.Months.Count, trend.Previous.Months.Count);
+    }
+
+    [Fact]
+    public async Task A_payee_asked_for_as_income_shows_the_income_received_from_it_each_month()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await RecordAsync(browser, "income", everyday, "Salary", "20000000", January, payee: "Acme");
+        await RecordAsync(browser, "income", everyday, "Salary", "21000000", March, payee: "ACME");
+        await SpendAsync(browser, everyday, "Groceries", "999000", February, payee: "Acme");
+
+        var trend = await TrendAsync(browser, $"{FirstQuarter}&payee=Acme&type=income");
+
+        Assert.True(trend.IsIncome);
+        Assert.Equal(["20000000.00", "0.00", "21000000.00"], trend.Months.Select(month => month.Total));
+        Assert.Equal("999000.00", (await TrendAsync(browser, $"{FirstQuarter}&payee=Acme&type=expense")).Total);
+    }
+
     // What it refuses.
 
     [Theory]
@@ -176,6 +214,9 @@ public class TrendsTests(PfmApi api) : IAsyncLifetime
     [InlineData("from=2026-01-01&to=2026-03-31&categoryId=food", "categoryId")]
     [InlineData("from=2026-01-01&to=2026-03-31&payee=Shop&accountId=everyday", "accountId")]
     [InlineData("from=2026-01-01&to=2026-03-31&payee=%20%20", "categoryId")]
+    [InlineData("from=2026-01-01&to=2026-03-31&payee=Shop&type=transferIn", "type")]
+    [InlineData("from=2026-01-01&to=2026-03-31&payee=Shop&type=gift", "type")]
+    [InlineData("from=2026-01-01&to=2026-03-31&categoryId=0198f3a4-0000-7000-8000-000000000000&type=income", "type")]
     public async Task A_trend_asked_for_without_a_category_or_a_payee_or_with_a_parameter_it_cannot_read_is_a_validation_problem_naming_it(string query, string field)
     {
         var (browser, _) = await api.SignedInAsync();

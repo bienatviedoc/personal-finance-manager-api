@@ -67,17 +67,17 @@ public sealed class Transfer
         return new Transfer(outLeg, inLeg);
     }
 
-    /// <summary>What a transfer marked from two transactions calls the expense it is made from, as a broken rule names it.</summary>
-    public const string Expense = nameof(Expense);
+    /// <summary>What a broken rule names the expense a transfer is marked from by: the id it is picked by.</summary>
+    public const string ExpenseId = nameof(ExpenseId);
 
-    /// <summary>What a transfer marked from two transactions calls the income it is made from, as a broken rule names it.</summary>
-    public const string Income = nameof(Income);
+    /// <summary>What a broken rule names the income a transfer is marked from by: the id it is picked by.</summary>
+    public const string IncomeId = nameof(IncomeId);
 
-    /// <summary>What unmarking a transfer calls the category its Transfer out leg is spent on, as a broken rule names it.</summary>
-    public const string ExpenseCategory = nameof(ExpenseCategory);
+    /// <summary>What a broken rule names the category the Transfer out leg is spent on once unmarked by: the id it is chosen by.</summary>
+    public const string ExpenseCategoryId = nameof(ExpenseCategoryId);
 
-    /// <summary>What unmarking a transfer calls the category its Transfer in leg is income on, as a broken rule names it.</summary>
-    public const string IncomeCategory = nameof(IncomeCategory);
+    /// <summary>What a broken rule names the category the Transfer in leg is income on once unmarked by: the id it is chosen by.</summary>
+    public const string IncomeCategoryId = nameof(IncomeCategoryId);
 
     /// <summary>
     /// Joins an expense on one account and income on another, such as the two rows imported statements show
@@ -96,21 +96,21 @@ public sealed class Transfer
             throw new InvalidOperationException("A deleted transaction cannot be marked as a transfer.");
         }
 
-        GuardCanBecomeLeg(expense, Expense, TransactionType.Expense, "Choose an expense that is not a refund: the money that left one account.");
-        GuardCanBecomeLeg(income, Income, TransactionType.Income, "Choose income: the money that arrived on the other account.");
+        GuardCanBecomeLeg(expense, ExpenseId, TransactionType.Expense, "Choose an expense that is not a refund: the money that left one account.");
+        GuardCanBecomeLeg(income, IncomeId, TransactionType.Income, "Choose income: the money that arrived on the other account.");
         if (expense.AccountId == income.AccountId)
         {
-            throw new TransferRuleViolation(Income, "A transfer is between two different accounts.");
+            throw new TransferRuleViolation(IncomeId, "A transfer is between two different accounts.");
         }
 
         if (expense.Currency == income.Currency && expense.Amount != income.Amount)
         {
-            throw new TransferRuleViolation(Income, "Accounts in the same currency move the same amount.");
+            throw new TransferRuleViolation(IncomeId, "Accounts in the same currency move the same amount.");
         }
 
         if (expense.Date != income.Date)
         {
-            throw new TransferRuleViolation(Income, "The two legs of a transfer are on the same date.");
+            throw new TransferRuleViolation(IncomeId, "The two legs of a transfer are on the same date.");
         }
 
         var id = Guid.CreateVersion7(now);
@@ -137,12 +137,12 @@ public sealed class Transfer
 
         if (Transaction.CategoryRuleBroken(expenseCategory, TransactionType.Expense, keeps: false) is { } expenseRule)
         {
-            throw new TransferRuleViolation(ExpenseCategory, expenseRule);
+            throw new TransferRuleViolation(ExpenseCategoryId, expenseRule);
         }
 
         if (Transaction.CategoryRuleBroken(incomeCategory, TransactionType.Income, keeps: false) is { } incomeRule)
         {
-            throw new TransferRuleViolation(IncomeCategory, incomeRule);
+            throw new TransferRuleViolation(IncomeCategoryId, incomeRule);
         }
 
         OutLeg.BecomeOrdinary(TransactionType.Expense, expenseCategory, now);
