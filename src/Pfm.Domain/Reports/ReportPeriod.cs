@@ -29,6 +29,25 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
+    /// The calendar months the period touches, in order, each cut to the period: a period from the 15th of one
+    /// month starts with the rest of that month, and one ending on the 10th ends with its first ten days.
+    /// </summary>
+    public IReadOnlyList<ReportPeriod> Months
+    {
+        get
+        {
+            var months = new List<ReportPeriod>();
+            for (var first = new DateOnly(From.Year, From.Month, 1); first <= To; first = first.AddMonths(1))
+            {
+                var last = first.AddMonths(1).AddDays(-1);
+                months.Add(new ReportPeriod(first < From ? From : first, last > To ? To : last));
+            }
+
+            return months;
+        }
+    }
+
+    /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of
     /// whole calendar months, from a 1st to the last day of a month, is compared with as many whole months just
     /// before it, so March is compared with February and a year with the year before; any other period with as
