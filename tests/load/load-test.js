@@ -34,6 +34,8 @@ const reports = [
   'spending last 12 months compared',
   'spending in a category',
   'spending transactions',
+  'trend of a category compared',
+  'trend of a payee',
 ];
 
 export const options = {
@@ -69,7 +71,7 @@ export function setup() {
   const read = (path) => http.get(`${api}${path}`).json();
   const total = read('/transactions?limit=1').total.count;
   console.log(`Signed in as ${email}, who has ${total} transactions.`);
-  const categories = read('/categories').items;
+  const categories = read('/categories').items.flatMap((category) => [category, ...category.subcategories]);
   const food = categories.find((category) => category.name === 'Food & drink');
   const groceries = categories.find((category) => category.name === 'Groceries');
   if (!food || !groceries) {
@@ -90,11 +92,10 @@ function get(path, kind, name) {
 }
 
 export default function (data) {
-  if (__ITER === 0) {
-    const jar = http.cookieJar();
-    for (const [name, values] of Object.entries(data.cookies)) {
-      jar.set(base, name, values[0]);
-    }
+  // k6 empties each virtual user's cookie jar before every iteration, so the session goes back in each time.
+  const jar = http.cookieJar();
+  for (const [name, values] of Object.entries(data.cookies)) {
+    jar.set(base, name, values[0]);
   }
 
   const today = new Date();
@@ -126,4 +127,6 @@ export default function (data) {
   get(`/reports/spending-by-category?${last12Months}&compare=true`, 'report', 'spending last 12 months compared');
   get(`/reports/spending-by-category?${thisYear}&parentId=${data.foodId}`, 'report', 'spending in a category');
   get(`/reports/spending-by-category/transactions?${thisYear}&categoryId=${data.groceriesId}`, 'report', 'spending transactions');
+  get(`/reports/trends?${last12Months}&categoryId=${data.foodId}&compare=true`, 'report', 'trend of a category compared');
+  get(`/reports/trends?${thisYear}&payee=WinMart`, 'report', 'trend of a payee');
 }
