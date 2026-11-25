@@ -45,11 +45,9 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// income and the legs of a transfer never count. A month's expenses are read and added up here, not in
     /// the database, so that spent has that one definition.
     /// </summary>
-    public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
-        var expenses = await db.Set<Transaction>().AsNoTracking()
-            .Where(transaction => transaction.Type == TransactionType.Expense && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to)
-            .ToListAsync(cancellationToken);
+        var expenses = await Expenses(from, to, accountId).ToListAsync(cancellationToken);
 
         return
         [
@@ -61,6 +59,40 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
                     ofCategory.Sum(expense => expense.SpentAmountIn([ofCategory.Key])),
                     [.. ofCategory.Where(expense => !expense.IsConverted).Select(expense => expense.Id)])),
         ];
+    }
+
+    /// <summary>
+    /// The expenses with a line on the category, each with what it spent there by the same definition as
+    /// <see cref="SpentByCategoryAsync(DateOnly, DateOnly, Guid?, CancellationToken)"/>, so they add up to the
+    /// category's spent.
+    /// </summary>
+    public async Task<IReadOnlyList<CategoryExpense>> ExpensesInAsync(DateOnly from, DateOnly to, Guid categoryId, Guid? accountId, CancellationToken cancellationToken)
+    {
+        var expenses = await Expenses(from, to, accountId)
+            .Where(transaction => transaction.Lines.Any(line => line.CategoryId == categoryId))
+            .OrderByDescending(transaction => transaction.Date).ThenByDescending(transaction => transaction.CreatedAt).ThenByDescending(transaction => transaction.Id)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. expenses.Select(expense => new CategoryExpense(
+                expense.Id, expense.Date, expense.AccountId, expense.Payee, expense.Note,
+                expense.Lines.Where(line => line.CategoryId == categoryId).Sum(line => line.Amount), expense.Currency, expense.IsRefund,
+                expense.Lines.Any(line => line.CategoryId != categoryId),
+                expense.IsConverted ? expense.SpentAmountIn([categoryId]) : null)),
+        ];
+    }
+
+    /// <summary>
+    /// The expenses dated between two days, on one account or on all, that are not deleted. Only the type Expense
+    /// is read, so income and the legs of a transfer never count. They are read and added up here, not in the
+    /// database, so that spent has the domain's one definition (<see cref="Transaction.SpentAmountIn"/>).
+    /// </summary>
+    private IQueryable<Transaction> Expenses(DateOnly from, DateOnly to, Guid? accountId)
+    {
+        var expenses = db.Set<Transaction>().AsNoTracking()
+            .Where(transaction => transaction.Type == TransactionType.Expense && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to);
+        return accountId is { } account ? expenses.Where(transaction => transaction.AccountId == account) : expenses;
     }
 
     /// <summary>

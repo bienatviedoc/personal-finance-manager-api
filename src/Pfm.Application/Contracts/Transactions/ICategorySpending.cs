@@ -13,8 +13,32 @@ public interface ICategorySpending
     /// count: income and transfers never do, and a deleted transaction is left out. Each category answers for
     /// itself alone, not for its subcategories; one with no expenses is left out.
     /// </summary>
-    Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken);
+    /// <param name="accountId">
+    /// Only the expenses on this account, for a report's account filter (spec section 7); on every account when null.
+    /// </param>
+    Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The user's expenses dated from <paramref name="from"/> to <paramref name="to"/> that have a line on the
+    /// category itself (not on its subcategories), each with what it spent there: the transactions that make up
+    /// that category's spent, adding up to it. Newest first, the last recorded first within a day. Income,
+    /// transfers and deleted transactions are never among them.
+    /// </summary>
+    /// <param name="accountId">Only the expenses on this account; on every account when null.</param>
+    Task<IReadOnlyList<CategoryExpense>> ExpensesInAsync(DateOnly from, DateOnly to, Guid categoryId, Guid? accountId, CancellationToken cancellationToken);
 }
+
+/// <summary>One expense as it counts toward what was spent in one category.</summary>
+/// <param name="Amount">What its lines on the category come to, in the transaction's own currency: its whole amount unless it is split.</param>
+/// <param name="Currency">The currency of the transaction's account.</param>
+/// <param name="IsSplit">Whether it has lines on other categories too, which are not counted here.</param>
+/// <param name="Spent">
+/// What it adds to spent in the category, in the base currency: negative for a refund. Null while it is not
+/// converted, when it adds nothing.
+/// </param>
+public sealed record CategoryExpense(
+    Guid TransactionId, DateOnly Date, Guid AccountId, string? Payee, string? Note, decimal Amount, Pfm.Domain.Currency Currency, bool IsRefund, bool IsSplit,
+    decimal? Spent);
 
 /// <summary>What was spent in one category.</summary>
 /// <param name="Spent">The total in the base currency of the expenses that are converted, minus the refunds; it can be negative.</param>

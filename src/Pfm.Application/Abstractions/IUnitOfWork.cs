@@ -19,6 +19,13 @@ public interface IUnitOfWork
     /// it back, including after a step failed.
     /// </summary>
     Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Starts a transaction in which every read sees what was saved as of its first read, for a use case that
+    /// compares what two reads answer and must not see a save land between them (the integrity check). Disposing
+    /// it ends it; it is not for saving.
+    /// </summary>
+    Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IUnitOfWorkTransaction : IAsyncDisposable

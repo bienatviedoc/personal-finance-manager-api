@@ -42,6 +42,9 @@ public interface ITransactionRepository
     /// <summary>Every user, signed in or not, who has a transaction flagged not converted.</summary>
     Task<IReadOnlyList<Guid>> UsersWithNotConvertedAsync(CancellationToken cancellationToken);
 
+    /// <summary>Every user, signed in or not, who has a transaction, deleted or not.</summary>
+    Task<IReadOnlyList<Guid>> UsersWithTransactionsAsync(CancellationToken cancellationToken);
+
     /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
     void Add(Transaction transaction, IdempotentRequest? request);
 

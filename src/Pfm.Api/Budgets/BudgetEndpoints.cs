@@ -27,6 +27,8 @@ public static class BudgetEndpoints
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         budgets.MapDelete("/{month}/{categoryId:guid}", Remove).WithName("RemoveBudget")
             .WithDescription("Removes the budget a category has in a month.");
+        budgets.MapPost("/{month}/copy-from/{sourceMonth}", Copy).WithName("CopyBudgets")
+            .WithDescription("Copies the budgets of the source month into the month in one action, such as last month's into this one, each with its amount.");
 
         return api;
     }
@@ -89,6 +91,15 @@ public static class BudgetEndpoints
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
 
+    /// <param name="month">The budget month copied into, as <c>2026-11</c>.</param>
+    /// <param name="sourceMonth">The budget month copied from, as <c>2026-10</c>.</param>
+    private static async Task<Results<Ok<CopiedBudgetsResponse>, ValidationProblem>> Copy(
+        string month, string sourceMonth, CopyBudgetsHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new CopyBudgetsCommand(month, sourceMonth), cancellationToken);
+        return result.IsValid ? TypedResults.Ok(new CopiedBudgetsResponse(result.Outcome!.Copied)) : ValidationProblems.For(result);
+    }
+
     private static BudgetResponse Versioned(HttpContext http, BudgetResponse budget)
     {
         http.SendAsETag(budget.RowVersion);
@@ -99,6 +110,10 @@ public static class BudgetEndpoints
 /// <summary>What setting a budget sends. Its currency is not sent: it is the user's base currency.</summary>
 /// <param name="Amount">A decimal string of zero or more, such as <c>"3000000.00"</c>, with no more decimals than the base currency has.</param>
 public sealed record BudgetRequest(string Amount);
+
+/// <summary>What copying the budgets of one month into another came to.</summary>
+/// <param name="Copied">How many budgets the month gained.</param>
+public sealed record CopiedBudgetsResponse(int Copied);
 
 /// <summary>A budget against what was spent in its month. Amounts are decimal strings in the user's base currency.</summary>
 /// <param name="Category">The category the budget is on.</param>

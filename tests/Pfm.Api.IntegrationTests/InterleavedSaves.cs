@@ -53,5 +53,8 @@ public sealed class InterleavedSaves
 
         public Task<IUnitOfWorkTransaction> BeginTransactionAsync(CancellationToken cancellationToken = default) =>
             ((IUnitOfWork)db).BeginTransactionAsync(cancellationToken);
+
+        public Task<IUnitOfWorkTransaction> BeginSnapshotAsync(CancellationToken cancellationToken = default) =>
+            ((IUnitOfWork)db).BeginSnapshotAsync(cancellationToken);
     }
 }
