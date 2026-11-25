@@ -29,6 +29,9 @@ public static class ReportEndpoints
         reports.MapGet("/income-vs-expenses", IncomeVsExpenses).WithName("GetIncomeVsExpenses")
             .WithDescription("Am I saving: income, expenses and net in each calendar month of a period, with the savings rate, and the same over the whole period, in the user's base currency. Expenses are spent: refunds lower them. Net is income minus expenses; the savings rate is net as a percentage of income, to one decimal, and none when income is not above zero. Each transaction counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers are neither income nor expenses and never count. With categoryId, only the lines in that category and its subcategories count.");
 
+        reports.MapGet("/net-worth", NetWorth).WithName("GetNetWorth")
+            .WithDescription("What the user is worth over a period: at each month end in it, and on its last day when it ends inside a month, the balances of the assets (every account but credit cards and loans) and the amount owed on the liabilities (credit cards and loans), and the assets minus the liabilities, in the user's base currency. Archived accounts count; an account counts from its opening date. Each balance is converted at the exchange rate of the day it is shown on, or the nearest earlier one; one with no rate on or before that day is left out and counted in notConverted. Not paged: one item per month.");
+
         return api;
     }
 
@@ -48,6 +51,22 @@ public static class ReportEndpoints
         }
 
         return TypedResults.Ok(BudgetVsActualResponse.Of(await handler.HandleAsync(new GetBudgetVsActual(filter), cancellationToken)));
+    }
+
+    /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>; on or after <paramref name="from"/>.</param>
+    /// <param name="accountId">One of the user's accounts: only its balance counts.</param>
+    private static async Task<Results<Ok<NetWorthResponse>, ValidationProblem>> NetWorth(
+        GetNetWorthHandler handler, CancellationToken cancellationToken, string? from = null, string? to = null, string? accountId = null)
+    {
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId: null, compare: false);
+        if (filter is null)
+        {
+            return TypedResults.ValidationProblem(parameters.Refused);
+        }
+
+        return TypedResults.Ok(NetWorthResponse.Of(await handler.HandleAsync(new GetNetWorth(filter.Period, filter.AccountId), cancellationToken)));
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
@@ -395,4 +414,25 @@ public sealed record IncomeVsExpensesResponse(
     public static IncomeVsExpensesResponse Of(IncomeVsExpensesDetails report) =>
         new(report.Period.From, report.Period.To, report.Currency, IncomeAndExpensesResponse.Of(report.Report.Total),
             [.. report.Report.Months.Select(MonthIncomeAndExpensesResponse.Of)], report.Previous is { } previous ? PreviousIncomeVsExpensesResponse.Of(previous) : null);
+}
+
+/// <summary>What the user was worth at the end of one day. Amounts are decimal strings in the user's base currency.</summary>
+/// <param name="Date">A month end, or the period's last day when it ends inside a month.</param>
+/// <param name="Assets">The balances of every account that is not a credit card or loan; lowered by one that is overdrawn.</param>
+/// <param name="Liabilities">The amount owed on credit cards and loans, as a positive number.</param>
+/// <param name="NetWorth">The assets minus the liabilities; negative when more is owed than held.</param>
+/// <param name="NotConverted">How many balances are left out because no exchange rate exists on or before the day yet.</param>
+public sealed record NetWorthPointResponse(DateOnly Date, string Assets, string Liabilities, string NetWorth, int NotConverted)
+{
+    public static NetWorthPointResponse From(NetWorthOn point) =>
+        new(point.Date, AmountJson.Text(point.Assets), AmountJson.Text(point.Liabilities), AmountJson.Text(point.NetWorth), point.NotConverted);
+}
+
+/// <summary>What the user was worth over a period, unpaged.</summary>
+/// <param name="Currency">The user's base currency, which every amount is in.</param>
+/// <param name="Items">One for each month end in the period, oldest first, and one for its last day when it ends inside a month.</param>
+public sealed record NetWorthResponse(DateOnly From, DateOnly To, Currency Currency, IReadOnlyList<NetWorthPointResponse> Items)
+{
+    public static NetWorthResponse Of(NetWorthDetails report) =>
+        new(report.Period.From, report.Period.To, report.Currency, [.. report.Items.Select(NetWorthPointResponse.From)]);
 }

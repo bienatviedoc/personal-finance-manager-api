@@ -55,6 +55,12 @@ public sealed record ReportPeriod
     }
 
     /// <summary>
+    /// The days net worth is shown on (spec RPT-5): the last day of each month that ends in the period, and the
+    /// period's own last day when the period ends inside a month, so even a few days have one.
+    /// </summary>
+    public IReadOnlyList<DateOnly> MonthEnds => [.. Months.Select(month => month.To)];
+
+    /// <summary>
     /// The months of the period compared with (<see cref="Previous"/>), one for each of <see cref="Months"/> and in
     /// the same order, so the two can be set side by side by place. Before whole calendar months they are as many
     /// whole months; before any other period each is the month at the same place moved back by the period's days,

@@ -79,4 +79,22 @@ public class ReportPeriodTests
 
         Assert.Equal([period], period.Months);
     }
+
+    [Fact]
+    public void The_month_ends_of_a_period_are_the_last_day_of_each_month_in_it()
+    {
+        var firstQuarter = new ReportPeriod(new DateOnly(2028, 1, 1), new DateOnly(2028, 3, 31));
+
+        Assert.Equal([new DateOnly(2028, 1, 31), new DateOnly(2028, 2, 29), new DateOnly(2028, 3, 31)], firstQuarter.MonthEnds);
+    }
+
+    [Fact]
+    public void A_period_that_ends_inside_a_month_ends_its_month_ends_on_its_last_day()
+    {
+        var fromMidJanuary = new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 3, 10));
+        var tenDays = new ReportPeriod(new DateOnly(2026, 3, 5), new DateOnly(2026, 3, 14));
+
+        Assert.Equal([new DateOnly(2026, 1, 31), new DateOnly(2026, 2, 28), new DateOnly(2026, 3, 10)], fromMidJanuary.MonthEnds);
+        Assert.Equal([new DateOnly(2026, 3, 14)], tenDays.MonthEnds);
+    }
 }
