@@ -47,4 +47,26 @@ public class ReportPeriodTests
         Assert.Equal(new ReportPeriod(new DateOnly(2026, 2, 23), new DateOnly(2026, 3, 4)), tenDays.Previous);
         Assert.Equal(new ReportPeriod(new DateOnly(2026, 2, 9), new DateOnly(2026, 2, 28)), fromTheFirst.Previous);
     }
+
+    [Fact]
+    public void A_period_is_made_of_the_calendar_months_it_touches_the_first_and_last_cut_to_the_period()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 3, 10));
+
+        Assert.Equal(
+            [
+                new ReportPeriod(new DateOnly(2026, 1, 15), new DateOnly(2026, 1, 31)),
+                new ReportPeriod(new DateOnly(2026, 2, 1), new DateOnly(2026, 2, 28)),
+                new ReportPeriod(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 10)),
+            ],
+            period.Months);
+    }
+
+    [Fact]
+    public void A_period_within_one_month_is_one_month()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 3, 5), new DateOnly(2026, 3, 14));
+
+        Assert.Equal([period], period.Months);
+    }
 }

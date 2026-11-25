@@ -132,21 +132,34 @@ public sealed class Transaction : IUserOwned
     /// A split's lines share its converted amount as they share its amount, each share rounded to the base
     /// currency's decimals and the last line taking what is left, so the shares sum exactly to it.
     /// </summary>
-    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds)
+    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(SpentAmount, categoryIds);
+
+    /// <summary>
+    /// What an income adds to these categories in the base currency: what its lines on them come to, sharing its
+    /// converted amount as <see cref="SpentAmountIn"/> shares an expense's. Nothing for an expense, a leg of a
+    /// transfer, once deleted, or while not converted.
+    /// </summary>
+    public decimal IncomeAmountIn(IReadOnlyCollection<Guid> categoryIds) =>
+        ShareIn(!IsDeleted && Type == TransactionType.Income && Conversion is { Amount: { } converted } ? converted : 0, categoryIds);
+
+    /// <summary>
+    /// The part of an amount in the base currency that the lines on these categories take: each line's share
+    /// rounded to the base currency's decimals, and the last line taking what is left, so the shares sum exactly to it.
+    /// </summary>
+    private decimal ShareIn(decimal whole, IReadOnlyCollection<Guid> categoryIds)
     {
         ArgumentNullException.ThrowIfNull(categoryIds);
-        var spent = SpentAmount;
-        if (spent == 0)
+        if (whole == 0)
         {
             return 0;
         }
 
         var decimals = Conversion!.BaseCurrency.DecimalPlaces();
         var lines = Lines;
-        var (left, inThese) = (spent, 0m);
+        var (left, inThese) = (whole, 0m);
         for (var position = 0; position < lines.Count; position++)
         {
-            var share = position == lines.Count - 1 ? left : decimal.Round(spent * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
+            var share = position == lines.Count - 1 ? left : decimal.Round(whole * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
             left -= share;
             if (categoryIds.Contains(lines[position].CategoryId))
             {
