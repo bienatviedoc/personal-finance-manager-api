@@ -185,7 +185,10 @@ public sealed record PeriodChangeResponse(string Amount, decimal? Percent)
 /// <param name="To">The month's last day, or the period's when it ends sooner.</param>
 /// <param name="Total">What the month came to, a decimal string in the base currency.</param>
 /// <param name="NotConverted">How many of its transactions are left out of the total because they are not converted.</param>
-/// <param name="Change">How it changed from the month before; null for the first month.</param>
+/// <param name="Change">
+/// How it changed from the month before; for the first month, from the last month of the period compared with, and null
+/// without <c>compare</c>.
+/// </param>
 public sealed record TrendMonthResponse(DateOnly From, DateOnly To, string Total, int NotConverted, PeriodChangeResponse? Change)
 {
     public static TrendMonthResponse Of(TrendMonth month) =>

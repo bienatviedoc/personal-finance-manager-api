@@ -32,8 +32,6 @@ public sealed class MarkAsTransferHandler(
     IValidator<MarkAsTransferCommand> validator, ITransactionRepository transactions, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<MarkAsTransferCommand, TransferDetails>(validator)
 {
-    public const string NotATransaction = "Choose one of your transactions.";
-
     /// <summary>Made again on what was saved when either transaction changes at the same moment, so the rules are checked against it.</summary>
     protected override Task<Result<TransferDetails>> ExecuteAsync(MarkAsTransferCommand command, CancellationToken cancellationToken) =>
         unitOfWork.RetryOnConcurrentChangeAsync(() => MarkAsync(command, cancellationToken));
@@ -42,12 +40,12 @@ public sealed class MarkAsTransferHandler(
     {
         if (await transactions.FindAsync(command.ExpenseId, cancellationToken) is not { } expense)
         {
-            return Result<TransferDetails>.Invalid(FieldError.On(nameof(MarkAsTransferCommand.ExpenseId), NotATransaction));
+            return Result<TransferDetails>.Invalid(FieldError.On(nameof(MarkAsTransferCommand.ExpenseId), Choices.NotATransaction));
         }
 
         if (await transactions.FindAsync(command.IncomeId, cancellationToken) is not { } income)
         {
-            return Result<TransferDetails>.Invalid(FieldError.On(nameof(MarkAsTransferCommand.IncomeId), NotATransaction));
+            return Result<TransferDetails>.Invalid(FieldError.On(nameof(MarkAsTransferCommand.IncomeId), Choices.NotATransaction));
         }
 
         Transfer transfer;

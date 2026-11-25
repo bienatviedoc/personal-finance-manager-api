@@ -236,6 +236,7 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     internal void BecomeOrdinary(TransactionType type, Category category, DateTimeOffset now)
     {
+        GuardNotDeleted();
         Type = type;
         TransferId = null;
         CategoryId = category.Id;

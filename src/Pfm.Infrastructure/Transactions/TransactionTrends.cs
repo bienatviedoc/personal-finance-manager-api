@@ -8,8 +8,6 @@ namespace Pfm.Infrastructure.Transactions;
 /// <summary>Reads the user's transactions for a trend. The context's user filter keeps every query to the signed-in user's.</summary>
 internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
 {
-    private const string Escape = "\\";
-
     /// <summary>
     /// The transactions are read and their amounts worked out here, not in the database, so that spent and a split's
     /// shares have the domain's one definition (<see cref="Transaction.SpentAmountIn"/>, <see cref="Transaction.IncomeAmountIn"/>).
@@ -29,18 +27,15 @@ internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
         IReadOnlyCollection<Guid>? categoryIds = null;
         if (categoryId is { } category)
         {
-            var family = await db.Set<Category>().AndSubcategoriesOf(category).ToListAsync(cancellationToken);
-            transactions = transactions.Where(transaction => transaction.Lines.Any(line => family.Contains(line.CategoryId)));
-            categoryIds = family;
+            var withSubcategories = await db.Set<Category>().AndSubcategoriesOf(category).ToListAsync(cancellationToken);
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line => withSubcategories.Contains(line.CategoryId)));
+            categoryIds = withSubcategories;
         }
 
         if (payee is not null)
         {
-            // The payee itself in any case, never a pattern: what ILIKE would read as "anything" is escaped.
-            var exactly = payee.Replace(Escape, Escape + Escape, StringComparison.Ordinal)
-                .Replace("%", Escape + "%", StringComparison.Ordinal)
-                .Replace("_", Escape + "_", StringComparison.Ordinal);
-            transactions = transactions.Where(transaction => EF.Functions.ILike(transaction.Payee!, exactly, Escape));
+            var exactly = LikePattern.Exactly(payee);
+            transactions = transactions.Where(transaction => EF.Functions.ILike(transaction.Payee!, exactly, LikePattern.Escape));
         }
 
         var found = await transactions.ToListAsync(cancellationToken);

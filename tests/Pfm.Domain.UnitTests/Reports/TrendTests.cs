@@ -41,6 +41,17 @@ public class TrendTests
     }
 
     [Fact]
+    public void Compared_with_the_period_before_the_first_month_changed_from_the_last_month_of_that_period()
+    {
+        var before = Trend.Before(FirstQuarter, [Amount(new DateOnly(2025, 12, 5), 400m)]);
+
+        var trend = Trend.Of(FirstQuarter, [Amount(new DateOnly(2026, 1, 3), 300m)], before);
+
+        Assert.Equal(new PeriodChange(-100m, -25.0m), trend.Months[0].Change);
+        Assert.Equal(new PeriodChange(-300m, -100.0m), trend.Months[1].Change);
+    }
+
+    [Fact]
     public void A_change_from_nothing_has_no_percentage_and_one_from_below_zero_is_a_percentage_of_its_size()
     {
         Assert.Equal(new PeriodChange(300m, null), PeriodChange.Between(0m, 300m));

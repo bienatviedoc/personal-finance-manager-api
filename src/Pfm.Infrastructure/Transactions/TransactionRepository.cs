@@ -84,23 +84,15 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         {
             // ILIKE with the text between wildcards is what the trigram indexes on the payee and the notes answer.
             // A line has a note of its own (spec section 10), so a split is found by any of its lines' notes too.
-            var containing = $"%{EscapedForLike(search)}%";
+            var containing = LikePattern.Containing(search);
             transactions = transactions.Where(transaction =>
-                EF.Functions.ILike(transaction.Payee!, containing, LikeEscape)
-                || EF.Functions.ILike(transaction.Note!, containing, LikeEscape)
-                || transaction.Lines.Any(line => EF.Functions.ILike(line.Note!, containing, LikeEscape)));
+                EF.Functions.ILike(transaction.Payee!, containing, LikePattern.Escape)
+                || EF.Functions.ILike(transaction.Note!, containing, LikePattern.Escape)
+                || transaction.Lines.Any(line => EF.Functions.ILike(line.Note!, containing, LikePattern.Escape)));
         }
 
         return transactions;
     }
-
-    private const string LikeEscape = "\\";
-
-    /// <summary>The text as LIKE reads it literally: its own wildcards (%, _) match only themselves.</summary>
-    private static string EscapedForLike(string text) =>
-        text.Replace(LikeEscape, LikeEscape + LikeEscape, StringComparison.Ordinal)
-            .Replace("%", LikeEscape + "%", StringComparison.Ordinal)
-            .Replace("_", LikeEscape + "_", StringComparison.Ordinal);
 
     /// <summary>Transactions of one date, or one amount, in the order they were recorded: ids are UUID v7.</summary>
     private static IQueryable<Transaction> Sorted(IQueryable<Transaction> transactions, TransactionSort sort) => sort switch

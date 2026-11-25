@@ -60,8 +60,8 @@ public sealed class GetTrendHandler(ICategoryLookup categories, ITransactionTren
             (await trends.AmountsAsync(period.From, period.To, type, filter.CategoryId, query.Payee, filter.AccountId, cancellationToken))
                 .Select(each => new TrendAmount(each.TransactionId, each.Date, each.Amount));
 
-        var trend = Trend.Of(filter.Period, await AmountsOver(filter.Period));
         var previous = filter.ComparedWith is { } comparedWith ? Trend.Before(filter.Period, await AmountsOver(comparedWith)) : null;
+        var trend = Trend.Of(filter.Period, await AmountsOver(filter.Period), previous);
         return new TrendDetails(
             await baseCurrency.OfCurrentUserAsync(cancellationToken), category, query.Payee, type == TrendType.Income, trend, previous, previous is null ? null : trend.ChangeFrom(previous));
     }

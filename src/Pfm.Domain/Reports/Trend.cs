@@ -25,7 +25,10 @@ public sealed record PeriodChange(decimal Amount, decimal? Percent)
 /// the month at the same place in that period moved back by its days (<see cref="ReportPeriod.PreviousMonths"/>).
 /// </param>
 /// <param name="NotConverted">The transactions of the month left out of <paramref name="Total"/> because they are not converted.</param>
-/// <param name="Change">How the total changed from the month before; null for the first month.</param>
+/// <param name="Change">
+/// How the total changed from the month before; for the first month, from the last month of the trend compared with,
+/// and null when there is none.
+/// </param>
 public sealed record TrendMonth(ReportPeriod Period, decimal Total, IReadOnlySet<Guid> NotConverted, PeriodChange? Change);
 
 /// <summary>
@@ -37,10 +40,14 @@ public sealed record TrendMonth(ReportPeriod Period, decimal Total, IReadOnlySet
 public sealed record Trend(ReportPeriod Period, IReadOnlyList<TrendMonth> Months, decimal Total, IReadOnlySet<Guid> NotConverted)
 {
     /// <summary>Works out the trend over a period from what each transaction adds; those dated outside it are left out.</summary>
-    public static Trend Of(ReportPeriod period, IEnumerable<TrendAmount> amounts)
+    /// <param name="comparedWith">
+    /// The trend over the period before (<see cref="Before"/>), whose last month is the month before the first one;
+    /// null when no comparison was asked for, and the first month then has no change.
+    /// </param>
+    public static Trend Of(ReportPeriod period, IEnumerable<TrendAmount> amounts, Trend? comparedWith = null)
     {
         ArgumentNullException.ThrowIfNull(period);
-        return Over(period, period.Months, amounts);
+        return Over(period, period.Months, amounts, comparedWith?.Months[^1].Total);
     }
 
     /// <summary>
@@ -51,10 +58,10 @@ public sealed record Trend(ReportPeriod Period, IReadOnlyList<TrendMonth> Months
     public static Trend Before(ReportPeriod period, IEnumerable<TrendAmount> amounts)
     {
         ArgumentNullException.ThrowIfNull(period);
-        return Over(period.Previous, period.PreviousMonths, amounts);
+        return Over(period.Previous, period.PreviousMonths, amounts, monthBefore: null);
     }
 
-    private static Trend Over(ReportPeriod period, IReadOnlyList<ReportPeriod> buckets, IEnumerable<TrendAmount> amounts)
+    private static Trend Over(ReportPeriod period, IReadOnlyList<ReportPeriod> buckets, IEnumerable<TrendAmount> amounts, decimal? monthBefore)
     {
         ArgumentNullException.ThrowIfNull(amounts);
         var all = amounts.Where(amount => period.Contains(amount.Date)).ToList();
@@ -63,7 +70,8 @@ public sealed record Trend(ReportPeriod Period, IReadOnlyList<TrendMonth> Months
         {
             var inMonth = all.Where(amount => month.Contains(amount.Date)).ToList();
             var total = inMonth.Sum(amount => amount.Amount ?? 0);
-            var change = months.Count == 0 ? null : PeriodChange.Between(months[^1].Total, total);
+            var before = months.Count == 0 ? monthBefore : months[^1].Total;
+            var change = before is { } earlier ? PeriodChange.Between(earlier, total) : null;
             months.Add(new TrendMonth(month, total, NotConvertedOf(inMonth), change));
         }
 

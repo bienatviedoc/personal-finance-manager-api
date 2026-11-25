@@ -1,5 +1,3 @@
-using Pfm.Domain.Transactions;
-
 namespace Pfm.Application.Contracts.Transactions;
 
 /// <summary>What other modules may ask about one category or one payee over time (spec RPT-7).</summary>
@@ -27,13 +25,6 @@ public enum TrendType
     Income,
 }
 
-/// <summary>What one transaction adds to a trend.</summary>
+/// <summary>What one transaction adds to a trend, kept apart from the reports' own <c>TrendAmount</c> so no module reaches into another's.</summary>
 /// <param name="Amount">In the base currency; null while it is not converted, when it adds nothing.</param>
 public sealed record TrendTransaction(Guid TransactionId, DateOnly Date, decimal? Amount);
-
-/// <summary>What another module needs to know of a payee.</summary>
-public static class Payees
-{
-    /// <summary>The most characters a transaction's payee has, so a longer one matches none.</summary>
-    public const int MaxLength = Transaction.MaxPayeeLength;
-}
