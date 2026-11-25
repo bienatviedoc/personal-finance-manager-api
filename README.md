@@ -100,11 +100,17 @@ in Docker:
 | Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
 | Spending transactions of a category | 154 ms | 1.31 s | 1 s |
 | Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
+| Income vs expenses, this year, last 12 months compared | 286 ms, 291 ms | 1.09 s, 1.08 s | 1 s |
+| Net worth, last 12 months | 23 ms | 104 ms | 1 s |
+| Budget vs actual, this month, this year | 47 ms, 294 ms | 173 ms, 1.07 s | 1 s |
+
+The last three rows were measured later the same day, in runs of one minute (`-e DURATION=1m`), on the same
+machine and data.
 
 With one user every report meets its target, and every list but one: the transactions of a category, whose
 spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
-read a year of transactions into memory to add them up (spending by category, trends) fall well behind. Both are
-followed up in #70.
+read a year of transactions into memory to add them up (spending by category, trends) fall well behind, and income
+vs expenses and budget vs actual over a year, which do the same, just miss it. Both are followed up in #70.
 
 ## Layout
 
@@ -482,8 +488,9 @@ already uses it can still show it. An account can be archived at any balance.
   before any other.
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
-- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`, `ICategoryLookup`)
-  and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`,
+  `IIncomeAndSpending`, `ICategoryLookup`), account balances through `IAccountBalances` (Accounts), budgets through
+  `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
   counts in its own, and income and transfers never count. Each item has its `share` of the total, to one
@@ -525,6 +532,16 @@ already uses it can still show it. An account can be archived at any balance.
   the user's warning threshold. What was spent in a month where no budget covered its category is listed apart
   under `unbudgeted`, most first. The account filter narrows spent, never the budgets; the category filter shows
   only that category and its subcategories. Not compared with the period before.
+- **Net worth** (RPT-5). `GET /reports/net-worth` answers, at each month end in the period and on its last day when
+  it ends inside a month (`ReportPeriod.MonthEnds`), the `assets` (every account but credit cards and loans), the
+  `liabilities` (what is owed on credit cards and loans, as a positive number) and `netWorth`, assets minus
+  liabilities (`NetWorthOn`, `Pfm.Domain.Reports`). Accounts answers each account's balance at the end of each day
+  through `IAccountBalances`, worked out from its transactions as every balance is (none before it opened); archived
+  accounts count (spec section 3, rule 10). Unlike a transaction, a balance is converted at the rate of the day it is
+  shown on, or the nearest earlier one, the balances in one currency added up first so a total is rounded once; one
+  with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
+  belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
+  `compare`.
 
 ## Signing in
 
