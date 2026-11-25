@@ -421,6 +421,23 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal("400000.00", (await BudgetAsync(browser, ThisMonth, fuel)).Budgeted);
     }
 
+    [Fact]
+    public async Task A_budget_copied_onto_a_parent_whose_subcategory_is_budgeted_while_copying_is_taken_back()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        var fuel = await CategoryAsync(browser, "Fuel");
+        await SetAsync(browser, LastMonth, food, "3000000");
+        await SetAsync(browser, LastMonth, fuel, "400000");
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Budgets.Budget>(async () => await SetAsync(browser, ThisMonth, groceries, "1000000"));
+
+        var response = await CopyAsync(browser, ThisMonth, LastMonth);
+
+        Assert.Equal(1, await CopiedAsync(response));
+        Assert.Equal([fuel, groceries], (await MonthAsync(browser, ThisMonth)).Items.Select(budget => budget.CategoryId).Order());
+    }
+
     // Spent (the calculation of section 6).
 
     [Fact]

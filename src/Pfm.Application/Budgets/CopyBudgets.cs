@@ -40,7 +40,9 @@ public sealed record CopyBudgetsOutcome(int Copied);
 /// </summary>
 /// <remarks>
 /// A budget set in the month by another request while copying makes the copy start again on what was saved,
-/// so that budget is kept as it was set.
+/// so that budget is kept as it was set. One set at the same moment on a copied category's parent or
+/// subcategory cannot be seen before saving, so the month is read again afterwards, and a copied budget that
+/// turns out to break rule 6 is taken back and not counted.
 /// </remarks>
 public sealed class CopyBudgetsHandler(
     IValidator<CopyBudgetsCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IBaseCurrency baseCurrency, IUnitOfWork unitOfWork,
@@ -66,7 +68,7 @@ public sealed class CopyBudgetsHandler(
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);
         HashSet<Guid> budgeted = [.. (await budgets.ListForMonthAsync(month, cancellationToken)).Select(budget => budget.CategoryId)];
-        var copied = 0;
+        List<(Budget Budget, BudgetCategory Category)> copied = [];
         foreach (var source in await budgets.ListForMonthAsync(sourceMonth, cancellationToken))
         {
             if (budgeted.Contains(source.CategoryId) || tree.BudgetCategory(source.CategoryId) is not { } category)
@@ -76,7 +78,9 @@ public sealed class CopyBudgetsHandler(
 
             try
             {
-                budgets.Add(Budget.Set(category, month, source.Amount, currency, budgeted, clock.GetUtcNow()));
+                var budget = Budget.Set(category, month, source.Amount, currency, budgeted, clock.GetUtcNow());
+                budgets.Add(budget);
+                copied.Add((budget, category));
             }
             catch (BudgetRuleViolation)
             {
@@ -85,10 +89,47 @@ public sealed class CopyBudgetsHandler(
             }
 
             budgeted.Add(source.CategoryId);
-            copied++;
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return new CopyBudgetsOutcome(copied);
+        var takenBack = await TakeBackWhatBreaksRuleSixAsync(copied, month, cancellationToken);
+        return new CopyBudgetsOutcome(copied.Count - takenBack);
+    }
+
+    /// <summary>
+    /// Takes back each budget just copied whose category's parent or subcategory another request budgeted in the
+    /// month in between: neither could see the other before saving (rule 6, as <c>SetBudget</c> does).
+    /// </summary>
+    /// <returns>How many were taken back.</returns>
+    private async Task<int> TakeBackWhatBreaksRuleSixAsync(
+        IReadOnlyList<(Budget Budget, BudgetCategory Category)> copied, BudgetMonth month, CancellationToken cancellationToken)
+    {
+        if (copied.Count == 0)
+        {
+            return 0;
+        }
+
+        List<Guid> saved = [.. (await budgets.ListForMonthAsync(month, cancellationToken)).Select(budget => budget.CategoryId)];
+        var takenBack = 0;
+        foreach (var (budget, category) in copied)
+        {
+            try
+            {
+                Budget.EnsureCanBeSetOn(category, [.. saved.Where(id => id != category.Id)]);
+            }
+            catch (BudgetRuleViolation)
+            {
+                budgets.Remove(budget);
+                saved.Remove(category.Id);
+                takenBack++;
+            }
+        }
+
+        if (takenBack > 0)
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+
+        return takenBack;
     }
 }
