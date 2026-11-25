@@ -201,6 +201,10 @@ public sealed record TrendMonthResponse(DateOnly From, DateOnly To, string Total
 }
 
 /// <summary>The trend over the period compared with.</summary>
+/// <param name="Months">
+/// One for each month of the trend, at the same place: as many calendar months before whole calendar months; before
+/// any other period, each month moved back by the period's days, so it need not start on a 1st.
+/// </param>
 public sealed record PreviousTrendResponse(DateOnly From, DateOnly To, string Total, int NotConverted, IReadOnlyList<TrendMonthResponse> Months)
 {
     public static PreviousTrendResponse Of(Trend trend) =>

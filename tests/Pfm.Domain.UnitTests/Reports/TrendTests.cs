@@ -84,5 +84,42 @@ public class TrendTests
         Assert.Equal(new PeriodChange(100m, 25.0m), now.ChangeFrom(before));
     }
 
+    [Fact]
+    public void The_trend_before_a_period_of_whole_months_follows_as_many_calendar_months()
+    {
+        var before = Trend.Before(FirstQuarter, [Amount(new DateOnly(2025, 11, 3), 400m), Amount(new DateOnly(2025, 12, 31), 100m)]);
+
+        Assert.Equal(new ReportPeriod(new DateOnly(2025, 10, 1), new DateOnly(2025, 12, 31)), before.Period);
+        Assert.Equal(
+            [
+                new ReportPeriod(new DateOnly(2025, 10, 1), new DateOnly(2025, 10, 31)),
+                new ReportPeriod(new DateOnly(2025, 11, 1), new DateOnly(2025, 11, 30)),
+                new ReportPeriod(new DateOnly(2025, 12, 1), new DateOnly(2025, 12, 31)),
+            ],
+            before.Months.Select(month => month.Period));
+        Assert.Equal([0m, 400m, 100m], before.Months.Select(month => month.Total));
+    }
+
+    [Fact]
+    public void The_trend_before_any_other_period_has_a_month_for_each_of_its_months_as_many_days_earlier()
+    {
+        // 10 March to 20 April is 42 days: its two months are set against the 22 and 20 days just as far before them,
+        // never against January, February and March cut to the previous period, which are three.
+        var period = new ReportPeriod(new DateOnly(2026, 3, 10), new DateOnly(2026, 4, 20));
+
+        var before = Trend.Before(period, [Amount(new DateOnly(2026, 1, 27), 100m), Amount(new DateOnly(2026, 2, 17), 50m), Amount(new DateOnly(2026, 2, 18), 70m)]);
+
+        Assert.Equal(period.Previous, before.Period);
+        Assert.Equal(
+            [
+                new ReportPeriod(new DateOnly(2026, 1, 27), new DateOnly(2026, 2, 17)),
+                new ReportPeriod(new DateOnly(2026, 2, 18), new DateOnly(2026, 3, 9)),
+            ],
+            before.Months.Select(month => month.Period));
+        Assert.Equal([150m, 70m], before.Months.Select(month => month.Total));
+        Assert.Equal(new PeriodChange(-80m, -53.3m), before.Months[1].Change);
+        Assert.Equal(220m, before.Total);
+    }
+
     private static TrendAmount Amount(DateOnly date, decimal amount) => new(Guid.CreateVersion7(), date, amount);
 }

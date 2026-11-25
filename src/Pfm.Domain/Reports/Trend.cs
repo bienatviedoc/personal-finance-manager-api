@@ -20,7 +20,10 @@ public sealed record PeriodChange(decimal Amount, decimal? Percent)
 }
 
 /// <summary>One month of a trend.</summary>
-/// <param name="Period">The calendar month, cut to the report period at either end.</param>
+/// <param name="Period">
+/// The calendar month, cut to the report period at either end; in a trend before a period that is not whole months,
+/// the month at the same place in that period moved back by its days (<see cref="ReportPeriod.PreviousMonths"/>).
+/// </param>
 /// <param name="NotConverted">The transactions of the month left out of <paramref name="Total"/> because they are not converted.</param>
 /// <param name="Change">How the total changed from the month before; null for the first month.</param>
 public sealed record TrendMonth(ReportPeriod Period, decimal Total, IReadOnlySet<Guid> NotConverted, PeriodChange? Change);
@@ -37,10 +40,26 @@ public sealed record Trend(ReportPeriod Period, IReadOnlyList<TrendMonth> Months
     public static Trend Of(ReportPeriod period, IEnumerable<TrendAmount> amounts)
     {
         ArgumentNullException.ThrowIfNull(period);
+        return Over(period, period.Months, amounts);
+    }
+
+    /// <summary>
+    /// Works out the trend over the period before <paramref name="period"/> (<see cref="ReportPeriod.Previous"/>), to
+    /// compare with: one month for each of the period's, at the same place (<see cref="ReportPeriod.PreviousMonths"/>),
+    /// so the two always pair up month by month. Those dated outside it are left out.
+    /// </summary>
+    public static Trend Before(ReportPeriod period, IEnumerable<TrendAmount> amounts)
+    {
+        ArgumentNullException.ThrowIfNull(period);
+        return Over(period.Previous, period.PreviousMonths, amounts);
+    }
+
+    private static Trend Over(ReportPeriod period, IReadOnlyList<ReportPeriod> buckets, IEnumerable<TrendAmount> amounts)
+    {
         ArgumentNullException.ThrowIfNull(amounts);
         var all = amounts.Where(amount => period.Contains(amount.Date)).ToList();
         var months = new List<TrendMonth>();
-        foreach (var month in period.Months)
+        foreach (var month in buckets)
         {
             var inMonth = all.Where(amount => month.Contains(amount.Date)).ToList();
             var total = inMonth.Sum(amount => amount.Amount ?? 0);

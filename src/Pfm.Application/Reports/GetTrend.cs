@@ -54,12 +54,12 @@ public sealed class GetTrendHandler(ICategoryLookup categories, ITransactionTren
             income = !found.IsExpense;
         }
 
-        async Task<Trend> TrendOver(ReportPeriod period) =>
-            Trend.Of(period, (await trends.AmountsAsync(period.From, period.To, income, categoryIds, query.Payee, filter.AccountId, cancellationToken))
-                .Select(each => new TrendAmount(each.TransactionId, each.Date, each.Amount)));
+        async Task<IEnumerable<TrendAmount>> AmountsOver(ReportPeriod period) =>
+            (await trends.AmountsAsync(period.From, period.To, income, categoryIds, query.Payee, filter.AccountId, cancellationToken))
+                .Select(each => new TrendAmount(each.TransactionId, each.Date, each.Amount));
 
-        var trend = await TrendOver(filter.Period);
-        var previous = filter.ComparedWith is { } comparedWith ? await TrendOver(comparedWith) : null;
+        var trend = Trend.Of(filter.Period, await AmountsOver(filter.Period));
+        var previous = filter.ComparedWith is { } comparedWith ? Trend.Before(filter.Period, await AmountsOver(comparedWith)) : null;
         return new TrendDetails(
             await baseCurrency.OfCurrentUserAsync(cancellationToken), category, query.Payee, income, trend, previous, previous is null ? null : trend.ChangeFrom(previous));
     }
