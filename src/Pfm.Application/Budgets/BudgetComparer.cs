@@ -9,16 +9,10 @@ namespace Pfm.Application.Budgets;
 public sealed class BudgetComparer(
     IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBudgetWarningThreshold warningThreshold) : IBudgetComparison
 {
-    public async Task<BudgetsComparedWithSpent> CompareAsync(DateOnly firstMonth, DateOnly lastMonth, Guid? accountId, CancellationToken cancellationToken)
+    public async Task<BudgetsComparedWithSpent> CompareAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
-        var first = BudgetMonth.Of(firstMonth);
-        var last = BudgetMonth.Of(lastMonth);
-        ArgumentOutOfRangeException.ThrowIfLessThan(last.FirstDay, first.FirstDay, nameof(lastMonth));
-        var months = new List<BudgetMonth>();
-        for (var month = first; month.FirstDay <= last.FirstDay; month = BudgetMonth.Of(month.FirstDay.AddMonths(1)))
-        {
-            months.Add(month);
-        }
+        var months = BudgetMonth.Spanning(from, to);
+        var (first, last) = (months[0], months[^1]);
 
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));
         var warningPercent = await warningThreshold.OfCurrentUserAsync(cancellationToken);

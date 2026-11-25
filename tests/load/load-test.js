@@ -36,6 +36,11 @@ const reports = [
   'spending transactions',
   'trend of a category compared',
   'trend of a payee',
+  'income vs expenses this year',
+  'income vs expenses last 12 months compared',
+  'net worth last 12 months',
+  'budget vs actual this month',
+  'budget vs actual this year',
 ];
 
 export const options = {
@@ -129,4 +134,9 @@ export default function (data) {
   get(`/reports/spending-by-category/transactions?${thisYear}&categoryId=${data.groceriesId}`, 'report', 'spending transactions');
   get(`/reports/trends?${last12Months}&categoryId=${data.foodId}&compare=true`, 'report', 'trend of a category compared');
   get(`/reports/trends?${thisYear}&payee=WinMart`, 'report', 'trend of a payee');
+  get(`/reports/income-vs-expenses?${thisYear}`, 'report', 'income vs expenses this year');
+  get(`/reports/income-vs-expenses?${last12Months}&compare=true`, 'report', 'income vs expenses last 12 months compared');
+  get(`/reports/net-worth?${last12Months}`, 'report', 'net worth last 12 months');
+  get(`/reports/budget-vs-actual?${thisMonth}`, 'report', 'budget vs actual this month');
+  get(`/reports/budget-vs-actual?${thisYear}`, 'report', 'budget vs actual this year');
 }

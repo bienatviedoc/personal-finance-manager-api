@@ -44,7 +44,7 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
         var filter = query.Filter;
         var period = filter.Period.WholeMonths;
         var all = (await categories.ListAsync(cancellationToken)).ToDictionary(category => category.Id);
-        var comparison = await budgets.CompareAsync(period.From, new DateOnly(period.To.Year, period.To.Month, 1), filter.AccountId, cancellationToken);
+        var comparison = await budgets.CompareAsync(period.From, period.To, filter.AccountId, cancellationToken);
 
         // The category filter: only the category and its subcategories are shown.
         bool Shown(Guid categoryId) =>
@@ -53,7 +53,7 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
         var items = comparison.Budgets
             .Where(budget => Shown(budget.CategoryId))
             .Select(budget => new BudgetedCategoryDetails(ReportCategoryDetails.Of(all[budget.CategoryId]), budget))
-            .OrderBy(item => TopLevelName(item.Category, all), NameOrder.Comparer)
+            .OrderBy(item => all[item.Category.Id].TopLevelName(all), NameOrder.Comparer)
             .ThenBy(item => item.Category.ParentId ?? item.Category.Id)
             .ThenBy(item => item.Category.ParentId is not null)
             .ThenBy(item => item.Category.Name, NameOrder.Comparer)
@@ -75,9 +75,4 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
                 items.SelectMany(item => item.Budget.NotConverted).Distinct().Count()),
             unbudgeted,
             new UnbudgetedTotal(unbudgeted.Sum(item => item.Spending.Spent), unbudgeted.SelectMany(item => item.Spending.NotConverted).Distinct().Count()));
-    }
-
-    /// <summary>The name a category is ordered under: its parent's when it has one, else its own.</summary>
-    private static string TopLevelName(ReportCategoryDetails category, Dictionary<Guid, CategorySummary> all) =>
-        category.ParentId is { } parentId && all.TryGetValue(parentId, out var parent) ? parent.Name : category.Name;
-}
+    }}

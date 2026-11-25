@@ -42,6 +42,6 @@ public sealed class GetIncomeVsExpensesHandler(ICategoryLookup categories, IInco
     private async Task<IncomeVsExpenses> ReportAsync(ReportPeriod period, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
     {
         var flows = await money.IncomeAndExpensesAsync(period.From, period.To, accountId, categoryIds, cancellationToken);
-        return IncomeVsExpenses.Of(period, [.. flows.Select(of => new TransactionFlow(of.TransactionId, of.Date, of.Income, of.Spent, of.IsConverted))]);
+        return IncomeVsExpenses.Of(period, [.. flows.Select(of => new TransactionFlow(of.TransactionId, of.Date, of.Income, of.Expenses, of.IsConverted))]);
     }
 }

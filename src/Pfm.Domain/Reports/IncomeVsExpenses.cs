@@ -47,14 +47,11 @@ public sealed record IncomeVsExpenses(IReadOnlyList<MonthOfIncomeAndExpenses> Mo
         ArgumentNullException.ThrowIfNull(period);
         ArgumentNullException.ThrowIfNull(flows);
         var inPeriod = flows.Where(flow => period.Contains(flow.Date)).ToList();
-        var months = new List<MonthOfIncomeAndExpenses>();
-        for (var month = new DateOnly(period.From.Year, period.From.Month, 1); month <= period.To; month = month.AddMonths(1))
-        {
-            var last = month.AddMonths(1).AddDays(-1);
-            var days = new ReportPeriod(month < period.From ? period.From : month, last > period.To ? period.To : last);
-            months.Add(new MonthOfIncomeAndExpenses(month, days, IncomeAndExpenses.Of(inPeriod.Where(flow => days.Contains(flow.Date)))));
-        }
-
+        MonthOfIncomeAndExpenses[] months =
+        [
+            .. period.Months.Select(days => new MonthOfIncomeAndExpenses(
+                new DateOnly(days.From.Year, days.From.Month, 1), days, IncomeAndExpenses.Of(inPeriod.Where(flow => days.Contains(flow.Date))))),
+        ];
         return new IncomeVsExpenses(months, IncomeAndExpenses.Of(inPeriod));
     }
 }

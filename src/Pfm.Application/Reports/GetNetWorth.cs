@@ -10,10 +10,10 @@ namespace Pfm.Application.Reports;
 /// <summary>
 /// What the user is worth over a period (spec RPT-5): assets minus liabilities at each month end, in the base
 /// currency. The category filter and comparing with the period before do not apply: net worth is made of
-/// balances, which belong to no category.
+/// balances, which belong to no category, so &lt;see cref="ReportFilter.CategoryId"/&gt; and &lt;see cref="ReportFilter.Compare"/&gt;
+/// are not read; with &lt;see cref="ReportFilter.AccountId"/&gt;, only that account counts.
 /// </summary>
-/// <param name="AccountId">Only this account counts; every account when null.</param>
-public sealed record GetNetWorth(ReportPeriod Period, Guid? AccountId = null);
+public sealed record GetNetWorth(ReportFilter Filter);
 
 /// <summary>Net worth at each month end of the period (<see cref="ReportPeriod.MonthEnds"/>), oldest first.</summary>
 public sealed record NetWorthDetails(ReportPeriod Period, Currency Currency, IReadOnlyList<NetWorthOn> Items);
@@ -27,9 +27,10 @@ public sealed class GetNetWorthHandler(IAccountBalances balances, IBaseCurrency 
     /// </summary>
     public async Task<NetWorthDetails> HandleAsync(GetNetWorth query, CancellationToken cancellationToken = default)
     {
-        var days = query.Period.MonthEnds;
+        var period = query.Filter.Period;
+        var days = period.MonthEnds;
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);
-        var accounts = await balances.OnAsync(days, query.AccountId, cancellationToken);
+        var accounts = await balances.OnAsync(days, query.Filter.AccountId, cancellationToken);
 
         var items = new List<NetWorthOn>();
         for (var index = 0; index < days.Count; index++)
@@ -50,7 +51,7 @@ public sealed class GetNetWorthHandler(IAccountBalances balances, IBaseCurrency 
             items.Add(NetWorthOn.Of(day, held));
         }
 
-        return new NetWorthDetails(query.Period, currency, items);
+        return new NetWorthDetails(period, currency, items);
     }
 
     /// <summary>The balances of some accounts as net worth counts them: their total once, or each of them as not converted.</summary>

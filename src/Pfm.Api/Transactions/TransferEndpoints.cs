@@ -52,22 +52,18 @@ public static class TransferEndpoints
             return ValidationProblems.For(result);
         }
 
-        if (result.Outcome.WasUnmarked)
+        return result.Outcome switch
         {
-            return TypedResults.Problem(
+            CreateTransferOutcome.Recorded { Transfer: var recorded } =>
+                TypedResults.Created($"/api/v1/transfers/{recorded.Id}", Versioned(http, TransferResponse.From(recorded))),
+            CreateTransferOutcome.Unmarked => TypedResults.Problem(
                 statusCode: StatusCodes.Status409Conflict, type: TransferUnmarked,
                 title: "This Idempotency-Key recorded a transfer that is no longer one.",
-                detail: "The transfer this request recorded was unmarked since into an expense and income, so it is not recorded again. Send a new transfer with a new key.");
-        }
-
-        if (result.Outcome.Recorded is not { } recorded)
-        {
-            return TypedResults.Problem(
+                detail: "The transfer this request recorded was unmarked since into an expense and income, so it is not recorded again. Send a new transfer with a new key."),
+            _ => TypedResults.Problem(
                 statusCode: StatusCodes.Status422UnprocessableEntity, type: TransactionEndpoints.IdempotencyKeyReused,
-                title: "This Idempotency-Key already recorded something else. Send a new transfer with a new key.");
-        }
-
-        return TypedResults.Created($"/api/v1/transfers/{recorded.Id}", Versioned(http, TransferResponse.From(recorded)));
+                title: "This Idempotency-Key already recorded something else. Send a new transfer with a new key."),
+        };
     }
 
     private static async Task<Results<Ok<TransferResponse>, NotFound>> Get(Guid id, GetTransferHandler handler, HttpContext http, CancellationToken cancellationToken)

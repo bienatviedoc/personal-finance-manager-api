@@ -64,6 +64,5 @@ internal sealed class CategoryTree(IReadOnlyList<CategorySummary> categories)
     public IReadOnlyList<BudgetCategory> BudgetCategories() => [.. _byId.Keys.Select(id => BudgetCategory(id)!)];
 
     /// <summary>The name a category is ordered under: its parent's when it has one, else its own.</summary>
-    public string TopLevelName(CategorySummary category) =>
-        category.ParentId is { } parentId && Find(parentId) is { } parent ? parent.Name : category.Name;
+    public string TopLevelName(CategorySummary category) => category.TopLevelName(_byId);
 }
