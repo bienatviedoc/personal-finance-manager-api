@@ -39,6 +39,7 @@ public static class ApplicationServices
         // Contracts other modules call.
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
+        services.AddScoped<IAccountBalances, AccountBalances>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();

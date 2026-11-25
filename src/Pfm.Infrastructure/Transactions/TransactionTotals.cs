@@ -32,6 +32,36 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     }
 
     /// <summary>
+    /// The database adds up the amounts of each account, day and type, refunds apart, up to the last of the days;
+    /// what was on or before each day is added up here, with the sign of each type as
+    /// <see cref="NetByAccountAsync"/> gives it. Deleted transactions are left out.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<decimal>>> NetByAccountOnAsync(
+        IReadOnlyCollection<Guid> accountIds, IReadOnlyList<DateOnly> days, CancellationToken cancellationToken)
+    {
+        if (days.Count == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<decimal>>();
+        }
+
+        var last = days.Max();
+        var sums = await db.Set<Transaction>()
+            .Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null && transaction.Date <= last)
+            .GroupBy(transaction => new { transaction.AccountId, transaction.Date, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new
+            {
+                ofType.Key.AccountId, ofType.Key.Date, ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount),
+            })
+            .ToListAsync(cancellationToken);
+
+        return sums
+            .GroupBy(sum => sum.AccountId)
+            .ToDictionary(
+                account => account.Key,
+                account => (IReadOnlyList<decimal>)[.. days.Select(day => account.Where(sum => sum.Date <= day).Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)))]);
+    }
+
+    /// <summary>
     /// A deleted transaction still counts: it is recoverable, and would come back in a currency its account
     /// no longer has.
     /// </summary>
