@@ -45,7 +45,7 @@ public class IntegrityCheckTests(PfmApi api)
 
         var found = await DriftOfAsync(userId);
 
-        Assert.Equal([new Drift.Split(split, Amount: 500_000m, LinesTotal: 490_000m)], found);
+        Assert.Equal([new Drift.Lines(split, Amount: 500_000m, LinesTotal: 490_000m)], found);
     }
 
     [Fact]

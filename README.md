@@ -342,7 +342,7 @@ already uses it can still show it. An account can be archived at any balance.
   runs `IntegrityCheck` when the worker starts and every day after that (`IntegrityCheck__RunEvery`,
   `1.00:00:00`). It acts for each user who has transactions in turn and hands everything they have, deleted
   transactions included, to `TransactionIntegrity.Check` (`Pfm.Domain.Transactions`), which answers the drift:
-  - **`split`**: a transaction whose lines do not sum to its amount;
+  - **`lines`**: a transaction whose lines do not sum to its amount, split or not;
   - **`transfer`**: a transfer id that is not on exactly two legs, or legs on one account, one deleted and the
     other not, of different amounts between accounts in one currency, or on different dates (`TransferDrift`);
   - **`balance`**: an account whose balance as the account list works it out (the `SUM` behind
@@ -353,7 +353,7 @@ already uses it can still show it. An account can be archived at any balance.
   fails is logged as an error and reported like any failed job; the next one checks everything again.
 - **Metrics** (meter `Pfm.Worker.IntegrityCheck`): `pfm.integrity_check.runs`, a counter of runs by `result`
   (`consistent`, `drift` or `failed`); `pfm.integrity_check.last_run`, when the last run of each `result` ended
-  (Unix seconds); and `pfm.integrity_check.drift`, how much drift of each `kind` the last run that finished found.
+  (Unix seconds); and `pfm.integrity_check.drift`, how much drift of each `kind` (`lines`, `transfer`, `balance`) the last run that finished found.
   A stale `last_run` for `consistent` and `drift` both means the check has stopped running.
 - The domain's rules and the database's constraints keep all of this from happening; tests break the rows in
   the database to see each drift found (`IntegrityCheckTests`).

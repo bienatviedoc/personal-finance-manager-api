@@ -37,7 +37,7 @@ public sealed partial class IntegrityCheckJob : BackgroundService
         var meter = meters.Create(MeterName);
         _runs = meter.CreateCounter<long>("pfm.integrity_check.runs", "{run}", "Runs of the integrity check, by result: consistent, drift or failed.");
         _lastRun = meter.CreateGauge<long>("pfm.integrity_check.last_run", "s", "When the last integrity check of each result ended, in Unix time.");
-        _drift = meter.CreateGauge<long>("pfm.integrity_check.drift", "{drift}", "Drift of each kind (split, transfer, balance) the last integrity check found.");
+        _drift = meter.CreateGauge<long>("pfm.integrity_check.drift", "{drift}", "Drift of each kind (lines, transfer, balance) the last integrity check found.");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -67,18 +67,23 @@ public sealed partial class IntegrityCheckJob : BackgroundService
 
     private void Report(IntegrityReport report)
     {
+        // Every kind is recorded, at zero when none was found, so the gauge does not keep a count from an earlier run.
+        var found = new Dictionary<string, long> { ["lines"] = 0, ["transfer"] = 0, ["balance"] = 0 };
         foreach (var (userId, drift) in report.Drift)
         {
             switch (drift)
             {
-                case Drift.Split split:
-                    LogSplitDrift(userId, split.TransactionId, split.Amount, split.LinesTotal);
+                case Drift.Lines lines:
+                    LogLinesDrift(userId, lines.TransactionId, lines.Amount, lines.LinesTotal);
+                    found["lines"]++;
                     break;
                 case Drift.Transfer transfer:
                     LogTransferDrift(userId, transfer.TransferId, transfer.Problem, transfer.LegIds);
+                    found["transfer"]++;
                     break;
                 case Drift.Balance balance:
                     LogBalanceDrift(userId, balance.AccountId, balance.Shown, balance.FromTransactions);
+                    found["balance"]++;
                     break;
             }
         }
@@ -92,14 +97,13 @@ public sealed partial class IntegrityCheckJob : BackgroundService
             LogDriftFound(report.Drift.Count, report.Transactions, report.Users);
         }
 
-        RecordDrift<Drift.Split>(report, "split");
-        RecordDrift<Drift.Transfer>(report, "transfer");
-        RecordDrift<Drift.Balance>(report, "balance");
+        foreach (var (kind, count) in found)
+        {
+            _drift.Record(count, new KeyValuePair<string, object?>("kind", kind));
+        }
+
         Ended(report.Drift.Count == 0 ? "consistent" : "drift");
     }
-
-    private void RecordDrift<TDrift>(IntegrityReport report, string kind) where TDrift : Drift =>
-        _drift.Record(report.Drift.Count(found => found.Drift is TDrift), new KeyValuePair<string, object?>("kind", kind));
 
     private void Ended(string result)
     {
@@ -115,7 +119,7 @@ public sealed partial class IntegrityCheckJob : BackgroundService
     private partial void LogDriftFound(int drift, int transactions, int users);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Drift: transaction {TransactionId} of user {UserId} is {Amount}, but its lines sum to {LinesTotal}")]
-    private partial void LogSplitDrift(Guid userId, Guid transactionId, decimal amount, decimal linesTotal);
+    private partial void LogLinesDrift(Guid userId, Guid transactionId, decimal amount, decimal linesTotal);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Drift: transfer {TransferId} of user {UserId} does not match ({Problem}); its legs are {LegIds}")]
     private partial void LogTransferDrift(Guid userId, Guid transferId, TransferDrift problem, IReadOnlyList<Guid> legIds);

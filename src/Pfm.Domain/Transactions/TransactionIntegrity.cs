@@ -18,19 +18,19 @@ public static class TransactionIntegrity
     {
         ArgumentNullException.ThrowIfNull(transactions);
         ArgumentNullException.ThrowIfNull(balances);
-        return [.. SplitsThatDrift(transactions), .. TransfersThatDrift(transactions), .. BalancesThatDrift(transactions, balances)];
+        return [.. LinesThatDrift(transactions), .. TransfersThatDrift(transactions), .. BalancesThatDrift(transactions, balances)];
     }
 
     /// <summary>
     /// Income and expenses whose lines do not sum to their amount. A leg of a transfer has no lines, so it is
     /// not one of them.
     /// </summary>
-    private static IEnumerable<Drift> SplitsThatDrift(IReadOnlyCollection<Transaction> transactions) =>
+    private static IEnumerable<Drift> LinesThatDrift(IReadOnlyCollection<Transaction> transactions) =>
         from transaction in transactions
         where !transaction.IsTransferLeg
         let linesTotal = transaction.Lines.Sum(line => line.Amount)
         where linesTotal != transaction.Amount
-        select new Drift.Split(transaction.Id, transaction.Amount, linesTotal);
+        select new Drift.Lines(transaction.Id, transaction.Amount, linesTotal);
 
     /// <summary>The legs sharing each transfer id, against what <see cref="Transactions.Transfer"/> records.</summary>
     private static IEnumerable<Drift> TransfersThatDrift(IReadOnlyCollection<Transaction> transactions)
@@ -58,16 +58,16 @@ public static class TransactionIntegrity
     /// </summary>
     private static IEnumerable<Drift> BalancesThatDrift(IReadOnlyCollection<Transaction> transactions, IReadOnlyDictionary<Guid, decimal> balances)
     {
-        var fromTransactions = transactions
+        var addedUp = transactions
             .GroupBy(transaction => transaction.AccountId)
             .ToDictionary(account => account.Key, account => account.Sum(transaction => transaction.SignedAmount));
 
-        foreach (var accountId in fromTransactions.Keys.Union(balances.Keys))
+        foreach (var accountId in addedUp.Keys.Union(balances.Keys))
         {
-            var (shown, added) = (balances.GetValueOrDefault(accountId), fromTransactions.GetValueOrDefault(accountId));
-            if (shown != added)
+            var (shown, fromTransactions) = (balances.GetValueOrDefault(accountId), addedUp.GetValueOrDefault(accountId));
+            if (shown != fromTransactions)
             {
-                yield return new Drift.Balance(accountId, shown, added);
+                yield return new Drift.Balance(accountId, shown, fromTransactions);
             }
         }
     }
@@ -80,9 +80,12 @@ public abstract record Drift
     {
     }
 
-    /// <summary>A transaction's lines do not sum to its amount (spec section 3, rule 5).</summary>
+    /// <summary>
+    /// A transaction's lines do not sum to its amount (spec section 3, rule 5): a split transaction's, or the one
+    /// line of a transaction that is not split.
+    /// </summary>
     /// <param name="LinesTotal">What its lines sum to: zero when it has none.</param>
-    public sealed record Split(Guid TransactionId, decimal Amount, decimal LinesTotal) : Drift;
+    public sealed record Lines(Guid TransactionId, decimal Amount, decimal LinesTotal) : Drift;
 
     /// <summary>The legs sharing a transfer id are not one Transfer out leg and one Transfer in leg that match.</summary>
     /// <param name="LegIds">Every transaction that carries the transfer id.</param>

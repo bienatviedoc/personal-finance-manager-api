@@ -115,3 +115,11 @@ _Avoid_: Period, cycle, salary month
 **Report period**:
 The dates a report covers, from one calendar date to another, both included. It is compared with the previous period: as many whole months before it when it is whole calendar months, otherwise as many days.
 _Avoid_: Range (in the interface), window, budget month (for a report)
+
+**Integrity check**:
+The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.
+_Avoid_: Reconciliation (which the user does against a statement), audit, validation
+
+**Drift**:
+Something the integrity check finds that does not add up in what was saved, such as a transfer missing a leg. It is logged for a person to look into, never corrected automatically.
+_Avoid_: Inconsistency, corruption, error
