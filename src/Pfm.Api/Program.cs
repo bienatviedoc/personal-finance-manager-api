@@ -10,6 +10,7 @@ using Pfm.Api.Transactions;
 using Pfm.Application;
 using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
+using Pfm.Infrastructure.SampleData;
 using Serilog;
 using Serilog.Events;
 
@@ -38,6 +39,22 @@ var app = builder.Build();
 if (args is ["migrate"])
 {
     await app.Services.MigrateDatabaseAsync();
+    return;
+}
+
+// `dotnet Pfm.Api.dll seed` gives a new user a year of sample data and exits: for a local environment only.
+if (args is [SampleDataCommand.Name, .. var seedArguments])
+{
+    if (SampleDataCommand.Read(seedArguments, out var problem) is not { } sample)
+    {
+        await Console.Error.WriteLineAsync(problem);
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    var seeded = await app.Services.SeedSampleDataAsync(sample);
+    Console.WriteLine(
+        $"Seeded {seeded.Email}: {seeded.Accounts} accounts, {seeded.Budgets} budgets and {seeded.Transactions} transactions from {seeded.From:yyyy-MM-dd} to {seeded.To:yyyy-MM-dd}.");
     return;
 }
 

@@ -37,6 +37,23 @@ dotnet run --project src/Pfm.Api -- migrate
 dotnet run --project src/Pfm.Api
 ```
 
+### Sample data
+
+`seed` gives a new user a year of sample data, up to today, and exits: two institutions, four accounts (one a
+credit card), the default categories, a budget on the main expense categories in every month, and transactions
+with pay, bills, transfers, splits and refunds among everyday spending (`SampleDataSeeder`). The user signs in as
+`sample@example.com` with the password `sample data password`, their email already confirmed. For a local
+environment only.
+
+```bash
+docker compose run --rm api seed
+# or, from source:
+dotnet run --project src/Pfm.Api -- seed [--email <email>] [--password <password>] [--transactions <count>]
+```
+
+`--transactions` sets how many the year holds (each leg of a transfer counting as one); left out, a few a day.
+Seeding an email that already has a user is refused.
+
 ## Test
 
 ```bash
@@ -52,6 +69,42 @@ user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authent
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
+
+### Load test
+
+`tests/load/load-test.js` is a [k6](https://k6.io) test of the speed targets (spec section 8): every list and
+report the app reads, for a user with 50,000 transactions, must answer in under 300 ms (lists) and under 1 s
+(reports) at the 95th percentile. Each request is named, so the summary shows each one's own percentile, and
+the run fails when any is over its target. Seed the user, then run it against an API built in Release:
+
+```bash
+dotnet run --project src/Pfm.Api -c Release -- seed --transactions 50000
+dotnet run --project src/Pfm.Api -c Release
+docker run --rm --network host -v "$PWD/tests/load:/load:ro" grafana/k6:2.4.0 run /load/load-test.js
+```
+
+It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (the seeded user), `VUS`, the
+users browsing at once with no pause between requests (10), and `DURATION` (`2m`); pass each with `-e`.
+
+Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
+in Docker:
+
+| Request | p95, 1 user | p95, 10 users | Target |
+| --- | --- | --- | --- |
+| Transactions, first and next page | 44 ms, 35 ms | 271 ms, 215 ms | 300 ms |
+| Transactions this month, searched, by amount | 11 ms, 139 ms, 83 ms | 77 ms, 476 ms, 276 ms | 300 ms |
+| **Transactions in a category** | **761 ms** | **4.69 s** | 300 ms |
+| Accounts, institutions, categories, recurring rules | 37 ms or less | 217 ms or less | 300 ms |
+| Budgets (a month) | 92 ms | 958 ms | 300 ms |
+| Spending by category, this month | 111 ms | 934 ms | 1 s |
+| Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
+| Spending transactions of a category | 154 ms | 1.31 s | 1 s |
+| Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
+
+With one user every report meets its target, and every list but one: the transactions of a category, whose
+spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
+read a year of transactions into memory to add them up (spending by category, trends) fall well behind. Both are
+followed up in #70.
 
 ## Layout
 
