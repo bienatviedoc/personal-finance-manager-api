@@ -229,6 +229,15 @@ already uses it can still show it. An account can be archived at any balance.
   deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
   `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
   one transfer, never one of each.
+- **Mark as transfer** (spec IMP-7). `POST /transfers/mark` joins an `expenseId` on one account and an `incomeId` on
+  another, which the user picked, into one transfer (`Transfer.Mark`): the expense becomes the `transferOut` leg and
+  the income the `transferIn` leg. Each keeps its id, account, amount, date, note and conversion and loses its lines,
+  category and payee, so the two drop out of income, expense and budget totals. They must be on different accounts,
+  on the same date and, between accounts in one currency, of the same amount; a refund, a leg of a transfer already,
+  and income sent as the expense (or the other way round) are refused on the id at fault. Nothing is matched
+  automatically. `POST /transfers/{id}/unmark` turns any transfer back (`Transfer.Unmark`): the `transferOut` leg
+  becomes an expense on `expenseCategoryId` and the `transferIn` leg income on `incomeCategoryId`, as a leg has no
+  category to go back to. Reconciliation does not exist yet; once it does, a reconciled transaction is refused too.
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.

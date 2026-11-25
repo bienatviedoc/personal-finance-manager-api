@@ -36,6 +36,10 @@ _Avoid_: Transfer transaction, internal payment, move
 One of the two transactions that make up a transfer.
 _Avoid_: Side, half
 
+**Mark as transfer**:
+To join an expense on one account and income on another, both picked by the user, into the two legs of one transfer, such as the two rows imported statements show for paying a card. Unmarking turns a transfer back into an expense and income.
+_Avoid_: Match (nothing is matched automatically), link, merge, split (for unmarking)
+
 **Refund**:
 An expense transaction flagged as money coming back, which raises the account balance and lowers spent in its category.
 _Avoid_: Negative expense, reversal, income (for money returned)
