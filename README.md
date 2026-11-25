@@ -414,7 +414,7 @@ already uses it can still show it. An account can be archived at any balance.
   before any other.
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
-- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ICategoryLookup`)
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`, `ICategoryLookup`)
   and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
@@ -426,6 +426,16 @@ already uses it can still show it. An account can be archived at any balance.
   lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+- **Trends** (RPT-7). `GET /reports/trends` follows one category (`categoryId`, with its subcategories) or one payee
+  (`payee`, matched whole, trimmed and in any case) over the period: `months` lists every calendar month the period
+  touches, cut to it at either end and at zero when nothing happened, each with its `total` and its `change` from
+  the month before as an `amount` and a `percent` (of the earlier total's size, to one decimal; none from zero, and
+  none for the first month). `PeriodChange` and `Trend` (`Pfm.Domain.Reports`) work that out. An expense category
+  adds up spent, by the same definition as spending by category; an income category adds up the income received in
+  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it; with
+  `categoryId` as well, only in that category. A category the user does not have is not found, as the trend is of
+  it. With `compare`, `previous` is the trend over the period before, month by month, and `change` how the total
+  moved from it.
 
 ## Signing in
 
