@@ -15,7 +15,7 @@ internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
     /// shares have the domain's one definition (<see cref="Transaction.SpentAmountIn"/>, <see cref="Transaction.IncomeAmountIn"/>).
     /// </summary>
     public async Task<IReadOnlyList<TrendTransaction>> AmountsAsync(
-        DateOnly from, DateOnly to, TrendType type, IReadOnlyCollection<Guid>? categoryIds, string? payee, Guid? accountId, CancellationToken cancellationToken)
+        DateOnly from, DateOnly to, TrendType type, Guid? categoryId, string? payee, Guid? accountId, CancellationToken cancellationToken)
     {
         var income = type == TrendType.Income;
         var transactionType = income ? TransactionType.Income : TransactionType.Expense;
@@ -26,9 +26,12 @@ internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
             transactions = transactions.Where(transaction => transaction.AccountId == account);
         }
 
-        if (categoryIds is not null)
+        IReadOnlyCollection<Guid>? categoryIds = null;
+        if (categoryId is { } category)
         {
-            transactions = transactions.Where(transaction => transaction.Lines.Any(line => categoryIds.Contains(line.CategoryId)));
+            var family = await db.Set<Category>().AndSubcategoriesOf(category).ToListAsync(cancellationToken);
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line => family.Contains(line.CategoryId)));
+            categoryIds = family;
         }
 
         if (payee is not null)

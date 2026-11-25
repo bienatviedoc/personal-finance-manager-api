@@ -42,7 +42,6 @@ public sealed class GetTrendHandler(ICategoryLookup categories, ITransactionTren
         }
 
         ReportCategoryDetails? category = null;
-        IReadOnlyCollection<Guid>? categoryIds = null;
         var type = query.Type ?? TrendType.Expense;
         if (filter.CategoryId is { } categoryId)
         {
@@ -54,12 +53,11 @@ public sealed class GetTrendHandler(ICategoryLookup categories, ITransactionTren
             }
 
             category = ReportCategoryDetails.Of(found);
-            categoryIds = [categoryId, .. all.Where(each => each.ParentId == categoryId).Select(each => each.Id)];
             type = found.IsExpense ? TrendType.Expense : TrendType.Income;
         }
 
         async Task<IEnumerable<TrendAmount>> AmountsOver(ReportPeriod period) =>
-            (await trends.AmountsAsync(period.From, period.To, type, categoryIds, query.Payee, filter.AccountId, cancellationToken))
+            (await trends.AmountsAsync(period.From, period.To, type, filter.CategoryId, query.Payee, filter.AccountId, cancellationToken))
                 .Select(each => new TrendAmount(each.TransactionId, each.Date, each.Amount));
 
         var trend = Trend.Of(filter.Period, await AmountsOver(filter.Period));

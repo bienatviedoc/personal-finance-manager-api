@@ -24,7 +24,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         }
 
         // Each line counts in its own category (spec section 6): a split adds only its lines in the category.
-        var inCategory = CategoryAndSubcategories(categoryId);
+        var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
         return await Passing(filter)
             .SelectMany(transaction => transaction.Lines
                 .Where(line => inCategory.Contains(line.CategoryId))
@@ -38,10 +38,6 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
 
     public async Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
         await Passing(filter).AsNoTracking().Where(transaction => transaction.Type == TransactionType.Expense).ToListAsync(cancellationToken);
-
-    /// <summary>The ids of a category and of its subcategories.</summary>
-    private IQueryable<Guid> CategoryAndSubcategories(Guid categoryId) =>
-        db.Set<Category>().Where(category => category.Id == categoryId || category.ParentId == categoryId).Select(category => category.Id);
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
     private IQueryable<Transaction> Passing(TransactionFilter filter)
@@ -65,7 +61,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         if (filter.CategoryId is { } categoryId)
         {
             // Through any of its lines: a split is found by each category it was split across.
-            var inCategory = CategoryAndSubcategories(categoryId);
+            var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
             transactions = transactions.Where(transaction => transaction.Lines.Any(line => inCategory.Contains(line.CategoryId)));
         }
 
