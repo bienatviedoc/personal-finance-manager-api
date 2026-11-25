@@ -20,6 +20,6 @@ public interface IIncomeAndSpending
 
 /// <summary>One income or expense as it counts in a report.</summary>
 /// <param name="Income">What income brought in, in the base currency; zero for an expense.</param>
-/// <param name="Spent">What an expense spent, in the base currency, negative for a refund; zero for income.</param>
+/// <param name="Expenses">What an expense spent, in the base currency, negative for a refund; zero for income.</param>
 /// <param name="IsConverted">False while it has no amount in the base currency, when both are zero.</param>
-public sealed record MoneyInOrOut(Guid TransactionId, DateOnly Date, decimal Income, decimal Spent, bool IsConverted);
+public sealed record MoneyInOrOut(Guid TransactionId, DateOnly Date, decimal Income, decimal Expenses, bool IsConverted);
