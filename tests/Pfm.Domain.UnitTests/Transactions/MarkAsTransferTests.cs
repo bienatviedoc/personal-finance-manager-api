@@ -83,7 +83,7 @@ public class MarkAsTransferTests
     {
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), Income(Everyday, 100m), Tuesday));
 
-        Assert.Equal(Transfer.Income, violation.Property);
+        Assert.Equal(Transfer.IncomeId, violation.Property);
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public class MarkAsTransferTests
     {
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), Income(Visa, 90m), Tuesday));
 
-        Assert.Equal(Transfer.Income, violation.Property);
+        Assert.Equal(Transfer.IncomeId, violation.Property);
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class MarkAsTransferTests
 
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), income, Tuesday));
 
-        Assert.Equal(Transfer.Income, violation.Property);
+        Assert.Equal(Transfer.IncomeId, violation.Property);
     }
 
     [Fact]
@@ -109,9 +109,9 @@ public class MarkAsTransferTests
     {
         var refund = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 100m, Today, Fees, null, null, Today, Monday, isRefund: true);
 
-        Assert.Equal(Transfer.Expense, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(refund, Income(Visa, 100m), Tuesday)).Property);
-        Assert.Equal(Transfer.Expense, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Income(Everyday, 100m), Income(Visa, 100m), Tuesday)).Property);
-        Assert.Equal(Transfer.Income, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), Expense(Visa, 100m), Tuesday)).Property);
+        Assert.Equal(Transfer.ExpenseId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(refund, Income(Visa, 100m), Tuesday)).Property);
+        Assert.Equal(Transfer.ExpenseId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Income(Everyday, 100m), Income(Visa, 100m), Tuesday)).Property);
+        Assert.Equal(Transfer.IncomeId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), Expense(Visa, 100m), Tuesday)).Property);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class MarkAsTransferTests
 
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(first.OutLeg, income, Tuesday));
 
-        Assert.Equal(Transfer.Expense, violation.Property);
+        Assert.Equal(Transfer.ExpenseId, violation.Property);
         Assert.Equal((first.Id, TransactionType.Income, (Guid?)null), (first.OutLeg.TransferId, income.Type, income.TransferId));
     }
 
@@ -182,9 +182,9 @@ public class MarkAsTransferTests
         var archived = Category.Create("Old", CategoryKind.Expense, "receipt", Color.Parse("#64748b"), Monday);
         archived.Archive([], Monday);
 
-        Assert.Equal(Transfer.ExpenseCategory, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(OtherIncome, OtherIncome, Tuesday)).Property);
-        Assert.Equal(Transfer.IncomeCategory, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(Fees, Fees, Tuesday)).Property);
-        Assert.Equal(Transfer.ExpenseCategory, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(archived, OtherIncome, Tuesday)).Property);
+        Assert.Equal(Transfer.ExpenseCategoryId, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(OtherIncome, OtherIncome, Tuesday)).Property);
+        Assert.Equal(Transfer.IncomeCategoryId, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(Fees, Fees, Tuesday)).Property);
+        Assert.Equal(Transfer.ExpenseCategoryId, Assert.Throws<TransferRuleViolation>(() => Marked().Unmark(archived, OtherIncome, Tuesday)).Property);
     }
 
     [Fact]

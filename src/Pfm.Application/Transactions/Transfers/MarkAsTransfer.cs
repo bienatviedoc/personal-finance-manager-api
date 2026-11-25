@@ -57,7 +57,7 @@ public sealed class MarkAsTransferHandler(
         }
         catch (TransferRuleViolation violation)
         {
-            return Result<TransferDetails>.Invalid(FieldError.On(violation.Property + "Id", violation.Message));
+            return Result<TransferDetails>.Invalid(violation.AsErrors());
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
