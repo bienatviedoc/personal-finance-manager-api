@@ -391,6 +391,12 @@ already uses it can still show it. An account can be archived at any balance.
 - **Not converted.** An expense with no exchange rate on or before its date is left out of spent and counted in
   `notConverted`, on its budget and on the totals, until a rate arrives. A split is one expense, counted once
   however many of a budget's categories, or of the month's budgets, its lines are in.
+- **Drilling down** (BUD-8): the transactions behind a budget are the transaction list filtered by its category
+  (which takes in its subcategories) and the first and last days of its month. Filtered by a category, the list's
+  `total` also answers `spent`: what those transactions spent there in the base currency, with how many are
+  `notConverted`, added up by `Transaction.SpentAmountIn` like the budget's, so a split counts only its lines there
+  and a refund comes off. The per-currency totals beside it are in each transaction's own currency, so only
+  `spent` is sure to equal the budget's figure.
 - **The base currency locks once a budget exists** (rule 12,
   [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)). `GET /me` says so
   (`baseCurrencyLocked`), and `PATCH /me` refuses another `baseCurrency` by name while the user has a budget;
