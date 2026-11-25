@@ -36,6 +36,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
+        await Passing(filter).AsNoTracking().Where(transaction => transaction.Type == TransactionType.Expense).ToListAsync(cancellationToken);
+
     /// <summary>The ids of a category and of its subcategories.</summary>
     private IQueryable<Guid> CategoryAndSubcategories(Guid categoryId) =>
         db.Set<Category>().Where(category => category.Id == categoryId || category.ParentId == categoryId).Select(category => category.Id);
