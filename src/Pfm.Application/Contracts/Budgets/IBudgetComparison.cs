@@ -8,14 +8,14 @@ namespace Pfm.Application.Contracts.Budgets;
 public interface IBudgetComparison
 {
     /// <summary>
-    /// Each category's budgets in the budget months from <paramref name="firstMonth"/> to <paramref name="lastMonth"/>,
-    /// summed, against what was spent against them; and what was spent in those months that no budget covered,
-    /// by category.
+    /// Each category's budgets in the budget months from the one <paramref name="from"/> is in to the one
+    /// <paramref name="to"/> is in, whole and summed, against what was spent against them; and what was spent in
+    /// those months that no budget covered, by category.
     /// </summary>
-    /// <param name="firstMonth">The 1st of the first budget month.</param>
-    /// <param name="lastMonth">The 1st of the last budget month, on or after <paramref name="firstMonth"/>.</param>
+    /// <param name="from">A day in the first budget month.</param>
+    /// <param name="to">A day in the last budget month, on or after <paramref name="from"/>.</param>
     /// <param name="accountId">Only the expenses on this account count as spent; on every account when null. Budgets count in full.</param>
-    Task<BudgetsComparedWithSpent> CompareAsync(DateOnly firstMonth, DateOnly lastMonth, Guid? accountId, CancellationToken cancellationToken);
+    Task<BudgetsComparedWithSpent> CompareAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
 }
 
 /// <summary>Whether a category's budgets were kept to over the months compared (spec BUD-3), as on the budget screen.</summary>

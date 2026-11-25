@@ -44,7 +44,7 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
         var filter = query.Filter;
         var period = filter.Period.WholeMonths;
         var all = (await categories.ListAsync(cancellationToken)).ToDictionary(category => category.Id);
-        var comparison = await budgets.CompareAsync(period.From, new DateOnly(period.To.Year, period.To.Month, 1), filter.AccountId, cancellationToken);
+        var comparison = await budgets.CompareAsync(period.From, period.To, filter.AccountId, cancellationToken);
 
         // The category filter: only the category and its subcategories are shown.
         bool Shown(Guid categoryId) =>
