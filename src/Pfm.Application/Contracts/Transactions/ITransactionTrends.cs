@@ -12,12 +12,19 @@ public interface ITransactionTrends
     /// what it received. A split adds only its lines on <paramref name="categoryIds"/>. Transfers and deleted
     /// transactions never count.
     /// </summary>
-    /// <param name="income">The income when true; the expenses when false.</param>
+    /// <param name="type">Which transactions add to it: the expenses, each what it spent, or the income, each what it received.</param>
     /// <param name="categoryIds">Only the lines on these categories; every line when null.</param>
     /// <param name="payee">Only the transactions with this payee, trimmed, in any case; any payee, or none, when null.</param>
     /// <param name="accountId">Only the transactions on this account; on every account when null.</param>
     Task<IReadOnlyList<TrendTransaction>> AmountsAsync(
-        DateOnly from, DateOnly to, bool income, IReadOnlyCollection<Guid>? categoryIds, string? payee, Guid? accountId, CancellationToken cancellationToken);
+        DateOnly from, DateOnly to, TrendType type, IReadOnlyCollection<Guid>? categoryIds, string? payee, Guid? accountId, CancellationToken cancellationToken);
+}
+
+/// <summary>Which transactions a trend adds up: the expenses, by what they spent, or the income, by what it received.</summary>
+public enum TrendType
+{
+    Expense,
+    Income,
 }
 
 /// <summary>What one transaction adds to a trend.</summary>
