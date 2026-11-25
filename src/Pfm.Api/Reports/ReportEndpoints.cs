@@ -217,8 +217,12 @@ public sealed record TrendResponse(
     DateOnly From, DateOnly To, Currency Currency, ReportCategoryResponse? Category, string? Payee, bool IsIncome, string Total, int NotConverted,
     IReadOnlyList<TrendMonthResponse> Months, PreviousTrendResponse? Previous, PeriodChangeResponse? Change)
 {
-    public static TrendResponse Of(TrendDetails details) =>
-        new(details.Trend.Period.From, details.Trend.Period.To, details.Currency, details.Category is { } category ? ReportCategoryResponse.From(category) : null,
-            details.Payee, details.IsIncome, AmountJson.Text(details.Trend.Total), details.Trend.NotConverted.Count, [.. details.Trend.Months.Select(TrendMonthResponse.Of)],
+    public static TrendResponse Of(TrendDetails details)
+    {
+        // The trend itself is answered as the one compared with is, beside what only it has.
+        var trend = PreviousTrendResponse.Of(details.Trend);
+        return new(trend.From, trend.To, details.Currency, details.Category is { } category ? ReportCategoryResponse.From(category) : null,
+            details.Payee, details.IsIncome, trend.Total, trend.NotConverted, trend.Months,
             details.Previous is { } previous ? PreviousTrendResponse.Of(previous) : null, PeriodChangeResponse.Of(details.Change));
+    }
 }
