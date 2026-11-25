@@ -29,6 +29,25 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
+    /// The days net worth is shown on (spec RPT-5): the last day of each month that ends in the period, and the
+    /// period's own last day when the period ends inside a month, so even a few days have one.
+    /// </summary>
+    public IReadOnlyList<DateOnly> MonthEnds
+    {
+        get
+        {
+            var ends = new List<DateOnly>();
+            for (var month = new DateOnly(From.Year, From.Month, 1); month <= To; month = month.AddMonths(1))
+            {
+                var end = month.AddMonths(1).AddDays(-1);
+                ends.Add(end <= To ? end : To);
+            }
+
+            return ends;
+        }
+    }
+
+    /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of
     /// whole calendar months, from a 1st to the last day of a month, is compared with as many whole months just
     /// before it, so March is compared with February and a year with the year before; any other period with as
