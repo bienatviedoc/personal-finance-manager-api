@@ -20,7 +20,7 @@ public sealed class BudgetMonthReader(
         var warningPercent = await warningThreshold.OfCurrentUserAsync(cancellationToken);
         var spent = ofMonth.Count == 0
             ? []
-            : (await spending.SpentByCategoryAsync(month.FirstDay, month.LastDay, cancellationToken))
+            : (await spending.SpentByCategoryAsync(month.FirstDay, month.LastDay, accountId: null, cancellationToken))
                 .Select(of => new CategorySpending(of.CategoryId, of.Spent, of.NotConverted))
                 .ToList();
 

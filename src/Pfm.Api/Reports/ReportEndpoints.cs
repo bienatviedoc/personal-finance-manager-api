@@ -32,12 +32,12 @@ public static class ReportEndpoints
         GetSpendingByCategoryHandler handler, CancellationToken cancellationToken,
         string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? parentId = null, bool compare = false)
     {
-        var asked = new ReportParameters();
-        var filter = asked.Filter(from, to, accountId, categoryId, compare);
-        var parent = asked.Id(nameof(parentId), parentId);
-        if (filter is null || asked.Refused.Count > 0)
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId, compare);
+        var parent = parameters.Id(nameof(parentId), parentId);
+        if (filter is null || parameters.Refused.Count > 0)
         {
-            return TypedResults.ValidationProblem(asked.Refused);
+            return TypedResults.ValidationProblem(parameters.Refused);
         }
 
         var report = await handler.HandleAsync(new GetSpendingByCategory(filter, parent), cancellationToken);
@@ -52,16 +52,16 @@ public static class ReportEndpoints
         GetSpendingTransactionsHandler handler, CancellationToken cancellationToken,
         string? from = null, string? to = null, string? categoryId = null, string? accountId = null)
     {
-        var asked = new ReportParameters();
-        var filter = asked.Filter(from, to, accountId, categoryId, compare: false);
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId, compare: false);
         if (categoryId is null)
         {
-            asked.Refused[nameof(categoryId)] = ["Choose a category."];
+            parameters.Refused[nameof(categoryId)] = ["Choose a category."];
         }
 
-        if (filter is null || asked.Refused.Count > 0)
+        if (filter is null || parameters.Refused.Count > 0)
         {
-            return TypedResults.ValidationProblem(asked.Refused);
+            return TypedResults.ValidationProblem(parameters.Refused);
         }
 
         var list = await handler.HandleAsync(new GetSpendingTransactions(filter.Period, filter.CategoryId!.Value, filter.AccountId), cancellationToken);
@@ -83,7 +83,7 @@ public sealed record ReportCategoryResponse(Guid Id, Guid? ParentId, string Name
 /// <param name="Share">Spent as a percentage of the total, to one decimal; null when the total is not above zero.</param>
 /// <param name="NotConverted">How many of its expenses are left out of spent because no exchange rate exists on or before their date yet.</param>
 /// <param name="DrillsInto"><c>subcategories</c> when its subcategories spent something in either period, which <c>parentId</c> shows; otherwise <c>transactions</c>, which <c>/reports/spending-by-category/transactions</c> lists.</param>
-/// <param name="PreviousSpent">What it spent in the period before; null unless <c>compare</c> was asked for.</param>
+/// <param name="PreviousSpent">What it spent in the period before; null unless <c>compare</c> was parameters for.</param>
 public sealed record SpendingByCategoryItemResponse(
     ReportCategoryResponse Category, string Spent, decimal? Share, int NotConverted, SpendingDrillDown DrillsInto, string? PreviousSpent)
 {
@@ -106,7 +106,7 @@ public sealed record PreviousSpendingResponse(DateOnly From, DateOnly To, string
 /// <param name="Total">What every item's spent adds up to.</param>
 /// <param name="NotConverted">How many expenses are left out of the total because they are not converted; a split is one.</param>
 /// <param name="Items">By spent, most first, then by name. With <c>compare</c>, a category that spent only in the period before is among them, at zero.</param>
-/// <param name="Previous">The period before; null unless <c>compare</c> was asked for.</param>
+/// <param name="Previous">The period before; null unless <c>compare</c> was parameters for.</param>
 public sealed record SpendingByCategoryResponse(
     DateOnly From, DateOnly To, Currency Currency, ReportCategoryResponse? Parent, string Total, int NotConverted,
     IReadOnlyList<SpendingByCategoryItemResponse> Items, PreviousSpendingResponse? Previous)

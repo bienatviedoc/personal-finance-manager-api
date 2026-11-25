@@ -33,7 +33,7 @@ public sealed class GetSpendingTransactionsHandler(ICategoryLookup categories, I
 
         var expenses = await spending.ExpensesInAsync(query.Period.From, query.Period.To, query.CategoryId, query.AccountId, cancellationToken);
         return new SpendingTransactionsDetails(
-            query.Period, await baseCurrency.OfCurrentUserAsync(cancellationToken), GetSpendingByCategoryHandler.Details(category),
+            query.Period, await baseCurrency.OfCurrentUserAsync(cancellationToken), ReportCategoryDetails.Of(category),
             expenses.Sum(expense => expense.Spent ?? 0), expenses.Count(expense => expense.Spent is null), expenses);
     }
 }

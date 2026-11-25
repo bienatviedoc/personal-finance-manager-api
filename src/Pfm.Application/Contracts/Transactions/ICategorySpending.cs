@@ -13,13 +13,9 @@ public interface ICategorySpending
     /// count: income and transfers never do, and a deleted transaction is left out. Each category answers for
     /// itself alone, not for its subcategories; one with no expenses is left out.
     /// </summary>
-    Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Spent in each category as <see cref="SpentByCategoryAsync(DateOnly, DateOnly, CancellationToken)"/> answers it,
-    /// by the expenses on one account only, or on every account when <paramref name="accountId"/> is null. Reports
-    /// ask it for their account filter (spec section 7).
-    /// </summary>
+    /// <param name="accountId">
+    /// Only the expenses on this account, for a report's account filter (spec section 7); on every account when null.
+    /// </param>
     Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
 
     /// <summary>

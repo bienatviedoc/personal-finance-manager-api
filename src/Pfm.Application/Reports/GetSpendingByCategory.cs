@@ -45,7 +45,7 @@ public sealed class GetSpendingByCategoryHandler(ICategoryLookup categories, ICa
                 return null;
             }
 
-            parent = Details(found);
+            parent = ReportCategoryDetails.Of(found);
         }
 
         var spent = await SpentAsync(filter.Period, filter.AccountId, cancellationToken);
@@ -54,7 +54,7 @@ public sealed class GetSpendingByCategoryHandler(ICategoryLookup categories, ICa
             [.. all.Values.Select(category => new ReportCategory(category.Id, category.ParentId))], spent, previous, query.ParentId, filter.CategoryId);
 
         var items = breakdown.Items
-            .Select(share => new CategorySpendingDetails(Details(all[share.CategoryId]), share))
+            .Select(share => new CategorySpendingDetails(ReportCategoryDetails.Of(all[share.CategoryId]), share))
             .OrderByDescending(item => item.Share.Spent)
             .ThenBy(item => item.Category.Name, NameOrder.Comparer)
             .ThenBy(item => item.Category.Id)
@@ -68,7 +68,4 @@ public sealed class GetSpendingByCategoryHandler(ICategoryLookup categories, ICa
     private async Task<IReadOnlyList<SpentInCategory>> SpentAsync(ReportPeriod period, Guid? accountId, CancellationToken cancellationToken) =>
         [.. (await spending.SpentByCategoryAsync(period.From, period.To, accountId, cancellationToken))
             .Select(of => new SpentInCategory(of.CategoryId, of.Spent, of.NotConverted))];
-
-    internal static ReportCategoryDetails Details(CategorySummary category) =>
-        new(category.Id, category.ParentId, category.Name, category.Icon, category.Color, category.IsArchived);
 }

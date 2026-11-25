@@ -1,3 +1,4 @@
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Domain.Reports;
 
 namespace Pfm.Application.Reports;
@@ -17,4 +18,8 @@ public sealed record ReportFilter(ReportPeriod Period, Guid? AccountId = null, G
 
 /// <summary>A category as a report shows it, also when it has since been archived.</summary>
 /// <param name="ParentId">The top-level category it sits under; null for a top-level category.</param>
-public sealed record ReportCategoryDetails(Guid Id, Guid? ParentId, string Name, string Icon, string Color, bool IsArchived);
+public sealed record ReportCategoryDetails(Guid Id, Guid? ParentId, string Name, string Icon, string Color, bool IsArchived)
+{
+    public static ReportCategoryDetails Of(CategorySummary category) =>
+        new(category.Id, category.ParentId, category.Name, category.Icon, category.Color, category.IsArchived);
+}

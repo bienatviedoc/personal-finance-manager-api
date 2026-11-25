@@ -23,8 +23,9 @@ internal sealed class ReportParameters
             Refused[nameof(to)] = ["End the period on or after the day it starts."];
         }
 
-        var filter = new { Account = Id(nameof(accountId), accountId), Category = Id(nameof(categoryId), categoryId) };
-        return Refused.Count > 0 ? null : new ReportFilter(new ReportPeriod(first!.Value, last!.Value), filter.Account, filter.Category, compare);
+        var account = Id(nameof(accountId), accountId);
+        var category = Id(nameof(categoryId), categoryId);
+        return Refused.Count > 0 ? null : new ReportFilter(new ReportPeriod(first!.Value, last!.Value), account, category, compare);
     }
 
     /// <summary>An optional id; null when left out.</summary>

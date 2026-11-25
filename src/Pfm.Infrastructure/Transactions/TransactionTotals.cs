@@ -45,10 +45,6 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// income and the legs of a transfer never count. A month's expenses are read and added up here, not in
     /// the database, so that spent has that one definition.
     /// </summary>
-    public Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, CancellationToken cancellationToken) =>
-        SpentByCategoryAsync(from, to, null, cancellationToken);
-
-    /// <inheritdoc cref="SpentByCategoryAsync(DateOnly, DateOnly, CancellationToken)"/>
     public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
         var expenses = await Expenses(from, to, accountId).ToListAsync(cancellationToken);
