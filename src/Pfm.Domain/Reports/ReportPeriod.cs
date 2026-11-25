@@ -35,8 +35,34 @@ public sealed record ReportPeriod
     public ReportPeriod WholeMonths =>
         new(new DateOnly(From.Year, From.Month, 1), new DateOnly(To.Year, To.Month, DateTime.DaysInMonth(To.Year, To.Month)));
 
-    /// <summary>How many calendar months the period touches, the first and last counted even when only part of them is in it.</summary>
-    public int Months => ((To.Year - From.Year) * 12) + To.Month - From.Month + 1;
+    /// <summary>
+    /// The calendar months the period touches, in order, each cut to the period: a period from the 15th of one
+    /// month starts with the rest of that month, and one ending on the 10th ends with its first ten days.
+    /// </summary>
+    public IReadOnlyList<ReportPeriod> Months
+    {
+        get
+        {
+            var months = new List<ReportPeriod>();
+            for (var first = new DateOnly(From.Year, From.Month, 1); first <= To; first = first.AddMonths(1))
+            {
+                var last = first.AddMonths(1).AddDays(-1);
+                months.Add(new ReportPeriod(first < From ? From : first, last > To ? To : last));
+            }
+
+            return months;
+        }
+    }
+
+    /// <summary>
+    /// The months of the period compared with (<see cref="Previous"/>), one for each of <see cref="Months"/> and in
+    /// the same order, so the two can be set side by side by place. Before whole calendar months they are as many
+    /// whole months; before any other period each is the month at the same place moved back by the period's days,
+    /// which need not start on a 1st: 10 March to 20 April is set against 27 January to 17 February and 18 February
+    /// to 9 March.
+    /// </summary>
+    public IReadOnlyList<ReportPeriod> PreviousMonths =>
+        IsWholeMonths(out _) ? Previous.Months : [.. Months.Select(month => new ReportPeriod(month.From.AddDays(-Days), month.To.AddDays(-Days)))];
 
     /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of

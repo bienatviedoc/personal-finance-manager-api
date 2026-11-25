@@ -8,8 +8,6 @@ namespace Pfm.Infrastructure.Transactions;
 /// <summary>Reads the user's transactions for quick add. The context's user filter keeps every query to the signed-in user's.</summary>
 internal sealed class QuickAddHistory(PfmDbContext db) : IQuickAddHistory
 {
-    private const string Escape = "\\";
-
     public async Task<IReadOnlyList<Guid>> AccountsLastUsedFirstAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>()
             // Income and expenses only: a transfer is not what quick add records, and its two legs are on two accounts at once.
@@ -22,13 +20,10 @@ internal sealed class QuickAddHistory(PfmDbContext db) : IQuickAddHistory
 
     public async Task<Guid?> MostUsedCategoryAsync(string payee, TransactionType? type, CancellationToken cancellationToken)
     {
-        // The payee itself in any case, never a pattern: what ILIKE would read as "anything" is escaped.
-        var exactly = payee.Replace(Escape, Escape + Escape, StringComparison.Ordinal)
-            .Replace("%", Escape + "%", StringComparison.Ordinal)
-            .Replace("_", Escape + "_", StringComparison.Ordinal);
+        var exactly = LikePattern.Exactly(payee);
 
         return await db.Set<Transaction>()
-            .Where(transaction => transaction.DeletedAt == null && EF.Functions.ILike(transaction.Payee!, exactly, Escape))
+            .Where(transaction => transaction.DeletedAt == null && EF.Functions.ILike(transaction.Payee!, exactly, LikePattern.Escape))
             .Where(transaction => type == null || transaction.Type == type)
             // A refund is money coming back: it says nothing about what the payee is usually paid for.
             .Where(transaction => !transaction.IsRefund)
