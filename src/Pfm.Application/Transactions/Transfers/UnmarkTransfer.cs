@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
@@ -32,8 +33,8 @@ public sealed record UnmarkedTransfer(TransactionDetails Expense, TransactionDet
 
 /// <summary>Answers null when the user has no transfer with that id, or deleted it. Both legs are saved together.</summary>
 public sealed class UnmarkTransferHandler(
-    IValidator<UnmarkTransferCommand> validator, ITransactionRepository transactions, ICategoryRepository categories, IUnitOfWork unitOfWork,
-    TimeProvider clock)
+    IValidator<UnmarkTransferCommand> validator, ITransactionRepository transactions, ICategoryRepository categories,
+    IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<UnmarkTransferCommand, UnmarkedTransfer?>(validator)
 {
     /// <summary>An unmark names no row version, like a delete, so one that meets a change made at the same moment is made again on what was saved.</summary>
@@ -68,6 +69,9 @@ public sealed class UnmarkTransferHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // The Transfer out leg is an expense now, and counts toward spent.
+        await budgetNotifications.CheckAsync([expense.Date], cancellationToken);
         return new UnmarkedTransfer(TransactionDetails.Of(expense), TransactionDetails.Of(income));
     }
 }

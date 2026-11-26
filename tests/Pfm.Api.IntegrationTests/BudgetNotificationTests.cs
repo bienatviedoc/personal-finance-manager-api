@@ -216,6 +216,54 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Restoring_a_deleted_expense_raises_the_notification_it_brings_spent_to()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var expense = await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "900000", FirstOfThisMonth);
+        (await browser.DeleteAsync($"/api/v1/transactions/{expense}")).EnsureSuccessStatusCode();
+        await BudgetAsync(browser, "Transport", "1000000");
+
+        (await browser.PostAsync($"/api/v1/transactions/{expense}/restore")).EnsureSuccessStatusCode();
+
+        Assert.Equal(["warning"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
+    public async Task Expenses_a_bulk_action_puts_on_a_category_raise_its_notification()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await BudgetAsync(browser, "Transport", "1000000");
+        var expense = await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Shopping", "1200000", FirstOfThisMonth);
+
+        (await browser.PostAsync("/api/v1/transactions/bulk", new
+        {
+            action = "setCategory", transactionIds = new[] { expense }, categoryId = await CategoryAsync(browser, "Transport"),
+        })).EnsureSuccessStatusCode();
+
+        Assert.Equal(["over"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
+    public async Task A_transfer_unmarked_into_an_expense_raises_the_notification_of_its_category()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await BudgetAsync(browser, "Transport", "1000000");
+        var created = await browser.PostAsync("/api/v1/transfers", new
+        {
+            fromAccountId = await AddAccountAsync(browser, "Everyday"), toAccountId = await AddAccountAsync(browser, "Savings"), amount = "900000",
+            date = FirstOfThisMonth.ToString("yyyy-MM-dd"),
+        });
+        var transfer = (await created.Content.ReadFromJsonAsync<Identified>())!;
+
+        (await browser.PostAsync($"/api/v1/transfers/{transfer.Id}/unmark", new
+        {
+            expenseCategoryId = await CategoryAsync(browser, "Transport"), incomeCategoryId = await CategoryAsync(browser, "Other income"),
+        })).EnsureSuccessStatusCode();
+
+        Assert.Equal(["warning"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
     public async Task A_user_reads_a_notification_and_then_all_of_them()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -289,6 +337,8 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     private static async Task<ListBody> ListAsync(Browser browser) => (await browser.Http.GetFromJsonAsync<ListBody>(Notifications))!;
 
     private sealed record Versioned(string RowVersion);
+
+    private sealed record Identified(Guid Id);
 
     private sealed record ProfileBody(bool EmailBudgetNotifications);
 

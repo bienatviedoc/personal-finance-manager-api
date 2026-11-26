@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions;
@@ -21,7 +22,8 @@ public sealed class RestoreTransactionValidator : AbstractValidator<RestoreTrans
 /// 30 days: one not deleted, deleted longer ago, or restored already.
 /// </summary>
 public sealed class RestoreTransactionHandler(
-    IValidator<RestoreTransactionCommand> validator, ITransactionRepository transactions, IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<RestoreTransactionCommand> validator, ITransactionRepository transactions, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<RestoreTransactionCommand, TransactionDetails?>(validator)
 {
     /// <summary>A restore names no row version, so one that meets a change made at the same moment is made again on what was saved.</summary>
@@ -45,6 +47,12 @@ public sealed class RestoreTransactionHandler(
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (transaction.TransferId is null)
+            {
+                // An expense restored counts toward spent again.
+                await budgetNotifications.CheckAsync([transaction.Date], cancellationToken);
+            }
+
             return TransactionDetails.Of(transaction);
         });
 }
