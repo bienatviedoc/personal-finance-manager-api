@@ -61,7 +61,7 @@ public static class UserErasureFixtures
         await RecordAsync(browser, accountId, streetFood, "15000", "Bánh mì Huỳnh Hoa", isRefund: true);
         (await browser.PostAsync("/api/v1/transactions", new
         {
-            type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart",
+            type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart", tags = new[] { "tet-2027", "groceries" },
             lines = new object[] { new { categoryId = food, amount = "320000", note = "Rice" }, new { categoryId = streetFood, amount = "180000" } },
         })).EnsureSuccessStatusCode();
         (await browser.PutAsync($"/api/v1/budgets/{DateTime.UtcNow:yyyy-MM}/{food}", new { amount = "3000000" })).EnsureSuccessStatusCode();
@@ -83,9 +83,13 @@ public static class UserErasureFixtures
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
             ["RecurringRules"] = 1,
+            ["Tags"] = 2,
             // One line for each income or expense, and two for the split; none for the legs of the transfer.
             ["TransactionLines"] = 5,
             ["Transactions"] = 6,
+
+            // The split's two tags.
+            ["TransactionTags"] = 2,
         };
     }
 

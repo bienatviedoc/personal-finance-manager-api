@@ -505,6 +505,32 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Transactions.Tag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Tags_UserId_Name");
+
+                    b.ToTable("Tags", (string)null);
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.Transaction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -901,7 +927,38 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                                 .HasForeignKey("TransactionId");
                         });
 
+                    b.OwnsMany("Pfm.Domain.Transactions.TransactionTag", "Tags", b1 =>
+                        {
+                            b1.Property<Guid>("TransactionId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("TagId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Name")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)");
+
+                            b1.HasKey("TransactionId", "TagId");
+
+                            b1.HasIndex("TagId", "TransactionId");
+
+                            b1.ToTable("TransactionTags", (string)null);
+
+                            b1.HasOne("Pfm.Domain.Transactions.Tag", null)
+                                .WithMany()
+                                .HasForeignKey("TagId")
+                                .OnDelete(DeleteBehavior.Restrict)
+                                .IsRequired();
+
+                            b1.WithOwner()
+                                .HasForeignKey("TransactionId");
+                        });
+
                     b.Navigation("Lines");
+
+                    b.Navigation("Tags");
                 });
 #pragma warning restore 612, 618
         }

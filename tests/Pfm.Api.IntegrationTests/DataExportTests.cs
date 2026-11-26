@@ -26,7 +26,7 @@ public class DataExportTests(PfmApi api)
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
         Assert.Equal(
-            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "recurring-rules.csv", "transaction-lines.csv", "transactions.csv"],
+            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
             files.Keys.Where(file => !file.StartsWith("attachments/", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
