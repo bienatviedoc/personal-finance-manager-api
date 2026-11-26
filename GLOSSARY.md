@@ -60,6 +60,10 @@ _Avoid_: Type (for the kind), group, label
 A free-form label a user puts on transactions across categories, such as `tet-2027` or `japan-trip`. A tag is the user's own, kept in lower case, and created the first time they give a transaction it.
 _Avoid_: Label, keyword, category (for a tag)
 
+**Bulk action**:
+One change made to many transactions the user selects at once, one by one or every one that passes the list's filters: setting their category, adding or removing a tag, moving them to another account, or deleting them. Every one takes it or none does; the ones that cannot are named, with why.
+_Avoid_: Batch edit, mass update, import batch (which is something else)
+
 **Budget**:
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
 _Avoid_: Limit, allowance, envelope

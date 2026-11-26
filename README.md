@@ -304,6 +304,17 @@ already uses it can still show it. An account can be archived at any balance.
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
   `GET /transactions/deleted` lists those still held, the last deleted first, and `POST /transactions/{id}/restore`
   brings one back, both legs of a transfer together, until 30 days after it was deleted.
+- **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
+  `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
+  one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
+  1000 either way. It is one save: when any selected transaction cannot take it, the answer is a 409
+  (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
+  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), and nothing changes. A category or account that
+  cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
+  transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
+  moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and
+  tagged but not moved or deleted, and deleting a leg deletes its transfer, as `DELETE` does. Like a delete it names
+  no row version.
 - **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
