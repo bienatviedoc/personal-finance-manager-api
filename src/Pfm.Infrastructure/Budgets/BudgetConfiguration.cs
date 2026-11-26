@@ -27,8 +27,9 @@ internal sealed class BudgetConfiguration : IEntityTypeConfiguration<Budget>
         // PostgreSQL's own row version (xmin): it changes with every update, so a stale change matches no row.
         budget.Property(row => row.RowVersion).IsRowVersion();
 
-        // A category has one budget a month (spec section 10), and a month is read with all of its budgets.
-        budget.HasIndex(row => new { row.UserId, row.CategoryId, row.Month }).IsUnique();
+        // A category has one budget a month (spec section 10), and so does the overall budget, which is on no
+        // category: nulls are not distinct here. A month is read with all of its budgets.
+        budget.HasIndex(row => new { row.UserId, row.CategoryId, row.Month }).IsUnique().AreNullsDistinct(false);
         budget.HasIndex(row => new { row.UserId, row.Month });
     }
 }

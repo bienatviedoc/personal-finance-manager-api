@@ -16,6 +16,10 @@ internal static class BudgetRules
     /// <summary>Reads a budget month as it travels: <c>2026-11</c>. Null when it is not one.</summary>
     public static BudgetMonth? ReadMonth(string? text) => BudgetMonth.TryParse(text, out var month) ? month : null;
 
+    /// <summary>The categories that have a budget among <paramref name="budgets"/>, leaving out the overall budget, which is on none.</summary>
+    public static List<Guid> CategoryIds(this IEnumerable<Budget> budgets) =>
+        [.. budgets.Where(budget => budget.CategoryId is not null).Select(budget => budget.CategoryId!.Value)];
+
     /// <summary>A broken budget rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this BudgetRuleViolation violation) =>
         FieldError.On(violation.Property, violation.Message);

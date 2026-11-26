@@ -8,24 +8,30 @@ namespace Pfm.Application.Budgets;
 /// <summary>
 /// Works out a budget month: each budget against what was spent in its category that month. Spent is asked
 /// of Transactions every time, by its own definition of it (expenses minus refunds, a split by its lines),
-/// and never stored, so a late edit or import corrects the budget by itself (spec section 6).
+/// and never stored, so a late edit or import corrects the budget by itself (spec section 6). The overall budget
+/// counts every category's spending. In the current month each budget has a pace, from today in the user's
+/// time zone (spec BUD-6).
 /// </summary>
 public sealed class BudgetMonthReader(
-    IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBaseCurrency baseCurrency, IBudgetWarningThreshold warningThreshold)
+    IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBaseCurrency baseCurrency, IBudgetWarningThreshold warningThreshold,
+    IUserCalendar calendar)
 {
     public async Task<BudgetMonthDetails> ReadAsync(BudgetMonth month, CancellationToken cancellationToken)
     {
-        var ofMonth = await budgets.ListForMonthAsync(month, cancellationToken);
+        var all = await budgets.ListForMonthAsync(month, cancellationToken);
+        var overall = all.SingleOrDefault(budget => budget.IsOverall);
+        var ofMonth = all.Where(budget => !budget.IsOverall).ToList();
+        var today = await calendar.TodayAsync(cancellationToken);
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));
         var warningPercent = await warningThreshold.OfCurrentUserAsync(cancellationToken);
-        var spent = ofMonth.Count == 0
+        var spent = all.Count == 0
             ? []
             : (await spending.SpentByCategoryAsync(month.FirstDay, month.LastDay, accountId: null, cancellationToken))
                 .Select(of => new CategorySpending(of.CategoryId, of.Spent, of.NotConverted))
                 .ToList();
 
         var progress = ofMonth
-            .Select(budget => (Category: tree.Find(budget.CategoryId)!, Progress: BudgetProgress.Of(budget, tree.BudgetCategory(budget.CategoryId)!, spent, warningPercent)))
+            .Select(budget => (Category: tree.Find(budget.CategoryId!.Value)!, Progress: BudgetProgress.Of(budget, tree.BudgetCategory(budget.CategoryId!.Value)!, spent, warningPercent)))
             .OrderBy(row => tree.TopLevelName(row.Category), NameOrder.Comparer)
             .ThenBy(row => row.Category.ParentId ?? row.Category.Id)
             .ThenBy(row => row.Category.ParentId is not null)
@@ -37,14 +43,21 @@ public sealed class BudgetMonthReader(
             month,
             await baseCurrency.OfCurrentUserAsync(cancellationToken),
             warningPercent,
-            [.. progress.Select(row => Details(row.Category, row.Progress))],
-            BudgetTotals.Of([.. progress.Select(row => row.Progress)]));
+            [.. progress.Select(row => Details(row.Category, row.Progress, today))],
+            BudgetTotals.Of([.. progress.Select(row => row.Progress)]),
+            overall is null ? null : OverallDetails(BudgetProgress.OfOverall(overall, spent, warningPercent), today),
+            month.PercentElapsedOn(today));
     }
 
-    private static BudgetDetails Details(CategorySummary category, BudgetProgress progress) =>
+    private static BudgetDetails Details(CategorySummary category, BudgetProgress progress, DateOnly today) =>
         new(category.Id,
             new BudgetCategoryDetails(category.Id, category.ParentId, category.Name, category.Icon, category.Color, category.IsArchived),
-            progress.Budgeted, progress.Spent, progress.Remaining, progress.PercentSpent, progress.State, progress.NotConverted, progress.Budget.RowVersion);
+            progress.Budgeted, progress.Spent, progress.Remaining, progress.PercentSpent, progress.State, progress.NotConverted, progress.Budget.RowVersion,
+            progress.PaceOn(today));
+
+    private static OverallBudgetDetails OverallDetails(BudgetProgress progress, DateOnly today) =>
+        new(progress.Budgeted, progress.Spent, progress.Remaining, progress.PercentSpent, progress.State, progress.PaceOn(today), progress.NotConverted,
+            progress.Budget.RowVersion);
 }
 
 /// <summary>The user's categories as Budgets reads them: who is whose subcategory.</summary>
