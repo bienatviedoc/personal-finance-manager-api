@@ -3,7 +3,6 @@ using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Domain;
-using Pfm.Domain.Budgets;
 
 namespace Pfm.Api.Reports;
 
@@ -39,13 +38,20 @@ public sealed record DashboardBudgetResponse(ReportCategoryResponse Category, st
             AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, BudgetVsActualItemResponse.StateOf(item.Budget.State));
 }
 
+/// <summary>Whether a budget is being spent faster than the month is passing (spec BUD-6).</summary>
+public enum DashboardBudgetPace
+{
+    OnPace = 1,
+    AheadOfPace = 2,
+}
+
 /// <summary>This month's overall budget against every expense of the month (spec BUD-5).</summary>
 /// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when budgeted is zero.</param>
 /// <param name="State">Over above what was budgeted, a warning at or above the user's warning threshold, otherwise on track.</param>
 /// <param name="Pace"><c>aheadOfPace</c> when a larger share of the budget is spent than of the month has passed, otherwise <c>onPace</c>.</param>
 /// <param name="NotConverted">How many expenses are left out of spent because they are not converted.</param>
 public sealed record DashboardOverallBudgetResponse(
-    string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetVsActualState State, BudgetPace? Pace, int NotConverted)
+    string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetVsActualState State, DashboardBudgetPace? Pace, int NotConverted)
 {
     public static DashboardOverallBudgetResponse? Of(OverallBudgetedAndSpent? overall) =>
         overall is null
@@ -53,11 +59,11 @@ public sealed record DashboardOverallBudgetResponse(
             : new(AmountJson.Text(overall.Budgeted), AmountJson.Text(overall.Spent), AmountJson.Text(overall.Remaining), overall.PercentSpent,
                 BudgetVsActualItemResponse.StateOf(overall.State), PaceOf(overall.Pace), overall.NotConverted);
 
-    private static BudgetPace? PaceOf(ComparedBudgetPace? pace) => pace switch
+    private static DashboardBudgetPace? PaceOf(ComparedBudgetPace? pace) => pace switch
     {
         null => null,
-        ComparedBudgetPace.OnPace => BudgetPace.OnPace,
-        ComparedBudgetPace.AheadOfPace => BudgetPace.AheadOfPace,
+        ComparedBudgetPace.OnPace => DashboardBudgetPace.OnPace,
+        ComparedBudgetPace.AheadOfPace => DashboardBudgetPace.AheadOfPace,
         _ => throw new ArgumentOutOfRangeException(nameof(pace), pace, null),
     };
 }
