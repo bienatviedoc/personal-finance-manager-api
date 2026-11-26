@@ -33,15 +33,10 @@ public static class BudgetNotificationEndpoints
             return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
         }
 
-        Guid? after = null;
-        if (cursor is not null)
+        BudgetNotificationCursor? after = null;
+        if (cursor is not null && !BudgetNotificationCursor.TryParse(cursor, out after))
         {
-            if (!Guid.TryParseExact(cursor, "N", out var id))
-            {
-                return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
-            }
-
-            after = id;
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
         }
 
         var page = await handler.HandleAsync(new ListBudgetNotifications(limit, after), cancellationToken);
