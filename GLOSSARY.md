@@ -72,6 +72,10 @@ _Avoid_: Limit, allowance, envelope
 To hide an institution, account or category from pickers while keeping its history in balances, net worth and reports.
 _Avoid_: Delete, disable, close, deactivate
 
+**Merge**:
+To fold one category into another of the same kind: its transactions, budgets and subcategories move to the other, budgets in the same month are added together, and it is archived.
+_Avoid_: Combine, join, move (for a whole category)
+
 **Amount owed**:
 What a user owes on a credit card or loan account, entered as a positive number and held as a negative balance.
 _Avoid_: Debt, negative balance (in the interface)

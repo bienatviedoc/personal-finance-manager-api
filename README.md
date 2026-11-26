@@ -178,6 +178,16 @@ with `IUsers.FindSignedInAsync`; a query that only reads it (`GetTwoFactor`) goe
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
 already uses it can still show it. An account can be archived at any balance.
 
+**Merging categories** (spec CAT-3). `POST /categories/{id}/merge` with a `targetId` of the same kind folds the
+category into the target (`MergeCategory`): every transaction line (of deleted transactions too, so they come back
+on the target), recurring rule and budget moves to the target, and where both have a budget in the same month the
+amounts are added (`BudgetMerge`, reached through `IUserBudgets.MergeAsync`). Its subcategories move under the
+target, and the category is archived. It answers what moved: `transactions` (not deleted; a split counts once) and
+`budgets`. `GET /categories/{id}/merge-preview` answers the same counts without changing anything, for the user
+to confirm first. A merge that would make three levels (a category with subcategories into a subcategory), budget a
+category and its parent in the same month (rule 6), or go into a category of the other kind, an archived one or
+one of the merged category's own subcategories is refused as an error on `targetId`, and changes nothing.
+
 ### Accounts and balances
 
 - **A balance is never stored.** `Account.BalanceWith` adds what the account's transactions come to onto its

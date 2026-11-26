@@ -142,6 +142,22 @@ public sealed class RecurringRule : IUserOwned
         SettleThrough(dueDate, now);
     }
 
+    /// <summary>
+    /// Moves the rule from <paramref name="from"/> onto <paramref name="into"/>, as merging the one category into
+    /// the other does (spec CAT-3), so it goes on posting on a category that is not archived.
+    /// </summary>
+    public void MoveCategory(Category from, Category into, DateTimeOffset now)
+    {
+        Transaction.GuardMerge(from, into);
+        if (CategoryId != from.Id)
+        {
+            return;
+        }
+
+        CategoryId = into.Id;
+        UpdatedAt = now;
+    }
+
     public void Pause(DateTimeOffset now)
     {
         IsPaused = true;
