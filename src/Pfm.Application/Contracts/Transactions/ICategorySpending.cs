@@ -19,6 +19,12 @@ public interface ICategorySpending
     Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// The same as <see cref="SpentByCategoryAsync"/>, worked out for each calendar month of the dates apart: one
+    /// answer per category and month that had an expense.
+    /// </summary>
+    Task<IReadOnlyList<CategorySpentInMonth>> SpentByCategoryEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The user's expenses dated from <paramref name="from"/> to <paramref name="to"/> that have a line on the
     /// category itself (not on its subcategories), each with what it spent there: the transactions that make up
     /// that category's spent, adding up to it. Newest first, the last recorded first within a day. Income,
@@ -39,6 +45,10 @@ public interface ICategorySpending
 public sealed record CategoryExpense(
     Guid TransactionId, DateOnly Date, Guid AccountId, string? Payee, string? Note, decimal Amount, Pfm.Domain.Currency Currency, bool IsRefund, bool IsSplit,
     decimal? Spent);
+
+/// <summary>What was spent in one category in one calendar month.</summary>
+/// <param name="Month">The 1st of the month.</param>
+public sealed record CategorySpentInMonth(DateOnly Month, CategorySpent Spent);
 
 /// <summary>What was spent in one category.</summary>
 /// <param name="Spent">The total in the base currency of the expenses that are converted, minus the refunds; it can be negative.</param>

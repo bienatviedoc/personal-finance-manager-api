@@ -67,6 +67,89 @@ public sealed class Transfer
         return new Transfer(outLeg, inLeg);
     }
 
+    /// <summary>What a broken rule names the expense a transfer is marked from by: the id it is picked by.</summary>
+    public const string ExpenseId = nameof(ExpenseId);
+
+    /// <summary>What a broken rule names the income a transfer is marked from by: the id it is picked by.</summary>
+    public const string IncomeId = nameof(IncomeId);
+
+    /// <summary>What a broken rule names the category the Transfer out leg is spent on once unmarked by: the id it is chosen by.</summary>
+    public const string ExpenseCategoryId = nameof(ExpenseCategoryId);
+
+    /// <summary>What a broken rule names the category the Transfer in leg is income on once unmarked by: the id it is chosen by.</summary>
+    public const string IncomeCategoryId = nameof(IncomeCategoryId);
+
+    /// <summary>
+    /// Joins an expense on one account and income on another, such as the two rows imported statements show
+    /// for paying a card, into the two legs of one transfer (spec IMP-7; decision record 0001): the expense
+    /// becomes the Transfer out leg and the income the Transfer in leg. Each keeps its id, account, amount,
+    /// date, note and conversion; it loses its category, lines and payee, as a leg has none, so it leaves
+    /// income, expense and budget totals. Neither changes when a rule is broken.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Either transaction is deleted.</exception>
+    public static Transfer Mark(Transaction expense, Transaction income, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(expense);
+        ArgumentNullException.ThrowIfNull(income);
+        if (expense.IsDeleted || income.IsDeleted)
+        {
+            throw new InvalidOperationException("A deleted transaction cannot be marked as a transfer.");
+        }
+
+        GuardCanBecomeLeg(expense, ExpenseId, TransactionType.Expense, "Choose an expense that is not a refund: the money that left one account.");
+        GuardCanBecomeLeg(income, IncomeId, TransactionType.Income, "Choose income: the money that arrived on the other account.");
+        if (expense.AccountId == income.AccountId)
+        {
+            throw new TransferRuleViolation(IncomeId, "A transfer is between two different accounts.");
+        }
+
+        if (expense.Currency == income.Currency && expense.Amount != income.Amount)
+        {
+            throw new TransferRuleViolation(IncomeId, "Accounts in the same currency move the same amount.");
+        }
+
+        if (expense.Date != income.Date)
+        {
+            throw new TransferRuleViolation(IncomeId, "The two legs of a transfer are on the same date.");
+        }
+
+        var id = Guid.CreateVersion7(now);
+        expense.BecomeLeg(id, TransactionType.TransferOut, now);
+        income.BecomeLeg(id, TransactionType.TransferIn, now);
+        return new Transfer(expense, income);
+    }
+
+    /// <summary>
+    /// Turns the transfer back into two ordinary transactions, each keeping its id, account, amount, date and
+    /// note: the Transfer out leg becomes an expense on <paramref name="expenseCategory"/> and the Transfer in
+    /// leg income on <paramref name="incomeCategory"/>. Any transfer can be, marked or recorded. Neither leg
+    /// changes when a rule is broken; once unmarked, this transfer is no more.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The transfer is deleted.</exception>
+    public (Transaction Expense, Transaction Income) Unmark(Category expenseCategory, Category incomeCategory, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(expenseCategory);
+        ArgumentNullException.ThrowIfNull(incomeCategory);
+        if (IsDeleted)
+        {
+            throw new InvalidOperationException("A deleted transfer cannot be unmarked.");
+        }
+
+        if (Transaction.CategoryRuleBroken(expenseCategory, TransactionType.Expense, keeps: false) is { } expenseRule)
+        {
+            throw new TransferRuleViolation(ExpenseCategoryId, expenseRule);
+        }
+
+        if (Transaction.CategoryRuleBroken(incomeCategory, TransactionType.Income, keeps: false) is { } incomeRule)
+        {
+            throw new TransferRuleViolation(IncomeCategoryId, incomeRule);
+        }
+
+        OutLeg.BecomeOrdinary(TransactionType.Expense, expenseCategory, now);
+        InLeg.BecomeOrdinary(TransactionType.Income, incomeCategory, now);
+        return (OutLeg, InLeg);
+    }
+
     /// <summary>Pairs the two legs of one transfer, as read back, in either order.</summary>
     /// <exception cref="ArgumentException">The transactions are not one Transfer out leg and one Transfer in leg sharing a transfer id.</exception>
     public static Transfer Of(IReadOnlyCollection<Transaction> legs)
@@ -118,6 +201,19 @@ public sealed class Transfer
 
         OutLeg.RestoreLeg(now);
         InLeg.RestoreLeg(now);
+    }
+
+    private static void GuardCanBecomeLeg(Transaction transaction, string property, TransactionType type, string notThatType)
+    {
+        if (transaction.IsTransferLeg)
+        {
+            throw new TransferRuleViolation(property, "This is a leg of a transfer already.");
+        }
+
+        if (transaction.Type != type || transaction.IsRefund)
+        {
+            throw new TransferRuleViolation(property, notThatType);
+        }
     }
 
     private static void GuardCanMove(LegAmount from, LegAmount to)

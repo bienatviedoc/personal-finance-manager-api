@@ -27,6 +27,21 @@ public readonly record struct BudgetMonth
     /// <summary>The budget month a calendar date is in.</summary>
     public static BudgetMonth Of(DateOnly date) => new(date.Year, date.Month);
 
+    /// <summary>
+    /// The budget months from the one <paramref name="from"/> is in to the one <paramref name="to"/> is in, in order.
+    /// </summary>
+    public static IReadOnlyList<BudgetMonth> Spanning(DateOnly from, DateOnly to)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(to, from);
+        var months = new List<BudgetMonth>();
+        for (var month = Of(from); month.FirstDay <= to; month = Of(month.FirstDay.AddMonths(1)))
+        {
+            months.Add(month);
+        }
+
+        return months;
+    }
+
     /// <summary>Reads a budget month written as a four-digit year and a two-digit month: <c>2026-11</c>.</summary>
     public static bool TryParse(string? text, out BudgetMonth month)
     {

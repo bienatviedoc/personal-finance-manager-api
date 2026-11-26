@@ -18,6 +18,9 @@ public interface ITransactionRepository
     /// <summary>Every transaction that passes <paramref name="filter"/>, counted and added up by currency and type.</summary>
     Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
+    /// <summary>Every expense, refunds included, that passes <paramref name="filter"/>, with its lines.</summary>
+    Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken);
+
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 

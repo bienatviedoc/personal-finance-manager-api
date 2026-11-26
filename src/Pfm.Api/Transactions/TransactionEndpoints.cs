@@ -312,9 +312,23 @@ public sealed record TransactionListResponse(IReadOnlyList<TransactionResponse> 
 /// <summary>The total of the transactions that passed the filters of a list, on every page of it.</summary>
 /// <param name="Count">How many transactions passed.</param>
 /// <param name="Currencies">Their amounts added up in each currency they are in. Currencies are never added together.</param>
-public sealed record FilteredTotalResponse(int Count, IReadOnlyList<CurrencyTotalResponse> Currencies)
+/// <param name="Spent">
+/// Only when the list is filtered by a category: what they spent in it and its subcategories, in the base currency,
+/// exactly as a budget counts spent. Filtered to a budget month too, it is that budget's spent. Null otherwise.
+/// </param>
+public sealed record FilteredTotalResponse(int Count, IReadOnlyList<CurrencyTotalResponse> Currencies, SpentTotalResponse? Spent)
 {
-    public static FilteredTotalResponse From(FilteredTotal total) => new(total.Count, [.. total.Currencies.Select(CurrencyTotalResponse.From)]);
+    public static FilteredTotalResponse From(FilteredTotal total) =>
+        new(total.Count, [.. total.Currencies.Select(CurrencyTotalResponse.From)], total.Spent is { } spent ? SpentTotalResponse.From(spent) : null);
+}
+
+/// <summary>What filtered transactions spent in a category and its subcategories (spec section 6).</summary>
+/// <param name="Currency">The user's base currency.</param>
+/// <param name="Amount">A decimal string: the expenses minus the refunds, each as it was converted at the rate of its own date, a split counting only its lines in the category. It can be negative.</param>
+/// <param name="NotConverted">How many of the expenses have no exchange rate yet, and so are left out of <paramref name="Amount"/>.</param>
+public sealed record SpentTotalResponse(Currency Currency, string Amount, int NotConverted)
+{
+    public static SpentTotalResponse From(SpentTotal spent) => new(spent.Currency, AmountJson.Text(spent.Amount), spent.NotConverted);
 }
 
 /// <summary>The filtered transactions in one currency, added up.</summary>
