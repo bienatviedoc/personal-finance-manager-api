@@ -346,7 +346,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Transactions | `GET /transactions/quick-add?payee&type` | What quick add starts from: the account used last and the category a payee usually takes |
 | Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines |
 | Transactions | `POST /transactions/bulk` | Bulk recategorise, tag or delete |
-| Transfers | `POST /transfers`; `GET, PUT, DELETE /transfers/{id}` | Creates, reads and maintains both legs |
+| Transfers | `POST /transfers`; `GET, PUT, DELETE /transfers/{id}`; `POST /transfers/mark`; `POST /transfers/{id}/unmark` | Creates, reads and maintains both legs |
 | Attachments | `GET, POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipts of a transaction and upload; a signed URL to open one, and removal |
 | Categories | `GET, POST /categories`; `PUT, DELETE /categories/{id}`; `POST /categories/{id}/merge` | Tree CRUD and merge |
 | Tags | `GET /tags` | Autocomplete |
@@ -355,7 +355,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
 | Imports | `POST /imports` (upload); `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Upload, preview, commit, undo |
 | Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}` | Auto-categorisation rules |
-| Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expense`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
+| Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expenses`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
 | Export | `GET /export/transactions.csv`; `GET /export/all.zip`; `GET /reports/monthly-summary.pdf` | Data out |
 | System | `GET /health/live`, `/health/ready` | Probes |
 

@@ -12,13 +12,16 @@ using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Reconciliations;
 using Pfm.Application.Transactions.Recurring;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Budgets;
 using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
+using Pfm.Infrastructure.Printing;
 using Pfm.Infrastructure.Storage;
 using Pfm.Infrastructure.Transactions;
 
@@ -70,7 +73,9 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<ITagRepository, TagRepository>();
         services.AddScoped<IRecurringRuleRepository, RecurringRuleRepository>();
+        services.AddScoped<IReconciliationRepository, ReconciliationRepository>();
         services.AddScoped<IQuickAddHistory, QuickAddHistory>();
         services.AddScoped<IAttachmentRepository, AttachmentRepository>();
 
@@ -79,8 +84,11 @@ public static class InfrastructureServices
         services.AddScoped<ICategoryUsage, TransactionTotals>();
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddScoped<ICategorySpending, TransactionTotals>();
+        services.AddScoped<IIncomeAndSpending, TransactionTotals>();
+        services.AddScoped<ITransactionTrends, TransactionTrends>();
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddExchangeRates();
+        services.AddSingleton<IPdfWriter, MigraDocPdfWriter>();
 
         return services;
     }

@@ -29,5 +29,10 @@ builder.Services.AddOptions<IntegrityCheckOptions>()
     .Validate(options => options.RunEvery > TimeSpan.Zero, "IntegrityCheck:RunEvery must be longer than zero.")
     .ValidateOnStart();
 builder.Services.AddHostedService<IntegrityCheckJob>();
+builder.Services.AddOptions<DeletedTransactionPurgeOptions>()
+    .BindConfiguration(DeletedTransactionPurgeOptions.Section)
+    .Validate(options => options.RunEvery > TimeSpan.Zero, "DeletedTransactionPurge:RunEvery must be longer than zero.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<DeletedTransactionPurgeJob>();
 
 builder.Build().Run();

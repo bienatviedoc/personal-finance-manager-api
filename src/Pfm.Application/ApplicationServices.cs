@@ -12,7 +12,9 @@ using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Reconciliations;
 using Pfm.Application.Transactions.Recurring;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.Transactions.Transfers;
 using Pfm.Application.UseCases;
 
@@ -39,20 +41,26 @@ public static class ApplicationServices
         // Contracts other modules call.
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
+        services.AddScoped<IAccountBalances, AccountBalances>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();
+        services.AddScoped<TransactionTags>();
         services.AddScoped<TransferContext>();
         services.AddScoped<RecurringRuleContext>();
+        services.AddScoped<ReconciliationContext>();
         services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
+        services.AddScoped<DeletedTransactionPurge>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+        services.AddScoped<IUserLocale, CurrentUserLocale>();
         services.AddScoped<IAttachmentFiles, AttachmentFiles>();
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();
         services.AddScoped<IUserBudgets, UserBudgets>();
+        services.AddScoped<IBudgetComparison, BudgetComparer>();
         services.AddScoped<BudgetMonthReader>();
 
         // Every module converts between currencies through this.

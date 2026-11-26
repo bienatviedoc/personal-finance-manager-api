@@ -17,4 +17,5 @@ public interface IAccountLookup
 
 /// <summary>What another module needs to know of an account.</summary>
 /// <param name="IsArchived">Hidden from pickers: it takes no new transactions.</param>
-public sealed record AccountSummary(Guid Id, string Name, Currency Currency, bool IsArchived);
+/// <param name="OpeningBalance">What the account held when it opened, below zero for what was owed; a reconciliation is measured from it.</param>
+public sealed record AccountSummary(Guid Id, string Name, Currency Currency, bool IsArchived, decimal OpeningBalance);

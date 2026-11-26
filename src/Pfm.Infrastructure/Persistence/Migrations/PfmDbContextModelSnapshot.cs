@@ -414,6 +414,52 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Categories", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Transactions.Reconciliation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<decimal>("StatementBalance")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<DateOnly>("StatementDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Reconciliations_AccountId_InProgress")
+                        .HasFilter("\"CompletedAt\" IS NULL");
+
+                    b.HasIndex("AccountId", "Id");
+
+                    b.ToTable("Reconciliations", (string)null);
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -445,6 +491,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<DateOnly?>("NextRunDate")
                         .HasColumnType("date");
@@ -489,7 +540,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("NextRunDate")
                         .HasDatabaseName("IX_RecurringRules_NextRunDate_Due")
-                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\"");
+                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\" AND \"Mode\" = 'AutoPost'");
 
                     b.HasIndex("UserId");
 
@@ -501,8 +552,36 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_RecurringRules_Interval_Positive", "\"Interval\" >= 1");
 
+                            t.HasCheckConstraint("CK_RecurringRules_Mode_AutoPostOrRemind", "\"Mode\" IN ('AutoPost', 'Remind')");
+
                             t.HasCheckConstraint("CK_RecurringRules_Type_IncomeOrExpense", "\"Type\" IN ('Income', 'Expense')");
                         });
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Transactions.Tag", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Tags_UserId_Name");
+
+                    b.ToTable("Tags", (string)null);
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Transaction", b =>
@@ -548,6 +627,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsReconciled")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsRefund")
                         .HasColumnType("boolean");
 
@@ -558,6 +640,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<string>("Payee")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ReconciliationId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("RecurringRuleId")
                         .HasColumnType("uuid");
@@ -614,6 +699,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CategoryId");
 
+                    b.HasIndex("ReconciliationId");
+
                     b.HasIndex("RecurringRuleId");
 
                     b.HasIndex("UserId")
@@ -629,6 +716,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("TransferId", "Type")
                         .IsUnique();
 
+                    b.HasIndex("UserId", "DeletedAt")
+                        .HasDatabaseName("IX_Transactions_UserId_Deleted")
+                        .HasFilter("\"DeletedAt\" IS NOT NULL");
+
                     b.HasIndex("UserId", "IdempotencyKey")
                         .IsUnique();
 
@@ -642,6 +733,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
                             t.HasCheckConstraint("CK_Transactions_Converted_Or_Not", "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Transactions_Reconciled_Is_Ticked", "NOT \"IsReconciled\" OR \"ReconciliationId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_Transactions_Refund_Is_Expense", "NOT \"IsRefund\" OR \"Type\" = 'Expense'");
 
@@ -810,6 +903,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Transactions.Reconciliation", b =>
+                {
+                    b.HasOne("Pfm.Domain.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
                 {
                     b.HasOne("Pfm.Domain.Accounts.Account", null)
@@ -836,6 +938,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Pfm.Domain.Transactions.Reconciliation", null)
+                        .WithMany()
+                        .HasForeignKey("ReconciliationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Pfm.Domain.Transactions.RecurringRule", null)
@@ -897,7 +1004,38 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                                 .HasForeignKey("TransactionId");
                         });
 
+                    b.OwnsMany("Pfm.Domain.Transactions.TransactionTag", "Tags", b1 =>
+                        {
+                            b1.Property<Guid>("TransactionId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<Guid>("TagId")
+                                .HasColumnType("uuid");
+
+                            b1.Property<string>("Name")
+                                .IsRequired()
+                                .HasMaxLength(50)
+                                .HasColumnType("character varying(50)");
+
+                            b1.HasKey("TransactionId", "TagId");
+
+                            b1.HasIndex("TagId", "TransactionId");
+
+                            b1.ToTable("TransactionTags", (string)null);
+
+                            b1.HasOne("Pfm.Domain.Transactions.Tag", null)
+                                .WithMany()
+                                .HasForeignKey("TagId")
+                                .OnDelete(DeleteBehavior.Restrict)
+                                .IsRequired();
+
+                            b1.WithOwner()
+                                .HasForeignKey("TransactionId");
+                        });
+
                     b.Navigation("Lines");
+
+                    b.Navigation("Tags");
                 });
 #pragma warning restore 612, 618
         }

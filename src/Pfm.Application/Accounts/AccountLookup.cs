@@ -12,5 +12,5 @@ public sealed class AccountLookup(IAccountRepository accounts) : IAccountLookup
     public async Task<IReadOnlyList<AccountSummary>> ListAsync(CancellationToken cancellationToken) =>
         [.. (await accounts.ListAsync(includeArchived: true, cancellationToken)).Select(Summary)];
 
-    private static AccountSummary Summary(Account account) => new(account.Id, account.Name, account.Currency, account.IsArchived);
+    private static AccountSummary Summary(Account account) => new(account.Id, account.Name, account.Currency, account.IsArchived, account.OpeningBalance);
 }

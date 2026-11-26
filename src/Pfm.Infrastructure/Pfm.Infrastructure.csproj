@@ -6,6 +6,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The fonts printed documents are set in, carried inside the assembly so no host needs them installed. -->
+    <EmbeddedResource Include="Printing\Fonts\*.ttf" LogicalName="Pfm.Fonts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Pfm.Application\Pfm.Application.csproj" />
   </ItemGroup>
 
@@ -18,6 +23,9 @@
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" />
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Npgsql.OpenTelemetry" />
+    <PackageReference Include="PDFsharp-MigraDoc" />
+    <!-- PDFsharp asks for 8.0.1, which has known vulnerabilities; this lifts it to the patched version. -->
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" />
     <PackageReference Include="OpenTelemetry.Instrumentation.Http" />

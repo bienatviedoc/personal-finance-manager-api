@@ -1,5 +1,8 @@
+using System.Globalization;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Reports;
 
 namespace Pfm.Api.Reports;
@@ -26,6 +29,66 @@ internal sealed class ReportParameters
         var account = Id(nameof(accountId), accountId);
         var category = Id(nameof(categoryId), categoryId);
         return Refused.Count > 0 ? null : new ReportFilter(new ReportPeriod(first!.Value, last!.Value), account, category, compare);
+    }
+
+    /// <summary>
+    /// What a trend follows besides the filter (spec RPT-7): a payee, trimmed, which with no category can be followed
+    /// by its expenses or its income (`type`). A category or a payee is needed; a category's own kind says what it
+    /// adds up, so `type` goes with a payee alone.
+    /// </summary>
+    public (string? Payee, TrendType? Type) Followed(string? categoryId, string? payee, string? type)
+    {
+        var followed = string.IsNullOrWhiteSpace(payee) ? null : payee.Trim();
+        if (followed is { Length: > Payees.MaxLength })
+        {
+            Refused[nameof(payee)] = [$"Enter a payee of at most {Payees.MaxLength} characters."];
+        }
+
+        if (categoryId is null && followed is null)
+        {
+            Refused[nameof(categoryId)] = ["Choose a category or a payee."];
+        }
+
+        var read = EnumText<TrendType>.Read(type);
+        if (type is not null && read is null)
+        {
+            Refused[nameof(type)] = [$"Choose one of: {string.Join(", ", EnumText<TrendType>.Names)}."];
+        }
+        else if (type is not null && categoryId is not null)
+        {
+            Refused[nameof(type)] = ["Leave out type with a category: the category's kind says what it adds up."];
+        }
+
+        return (followed, read);
+    }
+
+    /// <summary>A whole calendar month, written <c>2026-11</c>; required.</summary>
+    public ReportPeriod? Month(string name, string? text)
+    {
+        if (!DateOnly.TryParseExact(text, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first) || first < ReportPeriod.Earliest)
+        {
+            Refused[name] = ["Enter a month as YYYY-MM."];
+            return null;
+        }
+
+        return new ReportPeriod(first, first.AddMonths(1).AddDays(-1));
+    }
+
+    /// <summary>An optional locale, by its language tag; null when left out.</summary>
+    public Locale? Locale(string name, string? tag)
+    {
+        if (tag is null)
+        {
+            return null;
+        }
+
+        if (!Locales.TryParse(tag, out var locale))
+        {
+            Refused[name] = [ValidationRules.LocaleMessage];
+            return null;
+        }
+
+        return locale;
     }
 
     /// <summary>An optional id; null when left out.</summary>

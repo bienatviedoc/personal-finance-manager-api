@@ -244,6 +244,45 @@ public class TransactionTests
     }
 
     [Fact]
+    public void A_deleted_transaction_restored_within_30_days_is_back_in_the_balance_as_it_was()
+    {
+        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 1_000_000m, new DateOnly(2026, 11, 1), Monday);
+        var transaction = Spend(250_000m);
+        transaction.Delete(Monday);
+        var restoredAt = Monday + Transaction.RecoveryPeriod;
+
+        Assert.True(transaction.IsRecoverableAt(restoredAt));
+        transaction.Restore(restoredAt);
+
+        Assert.False(transaction.IsDeleted);
+        Assert.Equal(((DateTimeOffset?)null, restoredAt), (transaction.DeletedAt, transaction.UpdatedAt));
+        Assert.Equal(750_000m, account.BalanceWith(transaction.SignedAmount));
+    }
+
+    [Fact]
+    public void A_transaction_deleted_more_than_30_days_ago_can_no_longer_be_restored()
+    {
+        var transaction = Spend(250_000m);
+        transaction.Delete(Monday);
+        var tooLate = Monday + Transaction.RecoveryPeriod + TimeSpan.FromSeconds(1);
+
+        Assert.False(transaction.IsRecoverableAt(tooLate));
+        Assert.Throws<InvalidOperationException>(() => transaction.Restore(tooLate));
+        Assert.Equal(Monday, transaction.DeletedAt);
+    }
+
+    [Fact]
+    public void Restoring_a_transaction_that_is_not_deleted_changes_nothing()
+    {
+        var transaction = Spend(250_000m);
+
+        transaction.Restore(Tuesday);
+
+        Assert.Equal(((DateTimeOffset?)null, Monday), (transaction.DeletedAt, transaction.UpdatedAt));
+        Assert.False(transaction.IsRecoverableAt(Tuesday));
+    }
+
+    [Fact]
     public void A_recorded_transaction_is_not_converted_until_its_amount_is_converted_into_the_base_currency()
     {
         var dollars = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 100m, Today, Groceries, null, null, Today, Monday);
