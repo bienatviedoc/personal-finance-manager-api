@@ -19,6 +19,10 @@ public static class CategoryEndpoints
             .WithDescription("Renames, recolours or re-icons a category, or changes a top-level category's kind together with its subcategories. The kind cannot change once any of them has transactions.");
         categories.MapDelete("/{id:guid}", Archive).WithName("ArchiveCategory")
             .WithDescription("Archives the category and its subcategories: they leave pickers and stay on the transactions that use them.");
+        categories.MapGet("/{id:guid}/merge-preview", PreviewMerge).WithName("PreviewCategoryMerge")
+            .WithDescription("How many transactions and budgets merging the category would move, for the user to confirm. Changes nothing.");
+        categories.MapPost("/{id:guid}/merge", Merge).WithName("MergeCategory")
+            .WithDescription("Merges the category into targetId, of the same kind: every transaction line, budget and recurring rule moves to the target, budget amounts in the same month are added, its subcategories move under the target, and the category is archived. Refused when it would make three levels or budget a category and its parent in the same month.");
 
         return api;
     }
@@ -65,6 +69,33 @@ public static class CategoryEndpoints
 
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
     }
+
+    private static async Task<Results<Ok<CategoryMergeResponse>, NotFound>> PreviewMerge(
+        Guid id, PreviewCategoryMergeHandler handler, CancellationToken cancellationToken) =>
+        await handler.HandleAsync(new PreviewCategoryMerge(id), cancellationToken) is { } details
+            ? TypedResults.Ok(CategoryMergeResponse.From(details))
+            : TypedResults.NotFound();
+
+    private static async Task<Results<Ok<CategoryMergeResponse>, NotFound, ValidationProblem>> Merge(
+        Guid id, CategoryMergeRequest request, MergeCategoryHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new MergeCategoryCommand(id, request.TargetId), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome is { } merged ? TypedResults.Ok(CategoryMergeResponse.From(merged)) : TypedResults.NotFound();
+    }
+}
+
+/// <summary>The category to merge into.</summary>
+public sealed record CategoryMergeRequest(Guid TargetId);
+
+/// <summary>What a merge moves: transactions that are not deleted (a split counts once) and budgets, in every month.</summary>
+public sealed record CategoryMergeResponse(int Transactions, int Budgets)
+{
+    public static CategoryMergeResponse From(CategoryMergeDetails details) => new(details.Transactions, details.Budgets);
 }
 
 /// <summary>A new category. Leave <c>parentId</c> out for a top-level category. Colour is <c>#rrggbb</c>; the icon is a key the SPA draws.</summary>

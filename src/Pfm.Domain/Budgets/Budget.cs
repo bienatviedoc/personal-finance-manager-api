@@ -99,6 +99,13 @@ public sealed class Budget : IUserOwned
         }
     }
 
+    /// <summary>The budget is now on the category its own was merged into, in the same month. &lt;see cref="BudgetMerge"/&gt; has checked it.</summary>
+    internal void MoveTo(Guid categoryId, DateTimeOffset now)
+    {
+        CategoryId = categoryId;
+        UpdatedAt = now;
+    }
+
     public void ChangeAmount(decimal amount, DateTimeOffset now)
     {
         SetAmount(amount);

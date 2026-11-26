@@ -19,6 +19,9 @@ internal sealed class BudgetRepository(PfmDbContext db) : IBudgetRepository
     public Task<bool> AnyOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
         db.Set<Budget>().AnyAsync(budget => categoryIds.Contains(budget.CategoryId), cancellationToken);
 
+    public async Task<IReadOnlyList<Budget>> ListOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
+        await db.Set<Budget>().Where(budget => categoryIds.Contains(budget.CategoryId)).ToListAsync(cancellationToken);
+
     public void Add(Budget budget) => db.Set<Budget>().Add(budget);
 
     public void Remove(Budget budget) => db.Set<Budget>().Remove(budget);

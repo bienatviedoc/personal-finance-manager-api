@@ -23,6 +23,9 @@ public interface IRecurringRuleRepository
     /// <summary>The user's rules that are not paused and have an occurrence not settled due on or before <paramref name="date"/>.</summary>
     Task<IReadOnlyList<RecurringRule>> ListUnsettledThroughAsync(DateOnly date, CancellationToken cancellationToken);
 
+    /// <summary>Every rule of the user on the category, paused or not.</summary>
+    Task<IReadOnlyList<RecurringRule>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
+
     void Add(RecurringRule rule);
 
     /// <summary>Deletes the rule. The transactions it posted stay, no longer linked to a rule.</summary>
