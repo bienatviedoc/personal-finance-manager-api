@@ -72,6 +72,10 @@ _Avoid_: Debt, negative balance (in the interface)
 A template that produces income or expense transactions on a schedule, each dated on its due date.
 _Avoid_: Subscription, schedule, repeating transaction
 
+**Reminder**:
+An occurrence of a recurring rule set to remind, due on or before today, waiting for the user to confirm it (recording its transaction, optionally for another amount) or dismiss it (recording nothing).
+_Avoid_: Notification, alert, pending transaction
+
 **Import batch**:
 One uploaded statement file together with the transactions created from it.
 _Avoid_: Import, upload, statement
