@@ -427,6 +427,18 @@ already uses it can still show it. An account can be archived at any balance.
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
 
+### Export
+
+- **The transaction list as CSV** (spec section 7, Export). `GET /export/transactions.csv` takes the filters and sort
+  order of `GET /transactions` (one `TransactionListParameters` reads both) and writes every transaction that
+  passes, however many pages the list would take, a batch at a time (`ExportTransactions`). One line each:
+  `date`, `type`, `isRefund`, `account` and `category` by name (a split's categories joined by `; `, a leg of a
+  transfer none), `payee`, `note`, `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
+- **CSV is written one way** (`Csv`, RFC 4180, UTF-8 with a byte order mark so a spreadsheet reads Vietnamese
+  as written), the same for this file and for the full export (`GET /export/all.zip`).
+- **Reports are exported by the SPA**, from the answer it already shows: a report's CSV holds the numbers of its
+  table view and nothing the API did not answer, so no report needs a second endpoint.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;
