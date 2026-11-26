@@ -20,6 +20,10 @@ public static class RecurringRuleEndpoints
 
         rules.MapGet("/", List).WithName("ListRecurringRules")
             .WithDescription("The user's recurring rules, the last set up first.");
+        rules.MapGet("/upcoming", Upcoming).WithName("ListUpcomingOccurrences")
+            .WithDescription("Every occurrence of the user's recurring rules due after today, in their time zone, and within the days asked for, earliest first: the ones the worker will post and the ones that will be reminders. A paused rule has none.");
+        rules.MapGet("/reminders", Reminders).WithName("ListReminders")
+            .WithDescription("The user's reminders, earliest due first: each occurrence of a rule that reminds, due on or before today in their time zone, not yet confirmed or dismissed. A paused rule has none.");
         rules.MapGet("/{id:guid}", Get).WithName("GetRecurringRule")
             .WithDescription("One recurring rule. The ETag header carries its row version.");
         rules.MapPost("/", Create).WithName("CreateRecurringRule")
@@ -30,6 +34,10 @@ public static class RecurringRuleEndpoints
             .WithDescription("Pauses the rule: it posts nothing until it is resumed.");
         rules.MapPost("/{id:guid}/resume", Resume).WithName("ResumeRecurringRule")
             .WithDescription("Resumes a paused rule: it posts again from today. The occurrences that were due while it was paused are skipped.");
+        rules.MapPost("/{id:guid}/reminders/{dueDate}/confirm", Confirm).WithName("ConfirmReminder")
+            .WithDescription("Confirms a reminder: its transaction is recorded, dated on its due date, saying what the rule says, for the amount sent or else the rule's own, and the rule moves on to its next occurrence. A rule's reminders are confirmed or dismissed earliest first: a later one answers 400 on dueDate. Confirming one twice records one transaction.");
+        rules.MapPost("/{id:guid}/reminders/{dueDate}/dismiss", Dismiss).WithName("DismissReminder")
+            .WithDescription("Dismisses a reminder: nothing is recorded for it, and the rule moves on to its next occurrence. A rule's reminders are confirmed or dismissed earliest first: a later one answers 400 on dueDate.");
         rules.MapDelete("/{id:guid}", Delete).WithName("DeleteRecurringRule")
             .WithDescription("Deletes the rule: it posts nothing more. The transactions it posted stay, no longer linked to a rule.");
 
@@ -56,6 +64,35 @@ public static class RecurringRuleEndpoints
         return TypedResults.Ok(new RecurringRuleListResponse([.. page.Items.Select(RecurringRuleResponse.From)], page.NextCursor));
     }
 
+    /// <param name="days">How many days after today to look ahead: 1 to 90, 30 when left out.</param>
+    private static async Task<Results<Ok<OccurrenceListResponse>, ValidationProblem>> Upcoming(
+        ListUpcomingOccurrencesHandler handler, CancellationToken cancellationToken, int days = ListUpcomingOccurrences.DefaultDays)
+    {
+        if (!ListUpcomingOccurrences.IsValidDays(days))
+        {
+            return PagingProblems.For("days", $"Look 1 to {ListUpcomingOccurrences.MaxDays} days ahead.");
+        }
+
+        var upcoming = await handler.HandleAsync(new ListUpcomingOccurrences(days), cancellationToken);
+        return TypedResults.Ok(new OccurrenceListResponse([.. upcoming.Select(OccurrenceResponse.From)]));
+    }
+
+    private static async Task<Ok<OccurrenceListResponse>> Reminders(ListRemindersHandler handler, CancellationToken cancellationToken)
+    {
+        var reminders = await handler.HandleAsync(new ListReminders(), cancellationToken);
+        return TypedResults.Ok(new OccurrenceListResponse([.. reminders.Select(OccurrenceResponse.From)]));
+    }
+
+    /// <param name="dueDate">The reminder's due date, <c>YYYY-MM-DD</c>.</param>
+    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem>> Confirm(
+        Guid id, string dueDate, ConfirmReminderRequest? request, ConfirmReminderHandler handler, HttpContext http, CancellationToken cancellationToken) =>
+        Changed(http, await handler.HandleAsync(new ConfirmReminderCommand(id, dueDate, request?.Amount), cancellationToken));
+
+    /// <param name="dueDate">The reminder's due date, <c>YYYY-MM-DD</c>.</param>
+    private static async Task<Results<Ok<RecurringRuleResponse>, NotFound, ValidationProblem>> Dismiss(
+        Guid id, string dueDate, DismissReminderHandler handler, HttpContext http, CancellationToken cancellationToken) =>
+        Changed(http, await handler.HandleAsync(new DismissReminderCommand(id, dueDate), cancellationToken));
+
     private static async Task<Results<Ok<RecurringRuleResponse>, NotFound>> Get(
         Guid id, GetRecurringRuleHandler handler, HttpContext http, CancellationToken cancellationToken) =>
         await handler.HandleAsync(new GetRecurringRule(id), cancellationToken) is { } rule
@@ -68,7 +105,7 @@ public static class RecurringRuleEndpoints
         var result = await handler.HandleAsync(
             new CreateRecurringRuleCommand(
                 request.Type, request.AccountId, request.Amount, request.CategoryId, request.Payee, request.Note, request.Frequency, request.Interval,
-                request.StartDate, request.EndDate),
+                request.StartDate, request.EndDate, request.Mode),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -91,7 +128,7 @@ public static class RecurringRuleEndpoints
         var result = await handler.HandleAsync(
             new EditRecurringRuleCommand(
                 id, rowVersion, request.Type, request.AccountId, request.Amount, request.CategoryId, request.Payee, request.Note, request.Frequency,
-                request.Interval, request.StartDate, request.EndDate),
+                request.Interval, request.StartDate, request.EndDate, request.Mode),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -155,24 +192,47 @@ public static class RecurringRuleEndpoints
 /// <param name="Note">At most 1000 characters.</param>
 /// <param name="Interval">How many days apart, 1 to 365, for <c>everyNDays</c>; left out for any other frequency.</param>
 /// <param name="EndDate">The last date an occurrence can be due, <c>YYYY-MM-DD</c>; left out for a rule that goes on.</param>
+/// <param name="Mode"><c>autoPost</c>: the worker posts each occurrence on its due date; <c>remind</c>: each becomes a reminder the user confirms or dismisses. Left out, <c>autoPost</c>.</param>
 public sealed record RecurringRuleRequest(
     string Type, Guid AccountId, string Amount, Guid CategoryId, string Frequency, string StartDate, string? Payee = null, string? Note = null,
-    int? Interval = null, string? EndDate = null);
+    int? Interval = null, string? EndDate = null, string? Mode = null);
 
 /// <summary>A recurring rule.</summary>
 /// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign.</param>
 /// <param name="Currency">The currency of the rule's account.</param>
 /// <param name="Interval">How many days apart an <c>everyNDays</c> rule is due; null for any other frequency.</param>
 /// <param name="NextRunDate">The due date of the next occurrence to post; null once the rule has ended. A paused rule keeps the date it stopped at.</param>
+/// <param name="Mode">Whether the worker posts each occurrence, or each becomes a reminder.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the rule.</param>
 public sealed record RecurringRuleResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, Guid CategoryId, string? Payee, string? Note,
-    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused, string RowVersion)
+    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused, RecurringMode Mode,
+    string RowVersion)
 {
     public static RecurringRuleResponse From(RecurringRuleDetails rule) =>
         new(rule.Id, rule.Type, rule.AccountId, AmountJson.Text(rule.Amount), rule.Currency, rule.CategoryId, rule.Payee, rule.Note, rule.Frequency,
-            rule.Interval, rule.StartDate, rule.EndDate, rule.NextRunDate, rule.IsPaused, rule.RowVersion.ToString(CultureInfo.InvariantCulture));
+            rule.Interval, rule.StartDate, rule.EndDate, rule.NextRunDate, rule.IsPaused, rule.Mode, rule.RowVersion.ToString(CultureInfo.InvariantCulture));
 }
+
+/// <summary>What confirming a reminder sends.</summary>
+/// <param name="Amount">A decimal string greater than zero, in the currency of the rule's account, when the transaction is for another amount than the rule's; left out for the rule's own.</param>
+public sealed record ConfirmReminderRequest(string? Amount = null);
+
+/// <summary>One occurrence of a recurring rule: when it is due and what its transaction will say.</summary>
+/// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign.</param>
+/// <param name="Currency">The currency of the rule's account.</param>
+/// <param name="Mode">Whether the worker posts it, or it is a reminder the user confirms or dismisses.</param>
+public sealed record OccurrenceResponse(
+    Guid RecurringRuleId, DateOnly DueDate, TransactionType Type, Guid AccountId, string Amount, Currency Currency, Guid CategoryId, string? Payee,
+    string? Note, RecurringMode Mode)
+{
+    public static OccurrenceResponse From(OccurrenceDetails occurrence) =>
+        new(occurrence.RecurringRuleId, occurrence.DueDate, occurrence.Type, occurrence.AccountId, AmountJson.Text(occurrence.Amount), occurrence.Currency,
+            occurrence.CategoryId, occurrence.Payee, occurrence.Note, occurrence.Mode);
+}
+
+/// <summary>Occurrences of recurring rules, earliest due first.</summary>
+public sealed record OccurrenceListResponse(IReadOnlyList<OccurrenceResponse> Items);
 
 /// <summary>A page of recurring rules. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>
 public sealed record RecurringRuleListResponse(IReadOnlyList<RecurringRuleResponse> Items, string? NextCursor);

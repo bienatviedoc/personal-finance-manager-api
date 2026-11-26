@@ -446,6 +446,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateOnly?>("NextRunDate")
                         .HasColumnType("date");
 
@@ -489,7 +494,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("NextRunDate")
                         .HasDatabaseName("IX_RecurringRules_NextRunDate_Due")
-                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\"");
+                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\" AND \"Mode\" = 'AutoPost'");
 
                     b.HasIndex("UserId");
 
@@ -500,6 +505,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_RecurringRules_Ends_After_It_Starts", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
 
                             t.HasCheckConstraint("CK_RecurringRules_Interval_Positive", "\"Interval\" >= 1");
+
+                            t.HasCheckConstraint("CK_RecurringRules_Mode_AutoPostOrRemind", "\"Mode\" IN ('AutoPost', 'Remind')");
 
                             t.HasCheckConstraint("CK_RecurringRules_Type_IncomeOrExpense", "\"Type\" IN ('Income', 'Expense')");
                         });

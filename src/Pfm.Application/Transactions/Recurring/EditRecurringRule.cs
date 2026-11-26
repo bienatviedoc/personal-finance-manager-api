@@ -12,10 +12,10 @@ namespace Pfm.Application.Transactions.Recurring;
 /// </summary>
 public sealed record EditRecurringRuleCommand(
     Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, Guid CategoryId, string? Payee, string? Note, string? Frequency, int? Interval,
-    string? StartDate, string? EndDate)
+    string? StartDate, string? EndDate, string? Mode = null)
     : IRecurringRuleCommand
 {
-    public RecurringRuleFields Parsed { get; } = RecurringRuleFields.Read(Type, Amount, Frequency, StartDate, EndDate);
+    public RecurringRuleFields Parsed { get; } = RecurringRuleFields.Read(Type, Amount, Frequency, StartDate, EndDate, Mode);
 }
 
 public sealed class EditRecurringRuleValidator : AbstractValidator<EditRecurringRuleCommand>
@@ -82,7 +82,7 @@ public sealed class EditRecurringRuleHandler(
         {
             rule.Edit(
                 command.Parsed.Type!.Value, account.Id, account.Currency, command.Parsed.Amount!.Value, category, command.Payee, command.Note,
-                command.Schedule(), clock.GetUtcNow());
+                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode!.Value);
         }
         catch (RecurringRuleViolation violation)
         {

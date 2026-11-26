@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Pfm.Domain.Transactions;
 
 /// <summary>
@@ -57,6 +59,9 @@ public sealed class RecurringRule : IUserOwned
     /// </summary>
     public DateOnly? SettledThrough { get; private set; }
 
+    /// <summary>Whether the worker posts an occurrence on its due date, or it becomes a reminder the user confirms or dismisses.</summary>
+    public RecurringMode Mode { get; private set; }
+
     /// <summary>A paused rule posts nothing until it is resumed.</summary>
     public bool IsPaused { get; private set; }
 
@@ -71,24 +76,58 @@ public sealed class RecurringRule : IUserOwned
 
     /// <param name="currency">The currency of the account, which the amount must fit.</param>
     /// <param name="category">One of the user's categories that is not archived, of the kind the type takes.</param>
+    /// <param name="mode">Whether the worker posts each occurrence, or each becomes a reminder.</param>
     public static RecurringRule Create(
         TransactionType type, Guid accountId, Currency currency, decimal amount, Category category, string? payee, string? note,
-        RecurringSchedule schedule, DateTimeOffset now)
+        RecurringSchedule schedule, DateTimeOffset now, RecurringMode mode = RecurringMode.AutoPost)
     {
         var rule = new RecurringRule(now);
-        rule.Set(type, accountId, currency, amount, category, payee, note, schedule, now);
+        rule.Set(type, accountId, currency, amount, category, payee, note, schedule, mode, now);
         return rule;
     }
 
     /// <summary>
     /// Changes what the rule's next transactions say and when they are due. Transactions already posted stay
     /// as they are, and no occurrence on or before the last one posted or skipped is posted by the new schedule.
-    /// The rule may keep a category that has since been archived, but not move to one.
+    /// The rule may keep a category that has since been archived, but not move to one. A rule set to post again
+    /// posts the reminders it had, each with its due date, like any missed occurrence.
     /// </summary>
     public void Edit(
         TransactionType type, Guid accountId, Currency currency, decimal amount, Category category, string? payee, string? note,
-        RecurringSchedule schedule, DateTimeOffset now) =>
-        Set(type, accountId, currency, amount, category, payee, note, schedule, now);
+        RecurringSchedule schedule, DateTimeOffset now, RecurringMode mode = RecurringMode.AutoPost) =>
+        Set(type, accountId, currency, amount, category, payee, note, schedule, mode, now);
+
+    /// <summary>
+    /// The due dates of the rule's reminders: every occurrence due on or before today that is not settled yet,
+    /// earliest first. Only a rule that reminds and is not paused has any.
+    /// </summary>
+    /// <param name="today">Today's date in the user's time zone.</param>
+    public IEnumerable<DateOnly> Reminders(DateOnly today) =>
+        Mode == RecurringMode.Remind ? Unsettled().TakeWhile(dueDate => dueDate <= today) : [];
+
+    /// <summary>
+    /// The due dates of the occurrences after today and no more than <paramref name="days"/> days after it,
+    /// earliest first. A paused rule has none.
+    /// </summary>
+    /// <param name="today">Today's date in the user's time zone.</param>
+    public IEnumerable<DateOnly> Upcoming(DateOnly today, int days)
+    {
+        var last = today.AddDays(days);
+        return Unsettled().SkipWhile(dueDate => dueDate <= today).TakeWhile(dueDate => dueDate <= last);
+    }
+
+    /// <summary>Whether the occurrence due on <paramref name="dueDate"/> is one of the rule's reminders today.</summary>
+    public bool HasReminder(DateOnly dueDate, DateOnly today) => Reminders(today).Contains(dueDate);
+
+    /// <summary>The user confirmed the reminder due on <paramref name="dueDate"/>, which has its transaction now: the rule moves on.</summary>
+    /// <exception cref="InvalidOperationException">The rule has no such reminder.</exception>
+    /// <exception cref="RecurringRuleViolation">An earlier reminder of the rule is not settled yet.</exception>
+    public void Confirmed(DateOnly dueDate, DateOnly today, DateTimeOffset now) => SettleReminder(dueDate, today, now);
+
+    /// <summary>The user dismissed the reminder due on <paramref name="dueDate"/>: it is settled with no transaction, and the rule moves on.</summary>
+    /// <exception cref="InvalidOperationException">The rule has no such reminder.</exception>
+    /// <exception cref="RecurringRuleViolation">An earlier reminder of the rule is not settled yet.</exception>
+    public void Dismiss(DateOnly dueDate, DateOnly today, DateTimeOffset now) => SettleReminder(dueDate, today, now);
 
     /// <summary>The occurrence due on <paramref name="dueDate"/> has its transaction: the rule moves on to the next.</summary>
     /// <exception cref="InvalidOperationException">That occurrence is not the one due next.</exception>
@@ -125,6 +164,45 @@ public sealed class RecurringRule : IUserOwned
         SettleThrough(SettledThrough > yesterday ? SettledThrough.Value : yesterday, now);
     }
 
+    /// <summary>
+    /// What is wrong with settling the reminder due on <paramref name="dueDate"/> now: an earlier one is not
+    /// settled yet. Reminders are settled earliest first, so the rule only ever has to know the next one. Null
+    /// when it is the next one.
+    /// </summary>
+    public string? ReminderOrderBroken(DateOnly dueDate) =>
+        dueDate == NextRunDate ? null : string.Create(CultureInfo.InvariantCulture, $"Confirm or dismiss the reminder due on {NextRunDate:yyyy-MM-dd} first.");
+
+    /// <summary>Settles one of the rule's reminders, the next one.</summary>
+    private void SettleReminder(DateOnly dueDate, DateOnly today, DateTimeOffset now)
+    {
+        if (!HasReminder(dueDate, today))
+        {
+            throw new InvalidOperationException("Only a reminder of the rule can be settled.");
+        }
+
+        if (ReminderOrderBroken(dueDate) is { } orderRule)
+        {
+            throw new RecurringRuleViolation("DueDate", orderRule);
+        }
+
+        SettleThrough(dueDate, now);
+    }
+
+    /// <summary>The due dates of the occurrences not settled yet, from the next one on; none while the rule is paused.</summary>
+    private IEnumerable<DateOnly> Unsettled()
+    {
+        if (IsPaused)
+        {
+            yield break;
+        }
+
+        var schedule = Schedule;
+        for (var next = NextRunDate; next is { } dueDate; next = schedule.FirstAfter(dueDate))
+        {
+            yield return dueDate;
+        }
+    }
+
     private void SettleThrough(DateOnly date, DateTimeOffset now)
     {
         SettledThrough = date;
@@ -134,9 +212,14 @@ public sealed class RecurringRule : IUserOwned
 
     private void Set(
         TransactionType type, Guid accountId, Currency currency, decimal amount, Category category, string? payee, string? note,
-        RecurringSchedule schedule, DateTimeOffset now)
+        RecurringSchedule schedule, RecurringMode mode, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(category);
+        if (!Enum.IsDefined(mode))
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "Not a mode.");
+        }
+
         if (accountId == Guid.Empty)
         {
             throw new ArgumentException("A recurring rule is on an account.", nameof(accountId));
@@ -178,6 +261,7 @@ public sealed class RecurringRule : IUserOwned
         Interval = schedule.Interval;
         StartDate = schedule.StartDate;
         EndDate = schedule.EndDate;
+        Mode = mode;
         NextRunDate = schedule.FirstAfter(SettledThrough);
         UpdatedAt = now;
     }
