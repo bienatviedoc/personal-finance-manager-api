@@ -15,12 +15,13 @@ namespace Pfm.Application.Transactions.Recurring;
 /// <param name="Interval">How many days apart, for <c>everyNDays</c> only.</param>
 /// <param name="StartDate">The date the first occurrence is due, <c>YYYY-MM-DD</c>.</param>
 /// <param name="EndDate">The last date an occurrence can be due; left out for a rule that goes on.</param>
+/// <param name="Mode"><c>autoPost</c> or <c>remind</c>; left out, each occurrence is posted.</param>
 public sealed record CreateRecurringRuleCommand(
     string? Type, Guid AccountId, string? Amount, Guid CategoryId, string? Payee, string? Note, string? Frequency, int? Interval,
-    string? StartDate, string? EndDate)
+    string? StartDate, string? EndDate, string? Mode = null)
     : IRecurringRuleCommand
 {
-    public RecurringRuleFields Parsed { get; } = RecurringRuleFields.Read(Type, Amount, Frequency, StartDate, EndDate);
+    public RecurringRuleFields Parsed { get; } = RecurringRuleFields.Read(Type, Amount, Frequency, StartDate, EndDate, Mode);
 }
 
 public sealed class CreateRecurringRuleValidator : AbstractValidator<CreateRecurringRuleCommand>
@@ -48,7 +49,7 @@ public sealed class CreateRecurringRuleHandler(
         {
             rule = RecurringRule.Create(
                 command.Parsed.Type!.Value, account.Id, account.Currency, command.Parsed.Amount!.Value, category, command.Payee, command.Note,
-                command.Schedule(), clock.GetUtcNow());
+                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode!.Value);
         }
         catch (RecurringRuleViolation violation)
         {

@@ -164,7 +164,15 @@ public sealed class RecurringRule : IUserOwned
         SettleThrough(SettledThrough > yesterday ? SettledThrough.Value : yesterday, now);
     }
 
-    /// <summary>Reminders are settled earliest first, so the rule only ever has to know the next one.</summary>
+    /// <summary>
+    /// What is wrong with settling the reminder due on <paramref name="dueDate"/> now: an earlier one is not
+    /// settled yet. Reminders are settled earliest first, so the rule only ever has to know the next one. Null
+    /// when it is the next one.
+    /// </summary>
+    public string? ReminderOrderBroken(DateOnly dueDate) =>
+        dueDate == NextRunDate ? null : string.Create(CultureInfo.InvariantCulture, $"Confirm or dismiss the reminder due on {NextRunDate:yyyy-MM-dd} first.");
+
+    /// <summary>Settles one of the rule's reminders, the next one.</summary>
     private void SettleReminder(DateOnly dueDate, DateOnly today, DateTimeOffset now)
     {
         if (!HasReminder(dueDate, today))
@@ -172,10 +180,9 @@ public sealed class RecurringRule : IUserOwned
             throw new InvalidOperationException("Only a reminder of the rule can be settled.");
         }
 
-        if (dueDate != NextRunDate)
+        if (ReminderOrderBroken(dueDate) is { } orderRule)
         {
-            throw new RecurringRuleViolation(
-                "DueDate", string.Create(CultureInfo.InvariantCulture, $"Confirm or dismiss the reminder due on {NextRunDate:yyyy-MM-dd} first."));
+            throw new RecurringRuleViolation("DueDate", orderRule);
         }
 
         SettleThrough(dueDate, now);
