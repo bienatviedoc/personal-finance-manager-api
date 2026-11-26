@@ -62,6 +62,7 @@ public static class TransactionEndpoints
     /// <param name="min">The smallest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="max">The largest amount listed, a decimal string, in whatever currency a transaction is in.</param>
     /// <param name="q">Text the payee, the note or the note of any line contains, in upper or lower case; at most 200 characters.</param>
+    /// <param name="tag">The name of one of the user's tags, in any case: only transactions with it are listed.</param>
     /// <param name="sort"><c>date</c> or <c>amount</c>; <c>date</c> when left out.</param>
     /// <param name="order"><c>asc</c> or <c>desc</c>; <c>desc</c> when left out.</param>
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
@@ -69,7 +70,7 @@ public static class TransactionEndpoints
     private static async Task<Results<Ok<TransactionListResponse>, ValidationProblem>> List(
         ListTransactionsHandler handler, CancellationToken cancellationToken,
         string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? type = null,
-        string? min = null, string? max = null, string? q = null, string? sort = null, string? order = null,
+        string? min = null, string? max = null, string? q = null, string? tag = null, string? sort = null, string? order = null,
         int limit = Paging.DefaultLimit, string? cursor = null)
     {
         if (!Paging.IsValidLimit(limit))
@@ -86,7 +87,8 @@ public static class TransactionEndpoints
         var asked = new TransactionListParameters();
         var filter = new TransactionFilter(
             asked.Date(nameof(from), from), asked.Date(nameof(to), to), asked.Id(nameof(accountId), accountId), asked.Id(nameof(categoryId), categoryId),
-            asked.OneOf<TransactionType>(nameof(type), type), asked.Amount(nameof(min), min), asked.Amount(nameof(max), max), asked.Search(nameof(q), q));
+            asked.OneOf<TransactionType>(nameof(type), type), asked.Amount(nameof(min), min), asked.Amount(nameof(max), max), asked.Search(nameof(q), q),
+            asked.Tag(nameof(tag), tag));
         var sorted = new TransactionSort(
             asked.OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, asked.OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc);
         if (asked.Refused.Count > 0)
@@ -170,7 +172,7 @@ public static class TransactionEndpoints
         var result = await handler.HandleAsync(
             new CreateTransactionCommand(
                 request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId ?? Guid.Empty, request.Payee, request.Note, idempotencyKey,
-                request.IsRefund, request.LineInputs()),
+                request.IsRefund, request.LineInputs(), Tags: request.Tags),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -200,7 +202,7 @@ public static class TransactionEndpoints
         var result = await handler.HandleAsync(
             new EditTransactionCommand(
                 id, rowVersion, request.Type, request.AccountId, request.Amount, request.Date, request.CategoryId ?? Guid.Empty, request.Payee, request.Note,
-                request.IsRefund, request.LineInputs()),
+                request.IsRefund, request.LineInputs(), request.Tags),
             cancellationToken);
         if (!result.IsValid)
         {
@@ -256,9 +258,10 @@ public static class TransactionEndpoints
 /// <param name="Note">At most 1000 characters.</param>
 /// <param name="IsRefund">Whether the expense is a refund: money coming back from a purchase, which raises the account's balance and lowers spent in its category. Only an expense can be one; false when left out.</param>
 /// <param name="Lines">Sent to split the transaction across categories: 2 to 50 lines whose amounts sum exactly to <paramref name="Amount"/>. Left out, the transaction is on <paramref name="CategoryId"/> alone; an edit without them makes a split one category again.</param>
+/// <param name="Tags">The names of its tags, at most 20, each 1 to 50 characters: <c>tet-2027</c>, <c>japan-trip</c>. Kept trimmed and in lower case; a name the user has no tag with yet creates one. An edit replaces the tags the transaction had, and one without them takes every tag off.</param>
 public sealed record TransactionRequest(
     string Type, Guid AccountId, string Amount, string Date, Guid? CategoryId = null, string? Payee = null, string? Note = null, bool IsRefund = false,
-    IReadOnlyList<TransactionLineRequest>? Lines = null)
+    IReadOnlyList<TransactionLineRequest>? Lines = null, IReadOnlyList<string?>? Tags = null)
 {
     /// <summary>The lines as a command carries them; a line sent as null stays one, for the validator to refuse.</summary>
     internal IReadOnlyList<TransactionLineInput>? LineInputs() =>
@@ -282,16 +285,18 @@ public sealed record TransactionLineRequest(Guid CategoryId, string Amount, stri
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the transaction.</param>
 /// <param name="Lines">One line with the whole amount, or, for a split transaction, its lines in the order they were entered; their amounts sum exactly to <paramref name="Amount"/>.</param>
 /// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
+/// <param name="Tags">The names of its tags, in alphabetical order; none for a transaction without tags.</param>
 /// <param name="IsReconciled">Whether it is in a completed reconciliation: its amount, date, account and type cannot change, and it cannot be deleted, until that reconciliation is reopened.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
-    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId, bool IsReconciled)
+    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId, IReadOnlyList<string> Tags,
+    bool IsReconciled)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion.ToString(CultureInfo.InvariantCulture),
             transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
-            transaction.RecurringRuleId, transaction.IsReconciled);
+            transaction.RecurringRuleId, transaction.Tags, transaction.IsReconciled);
 }
 
 /// <summary>A recently deleted transaction, as it was when it was deleted.</summary>
@@ -392,6 +397,10 @@ internal sealed class TransactionListParameters
         var search = text.Trim();
         return Read(name, search, search.Length <= TransactionFilter.MaxSearchLength ? search : null, $"Search for at most {TransactionFilter.MaxSearchLength} characters.");
     }
+
+    /// <summary>A tag's name as tags keep it; nothing but spaces filters by no tag.</summary>
+    public string? Tag(string name, string? text) =>
+        string.IsNullOrWhiteSpace(text) ? null : Read(name, text, Domain.Transactions.Tag.IsValidName(text) ? Domain.Transactions.Tag.Normalised(text) : null, $"Send a tag of at most {Domain.Transactions.Tag.MaxNameLength} characters.");
 
     private T? Read<T>(string name, string? text, T? read, string message)
     {

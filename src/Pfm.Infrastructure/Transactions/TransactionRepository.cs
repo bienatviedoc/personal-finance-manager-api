@@ -80,6 +80,12 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             transactions = transactions.Where(transaction => transaction.Amount <= max);
         }
 
+        if (filter.Tag is { } name)
+        {
+            var tagged = db.Set<Tag>().Where(tag => tag.Name == name).Select(tag => tag.Id);
+            transactions = transactions.Where(transaction => transaction.Tags.Any(tag => tagged.Contains(tag.TagId)));
+        }
+
         if (filter.Search is { } search)
         {
             // ILIKE with the text between wildcards is what the trigram indexes on the payee and the notes answer.

@@ -14,6 +14,7 @@ using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.Transactions.Reconciliations;
 using Pfm.Application.Transactions.Recurring;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Infrastructure.Accounts;
 using Pfm.Infrastructure.Budgets;
 using Pfm.Infrastructure.Email;
@@ -71,6 +72,7 @@ public static class InfrastructureServices
 
         services.AddScoped<ICategoryRepository, CategoryRepository>();
         services.AddScoped<ITransactionRepository, TransactionRepository>();
+        services.AddScoped<ITagRepository, TagRepository>();
         services.AddScoped<IRecurringRuleRepository, RecurringRuleRepository>();
         services.AddScoped<IReconciliationRepository, ReconciliationRepository>();
         services.AddScoped<IQuickAddHistory, QuickAddHistory>();
