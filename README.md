@@ -307,7 +307,8 @@ already uses it can still show it. An account can be archived at any balance.
 - **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
   `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
   one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
-  1000 either way. It is one save: when any selected transaction cannot take it, the answer is a 409
+  1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
+  (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
   (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
   `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), and nothing changes. A category or account that
   cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the

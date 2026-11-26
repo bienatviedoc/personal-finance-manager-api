@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Pfm.Infrastructure.SampleData;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
@@ -189,6 +190,22 @@ public class BulkEditTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_filter_that_more_than_a_thousand_transactions_pass_is_refused_as_too_many_to_select_and_nothing_changes()
+    {
+        var email = PfmApi.NewEmail();
+        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: 1_001));
+        var browser = api.CreateBrowser();
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+
+        var response = await browser.PostAsync(Bulk, new { action = "addTag", filter = new { }, tag = "everything" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
+        Assert.Equal(1_000, (await response.Content.ReadFromJsonAsync<TooLargeBody>())!.Max);
+        Assert.Empty(await ListAsync(browser, "?tag=everything"));
+    }
+
+    [Fact]
     public async Task A_bulk_action_names_what_it_selects_and_what_it_does_or_is_refused_on_that_field()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -257,6 +274,8 @@ public class BulkEditTests(PfmApi api)
     private sealed record LineBody(Guid CategoryId, string Amount);
 
     private sealed record BulkBody(int Count);
+
+    private sealed record TooLargeBody(int Max);
 
     private sealed record RefusedBody(RefusedRow[] Refused);
 

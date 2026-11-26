@@ -27,8 +27,9 @@ public static class TransactionEndpoints
         transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
             .WithDescription("Restores a transaction deleted in the last 30 days: it is back in lists and its account's balance at once, as it was when it was deleted. Restoring a leg of a transfer restores the whole transfer, the other leg with it. One that is not deleted, or was deleted longer ago, is not found. The ETag header carries its row version.");
         transactions.MapPost("/bulk", BulkEdit).WithName("BulkEditTransactions")
-            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters; never both, and at most 1000. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
-            .Produces<BulkActionRefusedProblem>(StatusCodes.Status409Conflict, "application/problem+json");
+            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters; never both, and at most 1000: a filter that more pass answers 422 with the problem type urn:pfm:problem:bulk-selection-too-large and its max, and nothing changes. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
+            .Produces<BulkActionRefusedProblem>(StatusCodes.Status409Conflict, "application/problem+json")
+            .Produces<BulkSelectionTooLargeProblem>(StatusCodes.Status422UnprocessableEntity, "application/problem+json");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
@@ -67,6 +68,12 @@ public static class TransactionEndpoints
     /// Its &lt;c&gt;refused&lt;/c&gt; lists each of them and why.
     /// </summary>
     public const string BulkActionRefused = "urn:pfm:problem:bulk-action-refused";
+
+    /// <summary>
+    /// Problem type returned when more transactions pass a bulk action's filter than one bulk action takes: nothing
+    /// changed. Its &lt;c&gt;max&lt;/c&gt; says how many it takes; narrow the filter.
+    /// </summary>
+    public const string BulkSelectionTooLarge = "urn:pfm:problem:bulk-selection-too-large";
 
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
@@ -198,7 +205,7 @@ public static class TransactionEndpoints
         return result.Outcome is { } restored ? TypedResults.Ok(Versioned(http, TransactionResponse.From(restored))) : TypedResults.NotFound();
     }
 
-    private static async Task<Results<Ok<BulkEditResponse>, ValidationProblem, JsonHttpResult<BulkActionRefusedProblem>>> BulkEdit(
+    private static async Task<Results<Ok<BulkEditResponse>, ValidationProblem, JsonHttpResult<BulkActionRefusedProblem>, JsonHttpResult<BulkSelectionTooLargeProblem>>> BulkEdit(
         BulkEditRequest request, BulkEditTransactionsHandler handler, CancellationToken cancellationToken)
     {
         TransactionFilter? filter = null;
@@ -226,6 +233,11 @@ public static class TransactionEndpoints
         return result.Outcome switch
         {
             BulkEditOutcome.Done done => TypedResults.Ok(new BulkEditResponse(done.Count)),
+            BulkEditOutcome.TooMany tooMany => TypedResults.Json(
+                new BulkSelectionTooLargeProblem(
+                    BulkSelectionTooLarge, $"More than {tooMany.Max} transactions pass this filter: narrow it, or act on them in parts.",
+                    StatusCodes.Status422UnprocessableEntity, tooMany.Max),
+                statusCode: StatusCodes.Status422UnprocessableEntity, contentType: "application/problem+json"),
             BulkEditOutcome.Refused refused => TypedResults.Json(
                 new BulkActionRefusedProblem(
                     BulkActionRefused, "Some of the transactions cannot take this action, so none did.", StatusCodes.Status409Conflict,
@@ -411,7 +423,7 @@ public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCatego
 /// <summary>One action on many transactions (spec TXN-7).</summary>
 /// <param name="Action"><c>setCategory</c>, <c>addTag</c>, <c>removeTag</c>, <c>moveToAccount</c> or <c>delete</c>.</param>
 /// <param name="TransactionIds">The transactions selected one by one: 1 to 1000. Leave out when sending &lt;paramref name="Filter"/&gt;.</param>
-/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000. Leave out when sending &lt;paramref name="TransactionIds"/&gt;.</param>
+/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000, or the action is refused as too many. Leave out when sending &lt;paramref name="TransactionIds"/&gt;.</param>
 /// <param name="CategoryId">For setCategory: one of the user's categories that is not archived.</param>
 /// <param name="Tag">For addTag and removeTag: the tag's name, 1 to 50 characters, kept trimmed and in lower case. Adding one the user has no tag with yet creates it.</param>
 /// <param name="AccountId">For moveToAccount: one of the user's accounts that is not archived.</param>
@@ -432,6 +444,11 @@ public sealed record BulkEditResponse(int Count);
 /// <param name="Type">&lt;c&gt;urn:pfm:problem:bulk-action-refused&lt;/c&gt;.</param>
 /// <param name="Refused">Each transaction refused, in the order they were selected.</param>
 public sealed record BulkActionRefusedProblem(string Type, string Title, int Status, IReadOnlyList<RefusedTransactionResponse> Refused);
+
+/// <summary>A bulk action refused because more transactions pass its filter than one bulk action takes. Nothing changed.</summary>
+/// <param name="Type"><c>urn:pfm:problem:bulk-selection-too-large</c>.</param>
+/// <param name="Max">The most transactions one bulk action takes: narrow the filter to that many.</param>
+public sealed record BulkSelectionTooLargeProblem(string Type, string Title, int Status, int Max);
 
 /// <summary>A transaction that cannot take a bulk action.</summary>
 /// <param name="Reason">Why: notFound, transferLeg, split, categoryKind, reconciled, otherCurrency or tooManyTags.</param>

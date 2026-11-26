@@ -76,6 +76,10 @@ public abstract record BulkEditOutcome
     /// <param name="Count">How many transactions it selected, each of which took it.</param>
     public sealed record Done(int Count) : BulkEditOutcome;
 
+    /// <summary>More transactions pass the filter than one bulk action takes, so none took it: narrow the filter.</summary>
+    /// <param name="Max">The most one bulk action takes.</param>
+    public sealed record TooMany(int Max) : BulkEditOutcome;
+
     /// <summary>Some of the transactions cannot take the action, so none did.</summary>
     /// <param name="Rows">Each transaction refused and why, in the order they were selected.</param>
     public sealed record Refused(IReadOnlyList<RefusedTransaction> Rows) : BulkEditOutcome;
@@ -114,9 +118,7 @@ public sealed class BulkEditTransactionsHandler(
             selected = await transactions.ListAsync(filter, TransactionSort.NewestFirst, BulkEditTransactionsCommand.MaxSelected + 1, after: null, cancellationToken);
             if (selected.Count > BulkEditTransactionsCommand.MaxSelected)
             {
-                return Result<BulkEditOutcome>.Invalid(FieldError.On(
-                    nameof(BulkEditTransactionsCommand.Filter),
-                    $"More than {BulkEditTransactionsCommand.MaxSelected} transactions pass this filter: narrow it, or act on them in parts."));
+                return new BulkEditOutcome.TooMany(BulkEditTransactionsCommand.MaxSelected);
             }
         }
         else
