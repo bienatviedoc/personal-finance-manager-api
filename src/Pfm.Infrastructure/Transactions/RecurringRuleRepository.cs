@@ -19,6 +19,9 @@ internal sealed class RecurringRuleRepository(PfmDbContext db) : IRecurringRuleR
         return await rules.OrderByDescending(rule => rule.Id).Take(take).ToListAsync(cancellationToken);
     }
 
+    public async Task<IReadOnlyList<RecurringRule>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken) =>
+        await db.Set<RecurringRule>().Where(rule => rule.CategoryId == categoryId).ToListAsync(cancellationToken);
+
     public Task<RecurringRule?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<RecurringRule>().SingleOrDefaultAsync(rule => rule.Id == id, cancellationToken);
 

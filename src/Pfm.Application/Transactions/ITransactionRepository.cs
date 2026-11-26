@@ -66,6 +66,9 @@ public interface ITransactionRepository
     /// <summary>Every user, signed in or not, who has a transaction deleted before <paramref name="deletedBefore"/>.</summary>
     Task<IReadOnlyList<Guid>> UsersWithDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
 
+    /// <summary>Every transaction of the user with a line on the category, deleted or not.</summary>
+    Task<IReadOnlyList<Transaction>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
+
     /// <summary>Every transaction of the user, deleted or not.</summary>
     Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
 

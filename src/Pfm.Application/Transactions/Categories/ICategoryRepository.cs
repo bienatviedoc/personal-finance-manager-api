@@ -28,4 +28,7 @@ public interface ICategoryUsage
 {
     /// <summary>Whether any transaction uses any of the given categories.</summary>
     Task<bool> HasTransactionsAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken);
+
+    /// <summary>How many transactions that are not deleted have a line on the category: a split counts once.</summary>
+    Task<int> CountTransactionsAsync(Guid categoryId, CancellationToken cancellationToken);
 }
