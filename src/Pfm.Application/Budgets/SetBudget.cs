@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
@@ -71,7 +72,7 @@ public abstract record SetBudgetOutcome
 /// </remarks>
 public sealed class SetBudgetHandler(
     IValidator<SetBudgetCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IBaseCurrency baseCurrency, BudgetMonthReader reader,
-    IUnitOfWork unitOfWork, TimeProvider clock)
+    IBudgetNotifications notifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<SetBudgetCommand, SetBudgetOutcome?>(validator)
 {
     private static readonly SetBudgetOutcome? NoCategory = null;
@@ -115,6 +116,9 @@ public sealed class SetBudgetHandler(
 
                 existing.ChangeAmount(amount, clock.GetUtcNow());
                 await unitOfWork.SaveChangesAsync(cancellationToken);
+
+                // A budget lowered below what was spent moves into warning or over as surely as spending does.
+                await notifications.CheckAsync([month.FirstDay], cancellationToken);
                 return new SetBudgetOutcome.Changed(await ReadAsync(month, category.Id, cancellationToken));
             }
 
@@ -136,6 +140,7 @@ public sealed class SetBudgetHandler(
                 return Result<SetBudgetOutcome?>.Invalid(violation.AsErrors());
             }
 
+            await notifications.CheckAsync([month.FirstDay], cancellationToken);
             return new SetBudgetOutcome.Created(await ReadAsync(month, category.Id, cancellationToken));
         }
         catch (BudgetRuleViolation violation)

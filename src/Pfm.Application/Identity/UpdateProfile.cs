@@ -17,7 +17,9 @@ namespace Pfm.Application.Identity;
 /// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
 /// <param name="Locale">A language tag: <c>en</c> or <c>vi</c>.</param>
 /// <param name="BudgetWarningPercent">The share of a budget, in whole percent from 1 to 100, at which its state becomes a warning.</param>
-public sealed record UpdateProfileCommand(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null, int? BudgetWarningPercent = null)
+/// <param name="EmailBudgetNotifications">Whether budget notifications are emailed as well as shown in the app.</param>
+public sealed record UpdateProfileCommand(
+    string? BaseCurrency = null, string? TimeZone = null, string? Locale = null, int? BudgetWarningPercent = null, bool? EmailBudgetNotifications = null)
 {
     /// <summary>The currency sent; null when none was sent or it is not one the app supports.</summary>
     public Currency? ParsedBaseCurrency { get; } = Currencies.TryParse(BaseCurrency, out var currency) ? currency : null;
@@ -79,7 +81,8 @@ public sealed class UpdateProfileHandler(
                 command.ParsedBaseCurrency ?? profile.BaseCurrency,
                 command.TimeZone ?? profile.TimeZone,
                 command.ParsedLocale ?? profile.Locale,
-                command.BudgetWarningPercent ?? profile.BudgetWarningPercent);
+                command.BudgetWarningPercent ?? profile.BudgetWarningPercent,
+                command.EmailBudgetNotifications ?? profile.EmailBudgetNotifications);
 
             var isLocked = await budgets.AnyAsync(cancellationToken);
             if (isLocked && settings.BaseCurrency != profile.BaseCurrency)
@@ -103,6 +106,7 @@ public sealed class UpdateProfileHandler(
             {
                 BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale,
                 BudgetWarningPercent = settings.BudgetWarningPercent, BaseCurrencyIsLocked = isLocked,
+                EmailBudgetNotifications = settings.EmailBudgetNotifications,
             };
         });
 }

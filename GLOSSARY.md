@@ -76,6 +76,10 @@ _Avoid_: Total budget, monthly cap, global budget
 Whether a budget in the current budget month is being spent faster than the month is passing: ahead of pace when the share of the budget spent is larger than the share of the month elapsed, today included; otherwise on pace. A past month shows only its final result and has no pace.
 _Avoid_: Burn rate, forecast, trajectory
 
+**Budget notification**:
+A message, shown in the app and emailed, that a category's budget moved into warning or over in a budget month. The overall budget raises none. Each category raises at most one warning and one over a budget month, and keeps what the budget stood at when it was raised. Email can be switched off in settings; the app always shows it.
+_Avoid_: Alert, reminder (which is a recurring rule's), budget email
+
 **Archive**:
 To hide an institution, account or category from pickers while keeping its history in balances, net worth and reports.
 _Avoid_: Delete, disable, close, deactivate

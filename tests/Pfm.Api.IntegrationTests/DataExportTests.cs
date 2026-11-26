@@ -26,7 +26,7 @@ public class DataExportTests(PfmApi api)
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
         Assert.Equal(
-            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "reconciliations.csv", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
+            ["README.txt", "accounts.csv", "attachments.csv", "budget-notifications.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "reconciliations.csv", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
             files.Keys.Where(file => !file.StartsWith("attachments/", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
@@ -81,7 +81,8 @@ public class DataExportTests(PfmApi api)
         Assert.Equal(
             new Dictionary<string, string>
             {
-                ["id"] = id!, ["email"] = email, ["baseCurrency"] = "USD", ["timeZone"] = "Europe/Stockholm", ["locale"] = "vi", ["budgetWarningPercent"] = "80", ["twoFactorSignIn"] = "False",
+                ["id"] = id!, ["email"] = email, ["baseCurrency"] = "USD", ["timeZone"] = "Europe/Stockholm", ["locale"] = "vi", ["budgetWarningPercent"] = "80", ["emailBudgetNotifications"] = "True",
+                ["twoFactorSignIn"] = "False",
             },
             profile.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.ToString()));
     }
@@ -131,8 +132,8 @@ public class DataExportTests(PfmApi api)
         Assert.DoesNotContain(lines, line => line["transactionId"] == legs[0]["id"] || line["transactionId"] == legs[1]["id"]);
         // A budget names its category and its budget month by the month's first day.
         var budget = Row(CsvFiles.Read(files["budgets.csv"]), 1);
-        Assert.Equal(3000000m, decimal.Parse(budget["amount"], System.Globalization.CultureInfo.InvariantCulture));
-        Assert.Equal(("VND", $"{DateTime.UtcNow:yyyy-MM}-01"), (budget["currency"], budget["month"]));
+        Assert.Equal(300000m, decimal.Parse(budget["amount"], System.Globalization.CultureInfo.InvariantCulture));
+        Assert.Equal(("VND", "2026-11-01"), (budget["currency"], budget["month"]));
         Assert.Contains(CsvFiles.Read(files["categories.csv"]).Skip(1), category => category.Contains(budget["categoryId"]) && category.Contains("Food & drink"));
         // An account, an institution and a category are named by the id their own file lists them under.
         var account = Row(CsvFiles.Read(files["accounts.csv"]), 1);

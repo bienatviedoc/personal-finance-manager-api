@@ -28,4 +28,7 @@ public sealed class User : IdentityUser<Guid>
 
     /// <summary>The share of a budget, in whole percent, at which its state becomes a warning.</summary>
     public int BudgetWarningPercent { get; set; } = ProfileSettings.Default.BudgetWarningPercent;
+
+    /// <summary>Whether budget notifications are emailed as well as shown in the app.</summary>
+    public bool EmailBudgetNotifications { get; set; } = ProfileSettings.Default.EmailBudgetNotifications;
 }

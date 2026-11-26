@@ -10,5 +10,7 @@ namespace Pfm.Application.Identity;
 /// Whether the base currency can no longer change, because the user has a budget (spec section 3, rule 12).
 /// Where profiles are kept does not know: the use cases ask Budgets and say.
 /// </param>
+/// <param name="EmailBudgetNotifications">Whether budget notifications are emailed as well as shown in the app.</param>
 public sealed record ProfileDetails(
-    Guid Id, string Email, Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent, bool BaseCurrencyIsLocked = false);
+    Guid Id, string Email, Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent, bool BaseCurrencyIsLocked = false,
+    bool EmailBudgetNotifications = true);

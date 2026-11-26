@@ -120,6 +120,7 @@ app.MapGroup("/api/v1")
     .MapAttachmentEndpoints()
     .MapRecurringRuleEndpoints()
     .MapBudgetEndpoints()
+    .MapBudgetNotificationEndpoints()
     .MapReportEndpoints();
 
 app.Run();

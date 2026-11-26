@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
@@ -46,8 +47,8 @@ public sealed record CopyBudgetsOutcome(int Copied);
 /// turns out to break rule 6 is taken back and not counted.
 /// </remarks>
 public sealed class CopyBudgetsHandler(
-    IValidator<CopyBudgetsCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IBaseCurrency baseCurrency, IUnitOfWork unitOfWork,
-    TimeProvider clock)
+    IValidator<CopyBudgetsCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IBaseCurrency baseCurrency, IBudgetNotifications notifications,
+    IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CopyBudgetsCommand, CopyBudgetsOutcome>(validator)
 {
     protected override Task<Result<CopyBudgetsOutcome>> ExecuteAsync(CopyBudgetsCommand command, CancellationToken cancellationToken) =>
@@ -107,6 +108,11 @@ public sealed class CopyBudgetsHandler(
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
         var takenBack = await TakeBackWhatBreaksRuleSixAsync(copied, month, cancellationToken);
+        if (copied.Count > takenBack)
+        {
+            await notifications.CheckAsync([month.FirstDay], cancellationToken);
+        }
+
         return new CopyBudgetsOutcome(copied.Count - takenBack + overallCopied);
     }
 

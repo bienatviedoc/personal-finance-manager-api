@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Accounts;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.Transactions.Tags;
@@ -107,7 +108,7 @@ public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, 
 /// </summary>
 public sealed class BulkEditTransactionsHandler(
     IValidator<BulkEditTransactionsCommand> validator, ITransactionRepository transactions, ICategoryRepository categories, IAccountLookup accounts,
-    TransactionTags tags, ITagRepository tagRepository, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionTags tags, ITagRepository tagRepository, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<BulkEditTransactionsCommand, BulkEditOutcome>(validator)
 {
     protected override Task<Result<BulkEditOutcome>> ExecuteAsync(BulkEditTransactionsCommand command, CancellationToken cancellationToken) =>
@@ -147,6 +148,12 @@ public sealed class BulkEditTransactionsHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (command.ParsedAction is not (BulkAction.AddTag or BulkAction.RemoveTag))
+        {
+            // A new category, account or a delete moves spent in the months of what was selected.
+            await budgetNotifications.CheckAsync([.. selected.Select(transaction => transaction.Date).Distinct()], cancellationToken);
+        }
+
         return new BulkEditOutcome.Done(acted.Outcome);
     }
 
