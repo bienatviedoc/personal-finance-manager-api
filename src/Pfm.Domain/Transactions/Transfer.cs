@@ -196,12 +196,13 @@ public sealed class Transfer
     }
 
     /// <summary>Deletes both legs together, so both accounts' balances are as before the transfer. Deleting it again changes nothing.</summary>
-    /// <exception cref="InvalidOperationException">Either leg is reconciled.</exception>
+    /// <exception cref="TransactionRuleViolation">Either leg is reconciled.</exception>
     public void Delete(DateTimeOffset now)
     {
         if (IsReconciled && !IsDeleted)
         {
-            throw new InvalidOperationException("A reconciled transfer cannot be deleted until its reconciliation is reopened.");
+            throw new TransactionRuleViolation(
+                nameof(IsReconciled), "This transfer is reconciled: reopen its reconciliation to delete it.", BulkRefusal.Reconciled);
         }
 
         OutLeg.DeleteLeg(now);

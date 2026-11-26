@@ -35,15 +35,7 @@ public sealed record DashboardBudgetResponse(ReportCategoryResponse Category, st
 {
     public static DashboardBudgetResponse Of(BudgetedCategoryDetails item) =>
         new(ReportCategoryResponse.From(item.Category), AmountJson.Text(item.Budget.Budgeted), AmountJson.Text(item.Budget.Spent),
-            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, StateOf(item.Budget.State));
-
-    private static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
-    {
-        ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
-        ComparedBudgetState.Warning => BudgetVsActualState.Warning,
-        ComparedBudgetState.Over => BudgetVsActualState.Over,
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
-    };
+            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, BudgetVsActualItemResponse.StateOf(item.Budget.State));
 }
 
 /// <summary>This month's budgets added up, as budget vs actual adds them up, with how many are in each state.</summary>
@@ -54,7 +46,7 @@ public sealed record DashboardBudgetsResponse(
     string Budgeted, string Spent, string Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted,
     IReadOnlyList<DashboardBudgetResponse> NeedingAttention)
 {
-    public static DashboardBudgetsResponse? Of(DashboardBudgets? budgets) =>
+    public static DashboardBudgetsResponse? Of(DashboardBudgetsDetails? budgets) =>
         budgets is null
             ? null
             : new(AmountJson.Text(budgets.Budgeted), AmountJson.Text(budgets.Spent), AmountJson.Text(budgets.Remaining), budgets.PercentSpent,
@@ -73,7 +65,7 @@ public enum DashboardTransactionType
 /// <summary>An account, named.</summary>
 public sealed record DashboardAccountResponse(Guid Id, string Name)
 {
-    public static DashboardAccountResponse Of(DashboardAccount account) => new(account.Id, account.Name);
+    public static DashboardAccountResponse Of(DashboardAccountDetails account) => new(account.Id, account.Name);
 }
 
 /// <summary>One of the latest transactions.</summary>
@@ -84,7 +76,7 @@ public sealed record DashboardTransactionResponse(
     Guid Id, DateOnly Date, DashboardTransactionType Type, DashboardAccountResponse Account, string Amount, Currency Currency, ReportCategoryResponse? Category,
     string? Payee, bool IsRefund, bool IsSplit, Guid? TransferId)
 {
-    public static DashboardTransactionResponse Of(DashboardTransaction transaction) =>
+    public static DashboardTransactionResponse Of(DashboardTransactionDetails transaction) =>
         new(transaction.Id, transaction.Date, TypeOf(transaction.Type), DashboardAccountResponse.Of(transaction.Account), AmountJson.Text(transaction.Amount),
             transaction.Currency, transaction.Category is { } category ? ReportCategoryResponse.From(category) : null, transaction.Payee,
             transaction.IsRefund, transaction.IsSplit, transaction.TransferId);
@@ -107,7 +99,7 @@ public sealed record DashboardOccurrenceResponse(
     Guid RecurringRuleId, DateOnly DueDate, DashboardTransactionType Type, DashboardAccountResponse Account, string Amount, Currency Currency,
     ReportCategoryResponse Category, string? Payee, bool IsReminder)
 {
-    public static DashboardOccurrenceResponse Of(DashboardOccurrence occurrence) =>
+    public static DashboardOccurrenceResponse Of(DashboardOccurrenceDetails occurrence) =>
         new(occurrence.RecurringRuleId, occurrence.DueDate, DashboardTransactionResponse.TypeOf(occurrence.Type), DashboardAccountResponse.Of(occurrence.Account),
             AmountJson.Text(occurrence.Amount), occurrence.Currency, ReportCategoryResponse.From(occurrence.Category), occurrence.Payee, occurrence.IsReminder);
 }

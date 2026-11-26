@@ -307,9 +307,11 @@ already uses it can still show it. An account can be archived at any balance.
 - **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
   `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
   one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
-  1000 either way. It is one save: when any selected transaction cannot take it, the answer is a 409
+  1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
+  (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
   (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
-  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), and nothing changes. A category or account that
+  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), each with the transaction as it is (`transaction`, null when
+  not found), so a client can name one it has not loaded, and nothing changes. A category or account that
   cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
   transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
   moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and
@@ -547,7 +549,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Dashboard** (RPT-1). `GET /reports/dashboard` answers the whole dashboard in one request, and takes no filters:
   it is of this calendar month in the user's time zone (`from`, `to`). `balance` is what every account that is not
-  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`, which asks `ListAccounts`),
+  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
   with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
   actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
   `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of

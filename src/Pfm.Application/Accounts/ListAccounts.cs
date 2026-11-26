@@ -1,6 +1,3 @@
-using Pfm.Application.Contracts.Identity;
-using Pfm.Application.Contracts.Transactions;
-using Pfm.Application.ExchangeRates;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 
@@ -39,70 +36,15 @@ public sealed record InstitutionBaseCurrencyTotal(Guid? InstitutionId, decimal B
 /// <summary>A balance left in its own currency because no exchange rate exists to convert it.</summary>
 public sealed record NotConvertedAmount(Currency Currency, decimal Balance);
 
-public sealed class ListAccountsHandler(
-    IAccountRepository accounts, IAccountTransactions transactions, IBaseCurrency baseCurrencies, ICurrencyConversion conversion, TimeProvider time)
-    : IQueryHandler
+public sealed class ListAccountsHandler(AccountTotals totals) : IQueryHandler
 {
     /// <summary>A user has dozens of accounts, not thousands, so the page and the totals are cut from all of them.</summary>
     public async Task<AccountList> HandleAsync(ListAccounts query, CancellationToken cancellationToken = default)
     {
-        var found = await accounts.ListAsync(query.IncludeArchived, cancellationToken);
-        var net = await transactions.NetByAccountAsync([.. found.Select(account => account.Id)], cancellationToken);
-        var all = found.Select(account => AccountDetails.Of(account, net.GetValueOrDefault(account.Id))).ToList();
-
-        var page = all
+        var all = await totals.OfAsync(query.IncludeArchived, cancellationToken);
+        var page = all.Accounts
             .OrderByName(account => account.Name, account => account.Id)
             .PageByName(account => account.Name, account => account.Id, query.Limit, query.After, account => account);
-        var totals = all
-            .GroupBy(account => (account.InstitutionId, account.Currency))
-            .Select(group => new InstitutionTotal(group.Key.InstitutionId, group.Key.Currency, group.Sum(account => account.Balance)))
-            .OrderBy(total => total.InstitutionId)
-            .ThenBy(total => total.Currency)
-            .ToList();
-
-        return new AccountList(page, totals, await InBaseCurrencyAsync(totals, cancellationToken));
-    }
-
-    /// <summary>
-    /// Each institution's total in each currency is converted once, so the institutions' balances add up to
-    /// the overall balance exactly.
-    /// </summary>
-    private async Task<BaseCurrencyTotal> InBaseCurrencyAsync(IReadOnlyList<InstitutionTotal> totals, CancellationToken cancellationToken)
-    {
-        var baseCurrency = await baseCurrencies.OfCurrentUserAsync(cancellationToken);
-
-        // Not the user's calendar (IUserCalendar): rates are stored by the UTC day their sources publish by, and
-        // a balance is as of now, so the day whose rate applies is today in UTC wherever the user is.
-        var today = DateOnly.FromDateTime(time.GetUtcNow().UtcDateTime);
-
-        var institutions = new List<InstitutionBaseCurrencyTotal>();
-        foreach (var institution in totals.GroupBy(total => total.InstitutionId))
-        {
-            var balance = 0m;
-            var notConverted = new List<NotConvertedAmount>();
-            foreach (var total in institution)
-            {
-                var converted = await conversion.ConvertAsync(total.Balance, total.Currency, baseCurrency, today, cancellationToken);
-                if (converted.Amount is { } amount)
-                {
-                    balance += amount;
-                }
-                else
-                {
-                    notConverted.Add(new NotConvertedAmount(total.Currency, total.Balance));
-                }
-            }
-
-            institutions.Add(new InstitutionBaseCurrencyTotal(institution.Key, balance, notConverted));
-        }
-
-        var leftOut = institutions
-            .SelectMany(institution => institution.NotConverted)
-            .GroupBy(amount => amount.Currency)
-            .Select(currency => new NotConvertedAmount(currency.Key, currency.Sum(amount => amount.Balance)))
-            .OrderBy(amount => amount.Currency)
-            .ToList();
-
-        return new BaseCurrencyTotal(baseCurrency, institutions.Sum(institution => institution.Balance), leftOut, institutions);
+        return new AccountList(page, all.Totals, all.BaseCurrencyTotal);
     }
 }

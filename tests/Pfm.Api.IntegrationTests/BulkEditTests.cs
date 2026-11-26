@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using Pfm.Infrastructure.SampleData;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
@@ -52,6 +53,8 @@ public class BulkEditTests(PfmApi api)
             [(salary, "categoryKind"), (split, "split"), (leg, "transferLeg")],
             refused.Select(row => (row.TransactionId, row.Reason)).OrderBy(row => row.Reason));
         Assert.All(refused, row => Assert.False(string.IsNullOrWhiteSpace(row.Message)));
+        var salaryRow = refused.Single(row => row.TransactionId == salary).Transaction!;
+        Assert.Equal((salary, "2026-11-02", "income", "5000.00"), (salaryRow.Id, salaryRow.Date, salaryRow.Type, salaryRow.Amount));
         Assert.Equal(await CategoryAsync(browser, "Groceries"), (await GetAsync(browser, groceries)).CategoryId);
     }
 
@@ -189,6 +192,22 @@ public class BulkEditTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_filter_that_more_than_a_thousand_transactions_pass_is_refused_as_too_many_to_select_and_nothing_changes()
+    {
+        var email = PfmApi.NewEmail();
+        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: 1_001));
+        var browser = api.CreateBrowser();
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+
+        var response = await browser.PostAsync(Bulk, new { action = "addTag", filter = new { }, tag = "everything" });
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
+        Assert.Equal(1_000, (await response.Content.ReadFromJsonAsync<TooLargeBody>())!.Max);
+        Assert.Empty(await ListAsync(browser, "?tag=everything"));
+    }
+
+    [Fact]
     public async Task A_bulk_action_names_what_it_selects_and_what_it_does_or_is_refused_on_that_field()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -225,7 +244,7 @@ public class BulkEditTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var refused = Assert.Single((await response.Content.ReadFromJsonAsync<RefusedBody>())!.Refused);
-        Assert.Equal((theirs, "notFound"), (refused.TransactionId, refused.Reason));
+        Assert.Equal((theirs, "notFound", null), (refused.TransactionId, refused.Reason, refused.Transaction));
         Assert.Single(await ListAsync(browser));
         Assert.Single(await ListAsync(owner));
     }
@@ -258,7 +277,11 @@ public class BulkEditTests(PfmApi api)
 
     private sealed record BulkBody(int Count);
 
+    private sealed record TooLargeBody(int Max);
+
     private sealed record RefusedBody(RefusedRow[] Refused);
 
-    private sealed record RefusedRow(Guid TransactionId, string Reason, string Message);
+    private sealed record RefusedRow(Guid TransactionId, string Reason, string Message, RefusedTransactionBody? Transaction);
+
+    private sealed record RefusedTransactionBody(Guid Id, string Date, string Type, string Amount);
 }
