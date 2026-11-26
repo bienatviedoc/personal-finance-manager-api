@@ -540,7 +540,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **A budgeted category stays an expense category**: changing the kind of a category that has a budget, or whose
   subcategory has one, is refused, and a second foreign key holds that when the two are saved at the same moment.
 - **Budget notifications** (BUD-7): after any change that affects spent (a transaction recorded, edited, deleted,
-  restored or converted once its rate arrives, a bulk action, a transfer unmarked, an occurrence posted) or a budget
+  restored or converted once its rate arrives, a bulk action, a transfer unmarked, a category merged, an occurrence posted) or a budget
   set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
   the dates it touched. `BudgetNotifications` reads each of those budget months as the budget screen does and
   raises a `BudgetNotification` for each budget that moved into `warning` or `over` and has not raised that

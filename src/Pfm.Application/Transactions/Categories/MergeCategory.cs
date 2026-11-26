@@ -41,7 +41,8 @@ public sealed record CategoryMergeDetails(int Transactions, int Budgets);
 /// </remarks>
 public sealed class MergeCategoryHandler(
     IValidator<MergeCategoryCommand> validator, ICategoryRepository categories, ITransactionRepository transactions,
-    IRecurringRuleRepository recurringRules, IUserBudgets budgets, IUnitOfWork unitOfWork, TimeProvider clock)
+    IRecurringRuleRepository recurringRules, IUserBudgets budgets, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<MergeCategoryCommand, CategoryMergeDetails?>(validator)
 {
     protected override Task<Result<CategoryMergeDetails?>> ExecuteAsync(MergeCategoryCommand command, CancellationToken cancellationToken) =>
@@ -104,6 +105,9 @@ public sealed class MergeCategoryHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // What was spent in the merged category now counts toward the target's budgets, which it may move into warning or over.
+        await budgetNotifications.CheckAsync([.. moving.Where(transaction => !transaction.IsDeleted).Select(transaction => transaction.Date).Distinct()], cancellationToken);
         return new CategoryMergeDetails(moving.Count(transaction => !transaction.IsDeleted), budgetsMerged.Moved);
     }
 

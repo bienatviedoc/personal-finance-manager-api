@@ -264,6 +264,18 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Merging_a_category_into_a_budgeted_one_raises_the_notification_its_spending_brings()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var transport = await BudgetAsync(browser, "Transport", "1000000");
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Shopping", "1200000", FirstOfThisMonth);
+
+        (await browser.PostAsync($"/api/v1/categories/{await CategoryAsync(browser, "Shopping")}/merge", new { targetId = transport })).EnsureSuccessStatusCode();
+
+        Assert.Equal(["over"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
     public async Task A_user_reads_a_notification_and_then_all_of_them()
     {
         var (browser, _) = await api.SignedInAsync();
