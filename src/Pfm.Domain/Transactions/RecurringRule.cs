@@ -148,7 +148,7 @@ public sealed class RecurringRule : IUserOwned
     /// </summary>
     public void MoveCategory(Category from, Category into, DateTimeOffset now)
     {
-        Transaction.GuardMerge(from, into);
+        Category.GuardMerge(from, into);
         if (CategoryId != from.Id)
         {
             return;

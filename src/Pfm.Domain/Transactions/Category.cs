@@ -204,4 +204,18 @@ public sealed class Category : IUserOwned
             throw new ArgumentException("Only this category's own subcategories can be given.", nameof(subcategories));
         }
     }
+
+    /// <summary>
+    /// Two categories one of which is merged into the other, which <see cref="MergeInto"/> has checked: what moves
+    /// with the merge (a transaction's lines, a recurring rule) asks it before moving.
+    /// </summary>
+    internal static void GuardMerge(Category from, Category into)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(into);
+        if (from.Kind != into.Kind || into.IsArchived || from.Id == into.Id)
+        {
+            throw new ArgumentException("Only a category of the same kind that is not archived can be merged into.", nameof(into));
+        }
+    }
 }
