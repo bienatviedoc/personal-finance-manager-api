@@ -8,6 +8,9 @@ public interface IBudgetRepository
     /// <summary>The user's budgets in one budget month, as they are saved now.</summary>
     Task<IReadOnlyList<Budget>> ListForMonthAsync(BudgetMonth month, CancellationToken cancellationToken);
 
+    /// <summary>The user's budgets in any of the given budget months.</summary>
+    Task<IReadOnlyList<Budget>> ListForMonthsAsync(IReadOnlyCollection<BudgetMonth> months, CancellationToken cancellationToken);
+
     /// <summary>Whether the user has a budget, in any month.</summary>
     Task<bool> AnyAsync(CancellationToken cancellationToken);
 

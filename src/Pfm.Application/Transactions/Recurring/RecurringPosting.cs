@@ -1,4 +1,3 @@
-using System.Globalization;
 using Pfm.Application.UseCases;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Identity;
@@ -69,12 +68,12 @@ public sealed class RecurringPosting(
         {
             // Read again each time: the user may have edited, paused or deleted it, or another worker moved it on.
             var rule = await rules.FindAsync(ruleId, cancellationToken);
-            if (rule is not { IsPaused: false, NextRunDate: { } dueDate } || dueDate > today)
+            if (rule is not { IsPaused: false, Mode: RecurringMode.AutoPost, NextRunDate: { } dueDate } || dueDate > today)
             {
                 return (posted, false);
             }
 
-            var recorded = await recordTransaction.HandleAsync(OccurrenceOf(rule, dueDate), cancellationToken);
+            var recorded = await recordTransaction.HandleAsync(RecurringOccurrence.TransactionOf(rule, dueDate, amount: null), cancellationToken);
             if (!recorded.IsValid)
             {
                 return (posted, true);
@@ -102,12 +101,4 @@ public sealed class RecurringPosting(
         }
     }
 
-    /// <summary>The transaction a user would record for this occurrence, as they would send it.</summary>
-    private static CreateTransactionCommand OccurrenceOf(RecurringRule rule, DateOnly dueDate)
-    {
-        var date = DateText.Of(dueDate);
-        return new CreateTransactionCommand(
-            EnumText.Of(rule.Type), rule.AccountId, rule.Amount.ToString(CultureInfo.InvariantCulture), date,
-            rule.CategoryId, rule.Payee, rule.Note, IdempotencyKey: string.Create(CultureInfo.InvariantCulture, $"recurring-rule:{rule.Id:N}:{date}"), RecurringRuleId: rule.Id);
-    }
 }
