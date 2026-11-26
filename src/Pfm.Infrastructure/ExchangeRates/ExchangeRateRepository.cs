@@ -15,17 +15,6 @@ internal sealed class ExchangeRateRepository(PfmDbContext db) : IExchangeRateRep
             .OrderByDescending(rate => rate.Date)
             .FirstOrDefaultAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<ExchangeRate>> ListApplyingAsync(
-        Currency from, Currency to, DateOnly since, DateOnly until, CancellationToken cancellationToken)
-    {
-        var first = await FindOnOrBeforeAsync(from, to, since, cancellationToken);
-        var later = await db.Set<ExchangeRate>().AsNoTracking()
-            .Where(rate => rate.From == from && rate.To == to && rate.Date > since && rate.Date <= until)
-            .OrderBy(rate => rate.Date)
-            .ToListAsync(cancellationToken);
-        return first is null ? later : [first, .. later];
-    }
-
     public async Task<DateOnly?> LatestDateAsync(CancellationToken cancellationToken) =>
         await db.Set<ExchangeRate>().MaxAsync(rate => (DateOnly?)rate.Date, cancellationToken);
 

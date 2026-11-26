@@ -22,14 +22,6 @@ public interface ICurrencyConversion
     /// </summary>
     Task<IReadOnlyList<Conversion>> ConvertAsync(
         IReadOnlyList<decimal> amounts, Currency from, Currency to, DateOnly date, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Several amounts of one currency, each on its own date, each converted as
-    /// <see cref="ConvertAsync(decimal, Currency, Currency, DateOnly, CancellationToken)"/> would and answered in the
-    /// order given, with the rates of all those dates looked up at once.
-    /// </summary>
-    Task<IReadOnlyList<Conversion>> ConvertAsync(
-        IReadOnlyList<(decimal Amount, DateOnly Date)> amounts, Currency from, Currency to, CancellationToken cancellationToken);
 }
 
 /// <summary>What converting an amount came to.</summary>
@@ -62,28 +54,5 @@ public sealed class CurrencyConversion(IExchangeRateRepository rates) : ICurrenc
         return await rates.FindOnOrBeforeAsync(from, to, date, cancellationToken) is { } rate
             ? [.. amounts.Select(amount => new Conversion(rate.Convert(amount), rate.Rate, rate.Date))]
             : [.. amounts.Select(_ => Conversion.NotConverted)];
-    }
-
-    public async Task<IReadOnlyList<Conversion>> ConvertAsync(
-        IReadOnlyList<(decimal Amount, DateOnly Date)> amounts, Currency from, Currency to, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(amounts);
-        if (amounts.Count == 0)
-        {
-            return [];
-        }
-
-        if (from == to)
-        {
-            return [.. amounts.Select(each => new Conversion(each.Amount, 1m, each.Date))];
-        }
-
-        var applying = await rates.ListApplyingAsync(from, to, amounts.Min(each => each.Date), amounts.Max(each => each.Date), cancellationToken);
-        return
-        [
-            .. amounts.Select(each => applying.LastOrDefault(rate => rate.Date <= each.Date) is { } rate
-                ? new Conversion(rate.Convert(each.Amount), rate.Rate, rate.Date)
-                : Conversion.NotConverted),
-        ];
     }
 }
