@@ -38,6 +38,9 @@ public sealed class TransactionLine
     /// <summary>What this part was for; null when not entered. The transaction has a note of its own.</summary>
     public string? Note { get; private set; }
 
+    /// <summary>The line is now on a category of the same kind, which it was merged into. The transaction has checked it.</summary>
+    internal void MoveTo(Category category) => CategoryId = category.Id;
+
     /// <summary>The line at this position now says what was entered there. The transaction has checked it.</summary>
     internal void Become(SplitLine entered)
     {
