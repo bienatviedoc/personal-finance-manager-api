@@ -531,8 +531,20 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
 - **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`,
-  `IIncomeAndSpending`, `ICategoryLookup`), account balances through `IAccountBalances` (Accounts), budgets through
+  `IIncomeAndSpending`, `ICategoryLookup`, `IRecentActivity`), account balances through `IAccountBalances`,
+  `IAccountTotals` and `IAccountLookup` (Accounts), budgets through
   `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Dashboard** (RPT-1). `GET /reports/dashboard` answers the whole dashboard in one request, and takes no filters:
+  it is of this calendar month in the user's time zone (`from`, `to`). `balance` is what every account that is not
+  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`, which asks `ListAccounts`),
+  with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
+  actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
+  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
+  ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
+  next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
+  has an account that is not archived, for the screen to show a new user where to start. `GetDashboard` holds the
+  counts.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
   counts in its own, and income and transfers never count. Each item has its `share` of the total, to one

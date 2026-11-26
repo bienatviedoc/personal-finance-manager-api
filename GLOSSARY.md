@@ -132,6 +132,10 @@ _Avoid_: Range (in the interface), window, budget month (for a report)
 One category (with its subcategories) or one payee followed over a report period: what it came to in each month, and its period-over-period change, the amount and percentage by which each month's total differs from the month before.
 _Avoid_: History, timeline, family (for a category and its subcategories)
 
+**Dashboard**:
+The screen a user lands on: their total balance, this month's income, expenses and net, budget status, top five spending categories, latest transactions and what is coming up from recurring rules, each linking to the screen or report behind it.
+_Avoid_: Home, overview, summary (which is the monthly summary)
+
 **Net worth**:
 What a user is worth on a day, in the base currency: the balances of their assets (every account but credit cards and loans) minus the amount owed on their liabilities (credit cards and loans), archived accounts included.
 _Avoid_: Wealth, equity, balance (for the total)
