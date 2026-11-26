@@ -3310,6 +3310,77 @@
           }
         }
       }
+    },
+    "/api/v1/reports/cash-flow": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "description": "Cash flow over time: the running balance at the end of every day, or of every week (Monday to Sunday) and of the period, of one account in its own currency, or of all the user's accounts, archived ones included, in the user's base currency. A balance is the opening balance, from the account's opening date, plus every transaction dated on or before the day; across accounts, each currency's balance is converted at that day's exchange rate, or the nearest earlier one, and one with no rate is left out and listed in notConverted.",
+        "operationId": "GetCashFlow",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "accountId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CashFlowResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3604,6 +3675,35 @@
           }
         }
       },
+      "BalanceInterval": {
+        "enum": [
+          "day",
+          "week"
+        ]
+      },
+      "BalanceOnDayResponse": {
+        "required": [
+          "date",
+          "balance",
+          "notConverted"
+        ],
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "balance": {
+            "type": "string"
+          },
+          "notConverted": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotConvertedBalanceResponse"
+            }
+          }
+        }
+      },
       "BaseCurrencyTotalResponse": {
         "required": [
           "currency",
@@ -3802,6 +3902,46 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "CashFlowResponse": {
+        "required": [
+          "from",
+          "to",
+          "interval",
+          "currency",
+          "accountId",
+          "points"
+        ],
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date"
+          },
+          "to": {
+            "type": "string",
+            "format": "date"
+          },
+          "interval": {
+            "$ref": "#/components/schemas/BalanceInterval"
+          },
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "accountId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "points": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BalanceOnDayResponse"
+            }
           }
         }
       },
@@ -4217,6 +4357,21 @@
         }
       },
       "NotConvertedAmountResponse": {
+        "required": [
+          "currency",
+          "balance"
+        ],
+        "type": "object",
+        "properties": {
+          "currency": {
+            "$ref": "#/components/schemas/Currency"
+          },
+          "balance": {
+            "type": "string"
+          }
+        }
+      },
+      "NotConvertedBalanceResponse": {
         "required": [
           "currency",
           "balance"

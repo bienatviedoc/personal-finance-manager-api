@@ -14,4 +14,21 @@ public interface IAccountTransactions
 
     /// <summary>Whether the account has any transaction, which fixes its currency.</summary>
     Task<bool> AnyOnAsync(Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What each account's transactions dated before <paramref name="before"/> come to, as
+    /// <see cref="NetByAccountAsync(IReadOnlyCollection{Guid}, CancellationToken)"/> adds them up. An account with
+    /// none is left out.
+    /// </summary>
+    Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountBeforeAsync(IReadOnlyCollection<Guid> accountIds, DateOnly before, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What each account's transactions dated from <paramref name="from"/> to <paramref name="to"/> come to on
+    /// each day, as <see cref="NetByAccountAsync(IReadOnlyCollection{Guid}, CancellationToken)"/> adds them up. A
+    /// day an account has no transaction on is left out.
+    /// </summary>
+    Task<IReadOnlyList<AccountNetOnDay>> NetByDayAsync(IReadOnlyCollection<Guid> accountIds, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 }
+
+/// <summary>What one account's transactions came to on one day, in the account's currency.</summary>
+public sealed record AccountNetOnDay(Guid AccountId, DateOnly Date, decimal Net);

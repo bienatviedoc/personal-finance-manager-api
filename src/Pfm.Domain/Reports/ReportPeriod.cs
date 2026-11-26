@@ -29,6 +29,24 @@ public sealed record ReportPeriod
     public bool Contains(DateOnly date) => date >= From && date <= To;
 
     /// <summary>
+    /// The days a running balance is shown at the end of (spec RPT-4), earliest first: every day of the period; or
+    /// the last day of every week (a week runs Monday to Sunday) that ends in the period, and the period's own last day.
+    /// </summary>
+    public IReadOnlyList<DateOnly> ClosingDays(BalanceInterval interval)
+    {
+        var days = new List<DateOnly>();
+        for (var day = From; day <= To; day = day.AddDays(1))
+        {
+            if (interval == BalanceInterval.Day || day.DayOfWeek == DayOfWeek.Sunday || day == To)
+            {
+                days.Add(day);
+            }
+        }
+
+        return days;
+    }
+
+    /// <summary>
     /// The period a report compares this one with (spec section 7, "compare with the previous period"). A period of
     /// whole calendar months, from a 1st to the last day of a month, is compared with as many whole months just
     /// before it, so March is compared with February and a year with the year before; any other period with as

@@ -18,10 +18,33 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// The database adds up the amounts of each type, refunds apart; the sign of a type has one definition,
     /// <see cref="TransactionTypes.Signed"/>, applied to those sums here.
     /// </summary>
-    public async Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken)
+    public Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken) =>
+        NetByAccountAsync(Counted(accountIds), cancellationToken);
+
+    /// <summary>The same sum as <see cref="NetByAccountAsync(IReadOnlyCollection{Guid}, CancellationToken)"/>, of the transactions dated before a day.</summary>
+    public Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountBeforeAsync(IReadOnlyCollection<Guid> accountIds, DateOnly before, CancellationToken cancellationToken) =>
+        NetByAccountAsync(Counted(accountIds).Where(transaction => transaction.Date < before), cancellationToken);
+
+    /// <summary>The same sum as <see cref="NetByAccountAsync(IReadOnlyCollection{Guid}, CancellationToken)"/>, of each day between two, both included.</summary>
+    public async Task<IReadOnlyList<AccountNetOnDay>> NetByDayAsync(IReadOnlyCollection<Guid> accountIds, DateOnly from, DateOnly to, CancellationToken cancellationToken)
     {
-        var sums = await db.Set<Transaction>()
-            .Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null)
+        var sums = await Counted(accountIds)
+            .Where(transaction => transaction.Date >= from && transaction.Date <= to)
+            .GroupBy(transaction => new { transaction.AccountId, transaction.Date, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new { ofType.Key.AccountId, ofType.Key.Date, ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount) })
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. sums
+                .GroupBy(sum => (sum.AccountId, sum.Date))
+                .Select(day => new AccountNetOnDay(day.Key.AccountId, day.Key.Date, day.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)))),
+        ];
+    }
+
+    private async Task<IReadOnlyDictionary<Guid, decimal>> NetByAccountAsync(IQueryable<Transaction> transactions, CancellationToken cancellationToken)
+    {
+        var sums = await transactions
             .GroupBy(transaction => new { transaction.AccountId, transaction.Type, transaction.IsRefund })
             .Select(ofType => new { ofType.Key.AccountId, ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount) })
             .ToListAsync(cancellationToken);
@@ -30,6 +53,10 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
             .GroupBy(sum => sum.AccountId)
             .ToDictionary(account => account.Key, account => account.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)));
     }
+
+    /// <summary>The transactions on the accounts that count in their balances: every one that is not deleted.</summary>
+    private IQueryable<Transaction> Counted(IReadOnlyCollection<Guid> accountIds) =>
+        db.Set<Transaction>().Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null);
 
     /// <summary>
     /// A deleted transaction still counts: it is recoverable, and would come back in a currency its account
