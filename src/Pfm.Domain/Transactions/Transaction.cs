@@ -135,12 +135,14 @@ public sealed class Transaction : IUserOwned
     public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(SpentAmount, categoryIds);
 
     /// <summary>
-    /// What an income adds to these categories in the base currency: what its lines on them come to, sharing its
-    /// converted amount as <see cref="SpentAmountIn"/> shares an expense's. Nothing for an expense, a leg of a
-    /// transfer, once deleted, or while not converted.
+    /// What the transaction brings in, in the base currency: income adds its converted amount (spec RPT-3).
+    /// Nothing for an expense or a leg of a transfer, which is not income (spec section 3, rule 3), once deleted,
+    /// or while not converted (rule 7).
     /// </summary>
-    public decimal IncomeAmountIn(IReadOnlyCollection<Guid> categoryIds) =>
-        ShareIn(!IsDeleted && Type == TransactionType.Income && Conversion is { Amount: { } converted } ? converted : 0, categoryIds);
+    public decimal IncomeAmount => !IsDeleted && Type == TransactionType.Income && Conversion is { Amount: { } converted } ? converted : 0;
+
+    /// <summary>The part of <see cref="IncomeAmount"/> in these categories, shared among a split's lines as <see cref="SpentAmountIn"/> shares spent.</summary>
+    public decimal IncomeAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(IncomeAmount, categoryIds);
 
     /// <summary>
     /// The part of an amount in the base currency that the lines on these categories take: each line's share

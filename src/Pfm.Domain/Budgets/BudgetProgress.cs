@@ -42,7 +42,11 @@ public sealed record BudgetProgress(Budget Budget, decimal Spent, IReadOnlySet<G
     /// Spent as whole percent of the budget, rounded down so that it never shows a state the budget is not in
     /// yet (79.9% is 79, still on track). Null for a budget of zero, which nothing is a percentage of.
     /// </summary>
-    public int? PercentSpent => Budgeted == 0 ? null : (int)Math.Clamp(Math.Floor(Spent * 100 / Budgeted), int.MinValue, int.MaxValue);
+    public int? PercentSpent => PercentOf(Budgeted, Spent);
+
+    /// <summary>Spent as whole percent of what was budgeted, rounded down; null when nothing was budgeted.</summary>
+    internal static int? PercentOf(decimal budgeted, decimal spent) =>
+        budgeted == 0 ? null : (int)Math.Clamp(Math.Floor(spent * 100 / budgeted), int.MinValue, int.MaxValue);
 
     /// <summary>A warning threshold is a whole percentage from 1 to 100.</summary>
     public static bool IsValidWarningPercent(int percent) => percent is >= 1 and <= 100;
@@ -78,7 +82,7 @@ public sealed record BudgetProgress(Budget Budget, decimal Spent, IReadOnlySet<G
     /// Over above 100% of the budget; a warning at or above the threshold; otherwise on track. A budget of
     /// zero with nothing spent is on track: there is nothing to warn about yet.
     /// </summary>
-    private static BudgetState StateOf(decimal budgeted, decimal spent, int warningPercent) =>
+    internal static BudgetState StateOf(decimal budgeted, decimal spent, int warningPercent) =>
         spent > budgeted ? BudgetState.Over
         : budgeted > 0 && spent * 100 >= budgeted * warningPercent ? BudgetState.Warning
         : BudgetState.OnTrack;

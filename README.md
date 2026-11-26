@@ -37,6 +37,23 @@ dotnet run --project src/Pfm.Api -- migrate
 dotnet run --project src/Pfm.Api
 ```
 
+### Sample data
+
+`seed` gives a new user a year of sample data, up to today, and exits: two institutions, four accounts (one a
+credit card), the default categories, a budget on the main expense categories in every month, and transactions
+with pay, bills, transfers, splits and refunds among everyday spending (`SampleDataSeeder`). The user signs in as
+`sample@example.com` with the password `sample data password`, their email already confirmed. For a local
+environment only: outside the `Development` environment it refuses and exits with code 2.
+
+```bash
+docker compose run --rm api seed
+# or, from source:
+dotnet run --project src/Pfm.Api -- seed [--email <email>] [--password <password>] [--transactions <count>]
+```
+
+`--transactions` sets how many the year holds (each leg of a transfer counting as one); left out, a few a day.
+Seeding an email that already has a user is refused.
+
 ## Test
 
 ```bash
@@ -52,6 +69,49 @@ user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authent
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
+
+### Load test
+
+`tests/load/load-test.js` is a [k6](https://k6.io) test of the speed targets (spec section 8): every list and
+report the app reads, for a user with 50,000 transactions, must answer in under 300 ms (lists) and under 1 s
+(reports) at the 95th percentile. Each request is named, so the summary shows each one's own percentile, and
+the run fails when any is over its target. Seed the user, then run it against an API built in Release:
+
+```bash
+dotnet run --project src/Pfm.Api -c Release -- seed --transactions 50000
+dotnet run --project src/Pfm.Api -c Release
+docker run --rm --network host -v "$PWD/tests/load:/load:ro" grafana/k6:2.4.0 run /load/load-test.js
+```
+
+It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (the seeded user), `VUS`, the
+users browsing at once with no pause between requests (10), `DURATION` (`2m`), and `MIN_TRANSACTIONS`
+(50000), below which the run refuses to start, as the targets are for a user that size; pass each with `-e`.
+
+Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
+in Docker:
+
+| Request | p95, 1 user | p95, 10 users | Target |
+| --- | --- | --- | --- |
+| Transactions, first and next page | 44 ms, 35 ms | 271 ms, 215 ms | 300 ms |
+| Transactions this month, searched, by amount | 11 ms, 139 ms, 83 ms | 77 ms, 476 ms, 276 ms | 300 ms |
+| **Transactions in a category** | **761 ms** | **4.69 s** | 300 ms |
+| Accounts, institutions, categories, recurring rules | 37 ms or less | 217 ms or less | 300 ms |
+| Budgets (a month) | 92 ms | 958 ms | 300 ms |
+| Spending by category, this month | 111 ms | 934 ms | 1 s |
+| Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
+| Spending transactions of a category | 154 ms | 1.31 s | 1 s |
+| Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
+| Income vs expenses, this year, last 12 months compared | 286 ms, 291 ms | 1.09 s, 1.08 s | 1 s |
+| Net worth, last 12 months | 23 ms | 104 ms | 1 s |
+| Budget vs actual, this month, this year | 47 ms, 294 ms | 173 ms, 1.07 s | 1 s |
+
+The last three rows were measured later the same day, in runs of one minute (`-e DURATION=1m`), on the same
+machine and data.
+
+With one user every report meets its target, and every list but one: the transactions of a category, whose
+spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
+read a year of transactions into memory to add them up (spending by category, trends) fall well behind, and income
+vs expenses and budget vs actual over a year, which do the same, just miss it. Both are followed up in #70.
 
 ## Layout
 
@@ -429,8 +489,9 @@ already uses it can still show it. An account can be archived at any balance.
   before any other.
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
-- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`, `ICategoryLookup`)
-  and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`,
+  `IIncomeAndSpending`, `ICategoryLookup`), account balances through `IAccountBalances` (Accounts), budgets through
+  `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
   counts in its own, and income and transfers never count. Each item has its `share` of the total, to one
@@ -441,6 +502,15 @@ already uses it can still show it. An account can be archived at any balance.
   lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+- **Income vs expenses** (RPT-3). `GET /reports/income-vs-expenses` answers the `income`, `expenses` and `net` of
+  every calendar month the period touches, in order and empty ones included, each with its own `from` and `to` (a
+  period starting or ending inside a month covers only its days there), and the same over the whole period as
+  `total` (`IncomeVsExpenses`). Income is what income transactions brought in (`Transaction.IncomeAmount`);
+  expenses are spent, by the same definition as spending by category, so a refund lowers them; transfers are
+  neither. Net is income minus expenses, and the `savingsRate` is net as a percentage of income, to one decimal,
+  none when income is not above zero. Reports reads them through `IIncomeAndSpending`. With `categoryId`, only
+  the lines in that category and its subcategories count. With `compare`, `previous` has the period before's
+  months and total.
 - **Trends** (RPT-7). `GET /reports/trends` follows one category (`categoryId`, with its subcategories) or one payee
   (`payee`, matched whole, trimmed and in any case) over the period: `months` lists every calendar month the period
   touches, cut to it at either end and at zero when nothing happened, each with its `total` and its `change` from
@@ -455,6 +525,24 @@ already uses it can still show it. An account can be archived at any balance.
   position (`ReportPeriod.PreviousMonths`): before whole calendar months, as many calendar months; before any other
   period, each month moved back by the period's days, so 10 March to 20 April is set against 27 January to
   17 February and 18 February to 9 March.
+- **Budget vs actual** (RPT-6). `GET /reports/budget-vs-actual` sets each category's budgets against what was spent
+  against them over the whole budget months the period touches (`ReportPeriod.WholeMonths`): one month, or several
+  summed, `months` saying how many each category has a budget in. Budgets answers it through `IBudgetComparison`, by
+  its own rules (`BudgetComparison` in `Pfm.Domain.Budgets`): a budget counts what was spent in its own month, in its
+  category and, for a top-level one, its subcategories, and its `state` is worked out as on the budget screen with
+  the user's warning threshold. What was spent in a month where no budget covered its category is listed apart
+  under `unbudgeted`, most first. The account filter narrows spent, never the budgets; the category filter shows
+  only that category and its subcategories. Not compared with the period before.
+- **Net worth** (RPT-5). `GET /reports/net-worth` answers, at each month end in the period and on its last day when
+  it ends inside a month (`ReportPeriod.MonthEnds`), the `assets` (every account but credit cards and loans), the
+  `liabilities` (what is owed on credit cards and loans, as a positive number) and `netWorth`, assets minus
+  liabilities (`NetWorthOn`, `Pfm.Domain.Reports`). Accounts answers each account's balance at the end of each day
+  through `IAccountBalances`, worked out from its transactions as every balance is (none before it opened); archived
+  accounts count (spec section 3, rule 10). Unlike a transaction, a balance is converted at the rate of the day it is
+  shown on, or the nearest earlier one, the balances in one currency added up first so a total is rounded once; one
+  with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
+  belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
+  `compare`.
 
 ## Signing in
 
@@ -659,7 +747,9 @@ Registration uses it to create the new user's default categories.
   `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
-  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts. Reports
+  (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
+  its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
   recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
@@ -684,7 +774,11 @@ Registration uses it to create the new user's default categories.
   transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
   so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
   not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
-  nothing, so a late retry cannot bring back what the user deleted.
+  nothing, so a late retry cannot bring back what the user deleted. A transfer unmarked since
+  (`POST /transfers/{id}/unmark`) keeps its key on what was its Transfer out leg, so it is not recorded twice
+  either; as there is no transfer to answer any more, its retry answers 409 with the problem type
+  `urn:pfm:problem:transfer-unmarked` (`CreateTransferOutcome.Unmarked`), whose detail says a new transfer needs a
+  new key. The same key with a different transfer still answers 422 `idempotency-key-reused`.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its

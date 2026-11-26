@@ -46,7 +46,7 @@ _Avoid_: Negative expense, reversal, income (for money returned)
 
 **Spent**:
 The total of a category's expenses in a budget month (or a report period), minus its refunds, in the base currency. It is always derived from transactions and can be negative.
-_Avoid_: Actual, used, consumed
+_Avoid_: Actual, used, consumed (the budget vs actual report keeps the name the specification gives it, RPT-6; within it, say spent)
 
 **Attachment**:
 A receipt kept with a transaction: a JPEG, PNG or PDF file of at most 5 MB that the user can open again later. Removing it deletes the file.
@@ -123,6 +123,18 @@ _Avoid_: Range (in the interface), window, budget month (for a report)
 **Trend**:
 One category (with its subcategories) or one payee followed over a report period: what it came to in each month, and its period-over-period change, the amount and percentage by which each month's total differs from the month before.
 _Avoid_: History, timeline, family (for a category and its subcategories)
+
+**Net worth**:
+What a user is worth on a day, in the base currency: the balances of their assets (every account but credit cards and loans) minus the amount owed on their liabilities (credit cards and loans), archived accounts included.
+_Avoid_: Wealth, equity, balance (for the total)
+
+**Savings rate**:
+Income minus expenses over some dates, as a percentage of that income. There is none when there was no income.
+_Avoid_: Saving ratio, margin
+
+**Unbudgeted**:
+Spent in a budget month where no budget covered its category: none on the category, nor on its parent.
+_Avoid_: Over budget (which a budgeted category is), uncategorized
 
 **Integrity check**:
 The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.
