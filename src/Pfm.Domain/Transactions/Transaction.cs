@@ -27,7 +27,12 @@ public sealed class Transaction : IUserOwned
 
     public const int MaxLines = 50;
 
+    /// <summary>The most tags one transaction takes.</summary>
+    public const int MaxTags = 20;
+
     private readonly List<TransactionLine> _lines = [];
+
+    private readonly List<TransactionTag> _tags = [];
 
     /// <summary>For persistence, which sets every property itself.</summary>
     private Transaction()
@@ -83,6 +88,9 @@ public sealed class Transaction : IUserOwned
 
     /// <summary>Whether the transaction is split across several lines, each with its own category.</summary>
     public bool IsSplit => _lines.Count > 1;
+
+    /// <summary>The tags on the transaction (spec TXN-5), by name.</summary>
+    public IReadOnlyList<TransactionTag> Tags => [.. _tags.OrderBy(tag => tag.Name, StringComparer.Ordinal)];
 
     /// <summary>Who was paid, or who paid; null when not entered.</summary>
     public string? Payee { get; private set; }
@@ -254,6 +262,41 @@ public sealed class Transaction : IUserOwned
         GuardNotALeg();
         GuardRecordedOnItsOwn(type);
         Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
+    }
+
+    /// <summary>
+    /// Puts exactly these tags on the transaction: the ones it had and are not among them come off. Tags are
+    /// labels across categories (spec TXN-5), so they change nothing the transaction adds up to.
+    /// </summary>
+    /// <param name="tags">At most <see cref="MaxTags"/> of the user's tags, each once.</param>
+    /// <exception cref="TransactionRuleViolation">More than <see cref="MaxTags"/> tags.</exception>
+    public void TagWith(IReadOnlyCollection<Tag> tags, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+        GuardNotDeleted();
+        if (tags.Any(tag => tag is null))
+        {
+            throw new ArgumentException("A tag is never null.", nameof(tags));
+        }
+
+        var ids = tags.Select(tag => tag.Id).ToHashSet();
+        if (ids.Count != tags.Count)
+        {
+            throw new ArgumentException("A transaction has a tag once.", nameof(tags));
+        }
+
+        if (ids.Count > MaxTags)
+        {
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.");
+        }
+
+        var removed = _tags.RemoveAll(tag => !ids.Contains(tag.TagId));
+        var added = tags.Where(tag => !_tags.Any(has => has.TagId == tag.Id)).Select(tag => new TransactionTag(tag)).ToList();
+        _tags.AddRange(added);
+        if (removed > 0 || added.Count > 0)
+        {
+            UpdatedAt = now;
+        }
     }
 
     private void GuardNotDeleted()

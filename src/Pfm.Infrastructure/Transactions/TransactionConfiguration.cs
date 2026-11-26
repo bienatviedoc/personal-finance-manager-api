@@ -127,6 +127,21 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         });
         transaction.Navigation(row => row.Lines).HasField("_lines").UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        // Tags are the transaction's own too, each carrying its tag's name, which never changes: a transaction
+        // is read with its tags and no join to the tags themselves.
+        transaction.OwnsMany(row => row.Tags, tag =>
+        {
+            tag.ToTable("TransactionTags");
+            tag.WithOwner().HasForeignKey(TransactionId);
+            tag.HasKey(TransactionId, nameof(TransactionTag.TagId));
+            tag.Property(row => row.Name).HasMaxLength(Tag.MaxNameLength);
+
+            // A tag stays while a transaction has it; the list filters by tag through this index.
+            tag.HasOne<Tag>().WithMany().HasForeignKey(row => row.TagId).OnDelete(DeleteBehavior.Restrict);
+            tag.HasIndex(nameof(TransactionTag.TagId), TransactionId);
+        });
+        transaction.Navigation(row => row.Tags).HasField("_tags").UsePropertyAccessMode(PropertyAccessMode.Field);
+
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
 
