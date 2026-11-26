@@ -145,17 +145,18 @@ public static class BudgetEndpoints
         return result.IsValid ? TypedResults.Ok(new CopiedBudgetsResponse(result.Outcome!.Copied)) : ValidationProblems.For(result);
     }
 
-    private static BudgetResponse Versioned(HttpContext http, BudgetResponse budget)
+    private static TBudget Versioned<TBudget>(HttpContext http, TBudget budget)
+        where TBudget : IVersionedBudgetResponse
     {
         http.SendAsETag(budget.RowVersion);
         return budget;
     }
+}
 
-    private static OverallBudgetResponse Versioned(HttpContext http, OverallBudgetResponse budget)
-    {
-        http.SendAsETag(budget.RowVersion);
-        return budget;
-    }
+/// <summary>A budget answered with the row version it is sent with as its ETag.</summary>
+public interface IVersionedBudgetResponse
+{
+    string RowVersion { get; }
 }
 
 /// <summary>What setting a budget sends. Its currency is not sent: it is the user's base currency.</summary>
@@ -181,7 +182,7 @@ public sealed record CopiedBudgetsResponse(int Copied);
 /// </param>
 public sealed record BudgetResponse(
     Guid CategoryId, BudgetCategoryResponse Category, string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetState State,
-    int NotConverted, string RowVersion, BudgetPace? Pace)
+    int NotConverted, string RowVersion, BudgetPace? Pace) : IVersionedBudgetResponse
 {
     public static BudgetResponse From(BudgetDetails budget) =>
         new(budget.CategoryId, BudgetCategoryResponse.From(budget.Category), AmountJson.Text(budget.Budgeted), AmountJson.Text(budget.Spent),
@@ -203,6 +204,7 @@ public sealed record BudgetResponse(
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when changing the overall budget's amount.</param>
 public sealed record OverallBudgetResponse(
     string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetState State, BudgetPace? Pace, int NotConverted, string RowVersion)
+    : IVersionedBudgetResponse
 {
     public static OverallBudgetResponse From(OverallBudgetDetails budget) =>
         new(AmountJson.Text(budget.Budgeted), AmountJson.Text(budget.Spent), AmountJson.Text(budget.Remaining), budget.PercentSpent, budget.State,
