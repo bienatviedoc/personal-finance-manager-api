@@ -54,7 +54,8 @@ public static class UserErasureFixtures
             type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart",
             lines = new object[] { new { categoryId = food, amount = "320000", note = "Rice" }, new { categoryId = streetFood, amount = "180000" } },
         })).EnsureSuccessStatusCode();
-        (await browser.PutAsync($"/api/v1/budgets/{DateTime.UtcNow:yyyy-MM}/{food}", new { amount = "3000000" })).EnsureSuccessStatusCode();
+        // Set below what November already spent, so it raises a budget notification.
+        (await browser.PutAsync($"/api/v1/budgets/2026-11/{food}", new { amount = "300000" })).EnsureSuccessStatusCode();
 
         // Due far in the future, so it posts nothing meanwhile.
         (await browser.PostAsync("/api/v1/recurring-rules", new { type = "expense", accountId, amount = "9000000", categoryId = food, payee = "Landlord", frequency = "monthly", startDate = "2099-01-31" })).EnsureSuccessStatusCode();
@@ -69,6 +70,7 @@ public static class UserErasureFixtures
         {
             ["Accounts"] = 2,
             ["Attachments"] = 1,
+            ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,

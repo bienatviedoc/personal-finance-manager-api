@@ -80,6 +80,8 @@ public static class InfrastructureServices
         services.AddScoped<IAccountTransactions, TransactionTotals>();
         services.AddScoped<ICategorySpending, TransactionTotals>();
         services.AddScoped<IBudgetRepository, BudgetRepository>();
+        services.AddScoped<IBudgetNotificationRepository, BudgetNotificationRepository>();
+        services.AddTransient<IBudgetNotificationEmails, BudgetNotificationEmails>();
         services.AddExchangeRates();
 
         return services;

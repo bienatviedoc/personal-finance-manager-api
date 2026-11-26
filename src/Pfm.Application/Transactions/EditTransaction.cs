@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -47,7 +48,7 @@ public sealed record EditTransactionOutcome(TransactionDetails? Edited)
 /// </summary>
 public sealed class EditTransactionHandler(
     IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
-    TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionConversion conversion, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<EditTransactionCommand, EditTransactionOutcome?>(validator)
 {
     protected override async Task<Result<EditTransactionOutcome?>> ExecuteAsync(EditTransactionCommand command, CancellationToken cancellationToken)
@@ -91,6 +92,7 @@ public sealed class EditTransactionHandler(
 
         var against = read.Outcome;
         var fields = command.Parsed;
+        var dateBefore = transaction.Date;
         try
         {
             if (against.Split is { } lines)
@@ -114,6 +116,9 @@ public sealed class EditTransactionHandler(
         // Converts again only what an edit of the amount, the date or the account left without a converted amount.
         await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        // What was spent moves in the month it left as well as the one it is in.
+        await budgetNotifications.CheckAsync([dateBefore, transaction.Date], cancellationToken);
         return new EditTransactionOutcome(TransactionDetails.Of(transaction));
     }
 }

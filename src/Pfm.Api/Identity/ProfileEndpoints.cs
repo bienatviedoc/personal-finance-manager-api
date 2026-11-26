@@ -22,7 +22,8 @@ public static class ProfileEndpoints
     private static async Task<Results<Ok<ProfileResponse>, ValidationProblem, UnauthorizedHttpResult>> UpdateMe(
         UpdateProfileRequest request, UpdateProfileHandler handler, CancellationToken cancellationToken)
     {
-        var result = await handler.HandleAsync(new UpdateProfileCommand(request.BaseCurrency, request.TimeZone, request.Locale, request.BudgetWarningPercent), cancellationToken);
+        var result = await handler.HandleAsync(new UpdateProfileCommand(
+            request.BaseCurrency, request.TimeZone, request.Locale, request.BudgetWarningPercent, request.EmailBudgetNotifications), cancellationToken);
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
@@ -37,16 +38,21 @@ public static class ProfileEndpoints
 /// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
 /// <param name="Locale">A language tag: <c>en</c> or <c>vi</c>.</param>
 /// <param name="BudgetWarningPercent">The share of a budget, in whole percent from 1 to 100, at which its state becomes a warning.</param>
-public sealed record UpdateProfileRequest(string? BaseCurrency = null, string? TimeZone = null, string? Locale = null, int? BudgetWarningPercent = null);
+/// <param name="EmailBudgetNotifications">Whether budget notifications are emailed as well as shown in the app.</param>
+public sealed record UpdateProfileRequest(
+    string? BaseCurrency = null, string? TimeZone = null, string? Locale = null, int? BudgetWarningPercent = null, bool? EmailBudgetNotifications = null);
 
 /// <summary>The signed-in user and their settings.</summary>
 /// <param name="TimeZone">An IANA time zone id.</param>
 /// <param name="Locale">Null until the user picks one; until then the interface follows their browser.</param>
 /// <param name="BudgetWarningPercent">The share of a budget, in whole percent, at which its state becomes a warning.</param>
 /// <param name="BaseCurrencyLocked">True once the user has a budget: the base currency can then no longer change.</param>
+/// <param name="EmailBudgetNotifications">Whether budget notifications are emailed as well as shown in the app; true until switched off.</param>
 public sealed record ProfileResponse(
-    Guid Id, string Email, Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent, bool BaseCurrencyLocked)
+    Guid Id, string Email, Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent, bool BaseCurrencyLocked,
+    bool EmailBudgetNotifications)
 {
     public static ProfileResponse From(ProfileDetails profile) =>
-        new(profile.Id, profile.Email, profile.BaseCurrency, profile.TimeZone, profile.Locale, profile.BudgetWarningPercent, profile.BaseCurrencyIsLocked);
+        new(profile.Id, profile.Email, profile.BaseCurrency, profile.TimeZone, profile.Locale, profile.BudgetWarningPercent, profile.BaseCurrencyIsLocked,
+            profile.EmailBudgetNotifications);
 }

@@ -54,6 +54,8 @@ public static class ApplicationServices
         services.AddScoped<ICategoryLookup, CategoryLookup>();
         services.AddScoped<IUserBudgets, UserBudgets>();
         services.AddScoped<BudgetMonthReader>();
+        services.AddScoped<IBudgetNotifications, BudgetNotifications>();
+        services.AddScoped<INotificationRecipient, CurrentUserNotificationRecipient>();
 
         // Every module converts between currencies through this.
         services.AddScoped<ICurrencyConversion, CurrencyConversion>();

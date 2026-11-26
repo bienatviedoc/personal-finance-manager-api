@@ -1,4 +1,5 @@
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
 using Pfm.Application.UseCases;
@@ -13,7 +14,7 @@ namespace Pfm.Application.Transactions;
 /// record 0002). With no rate on or before its date the transaction is flagged not converted.
 /// </summary>
 public sealed class TransactionConversion(
-    ICurrencyConversion conversion, ITransactionRepository transactions, IActForUser actFor, IUnitOfWork unitOfWork)
+    ICurrencyConversion conversion, ITransactionRepository transactions, IBudgetNotifications budgetNotifications, IActForUser actFor, IUnitOfWork unitOfWork)
     : ITransactionConversion
 {
     /// <summary>Runs for no user, in the worker, so it acts for each user in turn and saves what it converted of theirs.</summary>
@@ -38,16 +39,25 @@ public sealed class TransactionConversion(
         try
         {
             // A save that fails found one edited or deleted by its user meanwhile, perhaps converted by that edit: start again from what was saved.
-            return await unitOfWork.RetryOnConcurrentChangeAsync(async () =>
+            var converted = await unitOfWork.RetryOnConcurrentChangeAsync(async () =>
             {
+                var dates = new List<DateOnly>();
                 foreach (var transaction in await transactions.ListNotConvertedAsync(cancellationToken))
                 {
                     await ConvertAsync(transaction, transaction.Conversion!.BaseCurrency, cancellationToken);
+                    if (transaction.Conversion!.Amount is not null)
+                    {
+                        dates.Add(transaction.Date);
+                    }
                 }
 
                 await unitOfWork.SaveChangesAsync(cancellationToken);
-                return true;
+                return dates;
             });
+
+            // An amount converted now counts in spent from now on.
+            await budgetNotifications.CheckAsync(converted, cancellationToken);
+            return true;
         }
         catch (ConcurrentChangeException)
         {

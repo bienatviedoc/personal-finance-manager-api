@@ -81,7 +81,8 @@ public class DataExportTests(PfmApi api)
         Assert.Equal(
             new Dictionary<string, string>
             {
-                ["id"] = id!, ["email"] = email, ["baseCurrency"] = "USD", ["timeZone"] = "Europe/Stockholm", ["locale"] = "vi", ["budgetWarningPercent"] = "80", ["twoFactorSignIn"] = "False",
+                ["id"] = id!, ["email"] = email, ["baseCurrency"] = "USD", ["timeZone"] = "Europe/Stockholm", ["locale"] = "vi", ["budgetWarningPercent"] = "80", ["emailBudgetNotifications"] = "True",
+                ["twoFactorSignIn"] = "False",
             },
             profile.EnumerateObject().ToDictionary(property => property.Name, property => property.Value.ToString()));
     }

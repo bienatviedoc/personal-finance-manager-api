@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions;
@@ -18,7 +19,8 @@ public sealed class DeleteTransactionValidator : AbstractValidator<DeleteTransac
 
 /// <summary>Answers null when the user has no transaction with that id, or already deleted it.</summary>
 public sealed class DeleteTransactionHandler(
-    IValidator<DeleteTransactionCommand> validator, ITransactionRepository transactions, IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<DeleteTransactionCommand> validator, ITransactionRepository transactions, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<DeleteTransactionCommand, Done?>(validator)
 {
     /// <summary>A delete names no row version, so one that meets a change made at the same moment is made again on what was saved.</summary>
@@ -43,6 +45,12 @@ public sealed class DeleteTransactionHandler(
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (transaction.TransferId is null)
+            {
+                // A refund deleted raises spent again.
+                await budgetNotifications.CheckAsync([transaction.Date], cancellationToken);
+            }
+
             return new Done();
         });
 }
