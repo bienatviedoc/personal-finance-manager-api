@@ -106,6 +106,19 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public Guid? RecurringRuleId { get; private set; }
 
+    /// <summary>
+    /// The reconciliation the transaction is ticked in; null while it is in none. It stays ticked when the
+    /// reconciliation completes, which locks it (&lt;see cref="IsReconciled"/&gt;).
+    /// </summary>
+    public Guid? ReconciliationId { get; private set; }
+
+    /// <summary>
+    /// Whether the transaction is in a completed reconciliation, which locks it: its amount, date and account,
+    /// and whatever else moves its account's balance (its type and whether it is a refund), cannot change, and it
+    /// cannot be deleted, until the reconciliation is reopened (spec section 3, rule 11).
+    /// </summary>
+    public bool IsReconciled { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
@@ -441,7 +454,9 @@ public sealed class Transaction : IUserOwned
     private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
-    /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction is a leg of a transfer, which is deleted as a transfer, or it is reconciled.
+    /// </exception>
     public void Delete(DateTimeOffset now)
     {
         GuardNotALeg();
@@ -494,6 +509,14 @@ public sealed class Transaction : IUserOwned
             return;
         }
 
+        if (IsReconciled)
+        {
+            throw new InvalidOperationException("A reconciled transaction cannot be deleted until its reconciliation is reopened.");
+        }
+
+        // A deleted transaction is on no statement: it leaves the reconciliation it was ticked in.
+        ReconciliationId = null;
+
         DeletedAt = now;
         UpdatedAt = now;
     }
@@ -510,6 +533,8 @@ public sealed class Transaction : IUserOwned
         {
             throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type.");
         }
+
+        GuardUnlocked(type, accountId, amount, date, isRefund);
 
         if (!Enum.IsDefined(currency))
         {
@@ -559,6 +584,12 @@ public sealed class Transaction : IUserOwned
             DropConversion();
         }
 
+        // Moved to another account, it is on that account's statements, not on the one it was ticked against.
+        if (accountId != AccountId)
+        {
+            ReconciliationId = null;
+        }
+
         Type = type;
         AccountId = accountId;
         Currency = currency;
@@ -571,6 +602,46 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
         Replace(lines, now);
     }
+
+    /// <summary>
+    /// Refuses, while the transaction is reconciled, a change to what its account's balance depends on: the
+    /// amount, the date and the account (spec section 3, rule 11), and the type and refund flag, which give the
+    /// amount its sign.
+    /// </summary>
+    private void GuardUnlocked(TransactionType type, Guid accountId, decimal amount, DateOnly date, bool isRefund)
+    {
+        if (!IsReconciled)
+        {
+            return;
+        }
+
+        var changed =
+            amount != Amount ? nameof(Amount)
+            : date != Date ? nameof(Date)
+            : accountId != AccountId ? nameof(AccountId)
+            : type != Type ? nameof(Type)
+            : isRefund != IsRefund ? nameof(IsRefund)
+            : null;
+        if (changed is not null)
+        {
+            throw new TransactionRuleViolation(changed, Locked);
+        }
+    }
+
+    /// <summary>What a change refused on a reconciled transaction says.</summary>
+    internal const string Locked = "This transaction is reconciled, so its amount, date, account and type cannot change until its reconciliation is reopened.";
+
+    /// <summary>Ticks the transaction in a reconciliation, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void TickIn(Guid reconciliationId) => ReconciliationId = reconciliationId;
+
+    /// <summary>Unticks the transaction, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Untick() => ReconciliationId = null;
+
+    /// <summary>Locks the transaction as its reconciliation completes, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Reconcile() => IsReconciled = true;
+
+    /// <summary>Unlocks the transaction as its reconciliation is reopened, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Unreconcile() => IsReconciled = false;
 
     /// <summary>What rule an amount in this currency breaks, for a transaction, one of its lines or a recurring rule; null when it breaks none.</summary>
     internal static string? AmountRuleBroken(decimal amount, Currency currency) =>

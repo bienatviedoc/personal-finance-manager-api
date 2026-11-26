@@ -63,6 +63,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
 
             // A recurring rule posts income and expenses only (spec section 3): never a leg of a transfer.
             table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_RecurringRule", "\"TransferId\" IS NULL OR \"RecurringRuleId\" IS NULL");
+
+            // A transaction is reconciled only in the reconciliation it is ticked in (spec section 3, rule 11).
+            table.HasCheckConstraint("CK_Transactions_Reconciled_Is_Ticked", "NOT \"IsReconciled\" OR \"ReconciliationId\" IS NOT NULL");
         });
         transaction.HasKey(row => row.Id);
         transaction.Property(row => row.Id).ValueGeneratedNever();

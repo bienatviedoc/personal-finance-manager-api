@@ -435,6 +435,32 @@ already uses it can still show it. An account can be archived at any balance.
 - The domain's rules and the database's constraints keep all of this from happening; tests break the rows in
   the database to see each drift found (`IntegrityCheckTests`).
 
+### Reconciliations
+
+An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11), under
+`Pfm.Application.Transactions.Reconciliations`:
+
+- `POST /accounts/{id}/reconciliations` starts one with the statement's closing date and balance. An account has
+  one in progress at a time (a unique index on the account where `CompletedAt` is null; another answers 409
+  `urn:pfm:problem:reconciliation-in-progress`), and a statement is not dated before the account's last one.
+- `GET /reconciliations/{id}/transactions` lists what can be ticked: the account's transactions dated on or before
+  the statement date that no reconciliation holds, and those ticked in this one (`Transaction.ReconciliationId`).
+  `PUT` and `DELETE /reconciliations/{id}/transactions/{transactionId}` tick and untick, answering the new
+  difference.
+- The difference is measured from the account's **reconciled balance**: its opening balance plus every
+  transaction reconciled in its other reconciliations (`ReconciliationContext`). So the next statement, which
+  carries everything before it, is matched by ticking only what came since.
+- `POST /reconciliations/{id}/complete` locks the ticked transactions (`Transaction.IsReconciled`) only at a
+  difference of exactly zero; otherwise 409 `urn:pfm:problem:reconciliation-difference-not-zero`. Nothing is
+  ever added to make it zero.
+- A reconciled transaction refuses a change to its amount, date, account, type or refund flag, each named as the
+  field at fault; its payee, note and category still change. Deleting it answers 409
+  `urn:pfm:problem:transaction-reconciled`. A transfer is locked as soon as either leg is reconciled, and can
+  then be neither marked from a reconciled transaction nor unmarked.
+- `POST /reconciliations/{id}/reopen` unlocks its transactions, which stay ticked. Only the account's latest can
+  be (409 `urn:pfm:problem:reconciliation-not-latest`), as each later one is measured from it.
+  `DELETE /reconciliations/{id}` cancels one in progress, unticking what it held.
+
 ### Budgets
 
 - **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st

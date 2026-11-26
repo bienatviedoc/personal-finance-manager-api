@@ -414,6 +414,52 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Categories", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Transactions.Reconciliation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CompletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<decimal>("StatementBalance")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<DateOnly>("StatementDate")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Reconciliations_AccountId_InProgress")
+                        .HasFilter("\"CompletedAt\" IS NULL");
+
+                    b.HasIndex("AccountId", "Id");
+
+                    b.ToTable("Reconciliations", (string)null);
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
                 {
                     b.Property<Guid>("Id")
@@ -581,6 +627,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<bool>("IsReconciled")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsRefund")
                         .HasColumnType("boolean");
 
@@ -591,6 +640,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<string>("Payee")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("ReconciliationId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("RecurringRuleId")
                         .HasColumnType("uuid");
@@ -647,6 +699,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CategoryId");
 
+                    b.HasIndex("ReconciliationId");
+
                     b.HasIndex("RecurringRuleId");
 
                     b.HasIndex("UserId")
@@ -679,6 +733,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_Transactions_Amount_Positive", "\"Amount\" > 0");
 
                             t.HasCheckConstraint("CK_Transactions_Converted_Or_Not", "(\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRate\" IS NULL) AND (\"BaseCurrencyAmount\" IS NULL) = (\"ExchangeRateDate\" IS NULL)");
+
+                            t.HasCheckConstraint("CK_Transactions_Reconciled_Is_Ticked", "NOT \"IsReconciled\" OR \"ReconciliationId\" IS NOT NULL");
 
                             t.HasCheckConstraint("CK_Transactions_Refund_Is_Expense", "NOT \"IsRefund\" OR \"Type\" = 'Expense'");
 
@@ -847,6 +903,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.NoAction);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Transactions.Reconciliation", b =>
+                {
+                    b.HasOne("Pfm.Domain.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.RecurringRule", b =>
                 {
                     b.HasOne("Pfm.Domain.Accounts.Account", null)
@@ -873,6 +938,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Pfm.Domain.Transactions.Reconciliation", null)
+                        .WithMany()
+                        .HasForeignKey("ReconciliationId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Pfm.Domain.Transactions.RecurringRule", null)

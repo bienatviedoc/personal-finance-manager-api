@@ -144,6 +144,32 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .Select(transaction => new RecordedRequest(transaction, EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyFingerprint)))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> ListTickedAsync(Guid reconciliationId, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>()
+            .Where(transaction => transaction.ReconciliationId == reconciliationId && transaction.DeletedAt == null)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Transaction>> ListUnreconciledAsync(Guid accountId, DateOnly through, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>()
+            .Where(transaction =>
+                transaction.AccountId == accountId && transaction.Date <= through && transaction.ReconciliationId == null && transaction.DeletedAt == null)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// The database adds up the amounts of each type, refunds apart; the sign of a type has one definition,
+    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here, as for an account's balance.
+    /// </summary>
+    public async Task<decimal> ReconciledNetAsync(Guid accountId, Guid except, CancellationToken cancellationToken)
+    {
+        var sums = await db.Set<Transaction>()
+            .Where(transaction =>
+                transaction.AccountId == accountId && transaction.IsReconciled && transaction.ReconciliationId != except && transaction.DeletedAt == null)
+            .GroupBy(transaction => new { transaction.Type, transaction.IsRefund })
+            .Select(ofType => new { ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount) })
+            .ToListAsync(cancellationToken);
+        return sums.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund));
+    }
+
     public Task<Transaction?> FindDeletedAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt != null, cancellationToken);
 

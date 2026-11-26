@@ -13,16 +13,17 @@ namespace Pfm.Application.Transactions;
 /// <param name="Lines">One line with the whole amount, or the lines of a split, which sum exactly to the amount.</param>
 /// <param name="Tags">The names of its tags, in order.</param>
 /// <param name="RecurringRuleId">The recurring rule that posted it; null for one a user recorded, and once the rule is deleted.</param>
+/// <param name="IsReconciled">Whether it is in a completed reconciliation, which locks its amount, date and account until the reconciliation is reopened.</param>
 public sealed record TransactionDetails(
     Guid Id, TransactionType Type, Guid AccountId, decimal Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
     Guid? TransferId, uint RowVersion, bool IsRefund, IReadOnlyList<TransactionLineDetails> Lines, IReadOnlyList<string> Tags,
-    Guid? RecurringRuleId = null)
+    Guid? RecurringRuleId = null, bool IsReconciled = false)
 {
     public static TransactionDetails Of(Transaction transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, transaction.Amount, transaction.Currency, transaction.Date,
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion, transaction.IsRefund,
             [.. transaction.Lines.Select(line => new TransactionLineDetails(line.CategoryId, line.Amount, line.Note))],
-            [.. transaction.Tags.Select(tag => tag.Name)], transaction.RecurringRuleId);
+            [.. transaction.Tags.Select(tag => tag.Name)], transaction.RecurringRuleId, transaction.IsReconciled);
 }
 
 /// <summary>A line of a transaction as the use cases return it.</summary>

@@ -32,11 +32,12 @@ public static class TransactionEndpoints
             .WithDescription("Records income or an expense on an account, in the account's currency; the account's balance follows at once. An expense flagged isRefund is a refund and raises the balance. Send lines in place of categoryId to split it across categories: lines that do not sum exactly to the amount are refused. Send an Idempotency-Key the client made up for this transaction: a retry with the same key answers the transaction the first request recorded and records nothing, and a different transaction sent with a key already used answers 422.")
             .ProducesProblem(StatusCodes.Status422UnprocessableEntity);
         transactions.MapPut("/{id:guid}", Edit).WithName("EditTransaction")
-            .WithDescription("Changes income or an expense; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428. A leg of a transfer is refused on its type: edit the transfer under /transfers.")
+            .WithDescription("Changes income or an expense; the balance of its account, and of the account it was moved from, follows at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428. A leg of a transfer is refused on its type: edit the transfer under /transfers. A reconciled transaction refuses a change to its amount, date, account, type or refund flag, each named as the field at fault; its payee, note and category can still change.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         transactions.MapDelete("/{id:guid}", Delete).WithName("DeleteTransaction")
-            .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once. Deleting a leg of a transfer deletes the whole transfer, the other leg with it.");
+            .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once. Deleting a leg of a transfer deletes the whole transfer, the other leg with it. A reconciled transaction, or a leg of a transfer either of whose legs is reconciled, answers 409 with the problem type urn:pfm:problem:transaction-reconciled and is not deleted.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
     }
@@ -46,6 +47,12 @@ public static class TransactionEndpoints
     /// different one: nothing is recorded. Send a new transaction under a new key.
     /// </summary>
     public const string IdempotencyKeyReused = "urn:pfm:problem:idempotency-key-reused";
+
+    /// <summary>
+    /// Problem type returned when a reconciled transaction, or a transfer with a reconciled leg, is deleted:
+    /// it is locked until its reconciliation is reopened, and nothing changes.
+    /// </summary>
+    public const string TransactionReconciled = "urn:pfm:problem:transaction-reconciled";
 
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
@@ -210,7 +217,7 @@ public static class TransactionEndpoints
         };
     }
 
-    private static async Task<Results<NoContent, NotFound, ValidationProblem>> Delete(
+    private static async Task<Results<NoContent, NotFound, ValidationProblem, ProblemHttpResult>> Delete(
         Guid id, DeleteTransactionHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new DeleteTransactionCommand(id), cancellationToken);
@@ -219,8 +226,20 @@ public static class TransactionEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
+        return result.Outcome switch
+        {
+            null => TypedResults.NotFound(),
+            DeleteOutcome.Reconciled => Reconciled(),
+            _ => TypedResults.NoContent(),
+        };
     }
+
+    /// <summary>A 409 for a delete of a reconciled transaction, or of a transfer with a reconciled leg.</summary>
+    internal static ProblemHttpResult Reconciled() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status409Conflict, type: TransactionReconciled,
+            title: "This transaction is reconciled.",
+            detail: "A reconciled transaction is locked: reopen its reconciliation to delete it.");
 
     private static TransactionResponse Versioned(HttpContext http, TransactionResponse transaction)
     {
@@ -267,15 +286,17 @@ public sealed record TransactionLineRequest(Guid CategoryId, string Amount, stri
 /// <param name="Lines">One line with the whole amount, or, for a split transaction, its lines in the order they were entered; their amounts sum exactly to <paramref name="Amount"/>.</param>
 /// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
 /// <param name="Tags">The names of its tags, in alphabetical order; none for a transaction without tags.</param>
+/// <param name="IsReconciled">Whether it is in a completed reconciliation: its amount, date, account and type cannot change, and it cannot be deleted, until that reconciliation is reopened.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
-    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId, IReadOnlyList<string> Tags)
+    Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId, IReadOnlyList<string> Tags,
+    bool IsReconciled)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion.ToString(CultureInfo.InvariantCulture),
             transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
-            transaction.RecurringRuleId, transaction.Tags);
+            transaction.RecurringRuleId, transaction.Tags, transaction.IsReconciled);
 }
 
 /// <summary>A recently deleted transaction, as it was when it was deleted.</summary>
