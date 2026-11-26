@@ -610,6 +610,14 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
   belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
   `compare`.
+- **Cash flow** (RPT-4). `GET /reports/cash-flow` answers the running balance at the end of every day of the period,
+  or with `interval=week` at the end of every week (Monday to Sunday) and of the period's last day
+  (`ReportPeriod.ClosingDays`). With `accountId`, it is that account's balance in its own currency, as the account
+  detail page charts it; without, it is every account's, archived ones included, in the base currency. The balances
+  come from `IAccountBalances`, as net worth's do (none before an account opened), and across accounts the balances in
+  one currency are added up and converted at the rate of the day shown, or the nearest earlier one, all of a period's
+  rates read at once (`ICurrencyConversion` with dated amounts); a balance with no rate is left out and counted in
+  `notConverted`. Takes no `categoryId` or `compare`.
 - **The monthly summary** (spec section 7, export). `GET /reports/monthly-summary.pdf?month=2026-11` answers one
   calendar month as a PDF file to download (`monthly-summary-2026-11.pdf`): income, expenses, net and savings rate,
   spending by top-level category with shares, and budget vs actual with what was spent unbudgeted. `GetMonthlySummary`

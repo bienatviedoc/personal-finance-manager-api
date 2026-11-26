@@ -144,6 +144,14 @@ _Avoid_: Home, overview, summary (which is the monthly summary)
 What a user is worth on a day, in the base currency: the balances of their assets (every account but credit cards and loans) minus the amount owed on their liabilities (credit cards and loans), archived accounts included.
 _Avoid_: Wealth, equity, balance (for the total)
 
+**Cash flow**:
+How a balance moved over a report period: the running balance of one account, in its own currency, or of all of a user's accounts, archived ones included, in the base currency, at the end of every day or of every week.
+_Avoid_: Cash flow statement, balance history, income vs expenses (which is money in and out, not a balance)
+
+**Running balance**:
+An account's balance at the end of a day: its opening balance plus every transaction dated on or before that day, and nothing before the account opened.
+_Avoid_: Cumulative balance, end-of-day total
+
 **Savings rate**:
 Income minus expenses over some dates, as a percentage of that income. There is none when there was no income.
 _Avoid_: Saving ratio, margin
