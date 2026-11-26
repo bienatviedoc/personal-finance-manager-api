@@ -103,6 +103,35 @@ public class DashboardTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Budget_status_shows_this_months_overall_budget_and_its_pace_beside_the_category_budgets()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var month = ThisMonth.ToString("yyyy-MM");
+        await BudgetAsync(browser, month, "Transport", "2000000");
+        (await browser.PutAsync($"/api/v1/budgets/{month}/overall", new { amount = "1000000" })).EnsureSuccessStatusCode();
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "1200000", ThisMonth);
+
+        var budgets = (await DashboardAsync(browser)).Budgets!;
+
+        Assert.Equal(("2000000.00", "1200000.00"), (budgets.Budgeted, budgets.Spent));
+        Assert.Equal(new OverallBody("1000000.00", "1200000.00", "-200000.00", 120, "over", "aheadOfPace", 0), budgets.Overall);
+    }
+
+    [Fact]
+    public async Task A_user_with_only_an_overall_budget_this_month_still_has_a_budget_status()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        (await browser.PutAsync($"/api/v1/budgets/{ThisMonth:yyyy-MM}/overall", new { amount = "1000000" })).EnsureSuccessStatusCode();
+
+        var budgets = (await DashboardAsync(browser)).Budgets;
+
+        Assert.NotNull(budgets);
+        Assert.Equal((0, 0, 0), (budgets.OnTrack, budgets.Warning, budgets.Over));
+        Assert.Empty(budgets.NeedingAttention);
+        Assert.Equal(new OverallBody("1000000.00", "0.00", "1000000.00", 0, "onTrack", "onPace", 0), budgets.Overall);
+    }
+
+    [Fact]
     public async Task With_no_budget_this_month_there_is_no_budget_status()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -245,7 +274,10 @@ public class DashboardTests(PfmApi api) : IAsyncLifetime
 
     private sealed record BudgetItemBody(CategoryBody Category, string Budgeted, string Spent, int? PercentSpent, string State);
 
-    private sealed record BudgetsBody(string Budgeted, string Spent, string Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted, List<BudgetItemBody> NeedingAttention);
+    private sealed record BudgetsBody(string Budgeted, string Spent, string Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted, List<BudgetItemBody> NeedingAttention,
+        OverallBody? Overall);
+
+    private sealed record OverallBody(string Budgeted, string Spent, string Remaining, int? PercentSpent, string State, string? Pace, int NotConverted);
 
     private sealed record AccountBody(Guid Id, string Name);
 

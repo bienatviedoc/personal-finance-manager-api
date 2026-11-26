@@ -3,6 +3,7 @@ using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Domain;
+using Pfm.Domain.Budgets;
 
 namespace Pfm.Api.Reports;
 
@@ -38,19 +39,44 @@ public sealed record DashboardBudgetResponse(ReportCategoryResponse Category, st
             AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, BudgetVsActualItemResponse.StateOf(item.Budget.State));
 }
 
+/// <summary>This month's overall budget against every expense of the month (spec BUD-5).</summary>
+/// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when budgeted is zero.</param>
+/// <param name="State">Over above what was budgeted, a warning at or above the user's warning threshold, otherwise on track.</param>
+/// <param name="Pace"><c>aheadOfPace</c> when a larger share of the budget is spent than of the month has passed, otherwise <c>onPace</c>.</param>
+/// <param name="NotConverted">How many expenses are left out of spent because they are not converted.</param>
+public sealed record DashboardOverallBudgetResponse(
+    string Budgeted, string Spent, string Remaining, int? PercentSpent, BudgetVsActualState State, BudgetPace? Pace, int NotConverted)
+{
+    public static DashboardOverallBudgetResponse? Of(OverallBudgetedAndSpent? overall) =>
+        overall is null
+            ? null
+            : new(AmountJson.Text(overall.Budgeted), AmountJson.Text(overall.Spent), AmountJson.Text(overall.Remaining), overall.PercentSpent,
+                BudgetVsActualItemResponse.StateOf(overall.State), PaceOf(overall.Pace), overall.NotConverted);
+
+    private static BudgetPace? PaceOf(ComparedBudgetPace? pace) => pace switch
+    {
+        null => null,
+        ComparedBudgetPace.OnPace => BudgetPace.OnPace,
+        ComparedBudgetPace.AheadOfPace => BudgetPace.AheadOfPace,
+        _ => throw new ArgumentOutOfRangeException(nameof(pace), pace, null),
+    };
+}
+
 /// <summary>This month's budgets added up, as budget vs actual adds them up, with how many are in each state.</summary>
 /// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when nothing is budgeted.</param>
 /// <param name="NotConverted">How many expenses are left out of spent because they are not converted.</param>
 /// <param name="NeedingAttention">The budgets over, then those at warning, each by percentage spent, most first.</param>
+/// <param name="Overall">This month's overall budget; null when it has none. The totals and counts are of the category budgets only.</param>
 public sealed record DashboardBudgetsResponse(
     string Budgeted, string Spent, string Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted,
-    IReadOnlyList<DashboardBudgetResponse> NeedingAttention)
+    IReadOnlyList<DashboardBudgetResponse> NeedingAttention, DashboardOverallBudgetResponse? Overall)
 {
     public static DashboardBudgetsResponse? Of(DashboardBudgetsDetails? budgets) =>
         budgets is null
             ? null
             : new(AmountJson.Text(budgets.Budgeted), AmountJson.Text(budgets.Spent), AmountJson.Text(budgets.Remaining), budgets.PercentSpent,
-                budgets.OnTrack, budgets.Warning, budgets.Over, budgets.NotConverted, [.. budgets.NeedingAttention.Select(DashboardBudgetResponse.Of)]);
+                budgets.OnTrack, budgets.Warning, budgets.Over, budgets.NotConverted, [.. budgets.NeedingAttention.Select(DashboardBudgetResponse.Of)],
+                DashboardOverallBudgetResponse.Of(budgets.Overall));
 }
 
 /// <summary>The type of a transaction on the dashboard: it gives its amount its sign.</summary>
@@ -110,7 +136,7 @@ public sealed record DashboardOccurrenceResponse(
 /// <param name="Currency">The user's base currency.</param>
 /// <param name="HasAccounts">Whether the user has an account that is not archived; a new user has none yet, and is shown how to add one.</param>
 /// <param name="ThisMonth">This month's income, expenses (minus refunds) and net, with the savings rate.</param>
-/// <param name="Budgets">This month's budgets; null when none is set this month.</param>
+/// <param name="Budgets">This month's budgets; null when none, category or overall, is set this month.</param>
 /// <param name="TopCategories">The top-level categories that spent most this month, at most five, most first.</param>
 /// <param name="RecentTransactions">The ten latest transactions, newest first, as the transaction list starts.</param>
 /// <param name="Upcoming">The occurrences of recurring rules due in the next 30 days, at most ten, earliest first.</param>

@@ -520,7 +520,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   `DELETE` on the same address removes it, leaving the category budgets. `GET /budgets` answers it as `overall`
   (null when the month has none), against every expense of the month whether or not its category has a budget
   (`BudgetProgress.OfOverall`), with the same states and `notConverted`. It is not one of the `items` nor in
-  their `totals`, nor in budget vs actual or the dashboard, which compare category budgets; it locks the base
+  their `totals`, nor in budget vs actual, which compares category budgets; the dashboard shows it apart (below). It locks the base
   currency like any budget, and copying a month copies it too when the month has none.
 - **Pace** (BUD-6): in the current month each budget and the overall budget have a `pace`, `aheadOfPace` when the
   share spent is larger than the share of the month elapsed, today included, in the user's time zone, otherwise
@@ -590,7 +590,9 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
   with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
   actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
-  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  `needingAttention`, with this month's `overall` budget and its `pace` beside them (`IBudgetComparison.OverallAsync`;
+  null when it has none). `budgets` is null only when neither a category budget nor an overall budget is set this
+  month; `topCategories` is the first five top-level items of
   spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
   ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
   next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
