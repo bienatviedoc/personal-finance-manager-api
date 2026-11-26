@@ -549,7 +549,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
 - **Dashboard** (RPT-1). `GET /reports/dashboard` answers the whole dashboard in one request, and takes no filters:
   it is of this calendar month in the user's time zone (`from`, `to`). `balance` is what every account that is not
-  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`, which asks `ListAccounts`),
+  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
   with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
   actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
   `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
