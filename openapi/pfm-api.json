@@ -7699,7 +7699,8 @@
         "required": [
           "transactionId",
           "reason",
-          "message"
+          "message",
+          "transaction"
         ],
         "type": "object",
         "properties": {
@@ -7712,6 +7713,16 @@
           },
           "message": {
             "type": "string"
+          },
+          "transaction": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TransactionResponse"
+              }
+            ]
           }
         }
       },

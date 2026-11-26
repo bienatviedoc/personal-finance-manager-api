@@ -310,7 +310,8 @@ already uses it can still show it. An account can be archived at any balance.
   1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
   (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
   (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
-  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), and nothing changes. A category or account that
+  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), each with the transaction as it is (`transaction`, null when
+  not found), so a client can name one it has not loaded, and nothing changes. A category or account that
   cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
   transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
   moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and

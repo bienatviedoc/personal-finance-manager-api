@@ -241,7 +241,7 @@ public static class TransactionEndpoints
             BulkEditOutcome.Refused refused => TypedResults.Json(
                 new BulkActionRefusedProblem(
                     BulkActionRefused, "Some of the transactions cannot take this action, so none did.", StatusCodes.Status409Conflict,
-                    [.. refused.Rows.Select(row => new RefusedTransactionResponse(row.TransactionId, row.Reason, row.Message))]),
+                    [.. refused.Rows.Select(RefusedTransactionResponse.From)]),
                 statusCode: StatusCodes.Status409Conflict, contentType: "application/problem+json"),
             _ => throw new ArgumentOutOfRangeException(nameof(result), result.Outcome, "Not an outcome of a bulk action."),
         };
@@ -453,7 +453,12 @@ public sealed record BulkSelectionTooLargeProblem(string Type, string Title, int
 /// <summary>A transaction that cannot take a bulk action.</summary>
 /// <param name="Reason">Why: notFound, transferLeg, split, categoryKind, reconciled, otherCurrency or tooManyTags.</param>
 /// <param name="Message">The reason in words, in English.</param>
-public sealed record RefusedTransactionResponse(Guid TransactionId, BulkRefusal Reason, string Message);
+/// <param name="Transaction">The transaction as it is, unchanged, to name it by (its date, payee, category, amount) where it is not on screen; null when not found.</param>
+public sealed record RefusedTransactionResponse(Guid TransactionId, BulkRefusal Reason, string Message, TransactionResponse? Transaction)
+{
+    public static RefusedTransactionResponse From(RefusedTransaction refused) =>
+        new(refused.TransactionId, refused.Reason, refused.Message, refused.Transaction is { } transaction ? TransactionResponse.From(transaction) : null);
+}
 
 /// <summary>A line of a transaction.</summary>
 /// <param name="Amount">A decimal string in the transaction's currency, greater than zero.</param>

@@ -53,6 +53,8 @@ public class BulkEditTests(PfmApi api)
             [(salary, "categoryKind"), (split, "split"), (leg, "transferLeg")],
             refused.Select(row => (row.TransactionId, row.Reason)).OrderBy(row => row.Reason));
         Assert.All(refused, row => Assert.False(string.IsNullOrWhiteSpace(row.Message)));
+        var salaryRow = refused.Single(row => row.TransactionId == salary).Transaction!;
+        Assert.Equal((salary, "2026-11-02", "income", "5000.00"), (salaryRow.Id, salaryRow.Date, salaryRow.Type, salaryRow.Amount));
         Assert.Equal(await CategoryAsync(browser, "Groceries"), (await GetAsync(browser, groceries)).CategoryId);
     }
 
@@ -242,7 +244,7 @@ public class BulkEditTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
         var refused = Assert.Single((await response.Content.ReadFromJsonAsync<RefusedBody>())!.Refused);
-        Assert.Equal((theirs, "notFound"), (refused.TransactionId, refused.Reason));
+        Assert.Equal((theirs, "notFound", null), (refused.TransactionId, refused.Reason, refused.Transaction));
         Assert.Single(await ListAsync(browser));
         Assert.Single(await ListAsync(owner));
     }
@@ -279,5 +281,7 @@ public class BulkEditTests(PfmApi api)
 
     private sealed record RefusedBody(RefusedRow[] Refused);
 
-    private sealed record RefusedRow(Guid TransactionId, string Reason, string Message);
+    private sealed record RefusedRow(Guid TransactionId, string Reason, string Message, RefusedTransactionBody? Transaction);
+
+    private sealed record RefusedTransactionBody(Guid Id, string Date, string Type, string Amount);
 }

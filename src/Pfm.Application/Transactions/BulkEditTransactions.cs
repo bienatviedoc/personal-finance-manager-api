@@ -87,11 +87,12 @@ public abstract record BulkEditOutcome
 
 /// <summary>A transaction a bulk action selected that cannot take it.</summary>
 /// <param name="Message">Why, in words: what the rule it breaks says.</param>
-public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, string Message)
+/// <param name="Transaction">The transaction as it is, unchanged, so it can be named wherever it is not on screen; null when not found.</param>
+public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, string Message, TransactionDetails? Transaction)
 {
     /// <summary>A transaction the user has no such one of, or deleted.</summary>
     public static RefusedTransaction NotFound(Guid transactionId) =>
-        new(transactionId, BulkRefusal.NotFound, "You have no such transaction, or it was deleted.");
+        new(transactionId, BulkRefusal.NotFound, "You have no such transaction, or it was deleted.", null);
 }
 
 /// <summary>
@@ -164,7 +165,7 @@ public sealed class BulkEditTransactionsHandler(
                 }
                 catch (TransactionRuleViolation violation) when (violation.Refusal is { } reason)
                 {
-                    refused.Add(new RefusedTransaction(transaction.Id, reason, violation.Message));
+                    refused.Add(new RefusedTransaction(transaction.Id, reason, violation.Message, TransactionDetails.Of(transaction)));
                 }
             }
         }
