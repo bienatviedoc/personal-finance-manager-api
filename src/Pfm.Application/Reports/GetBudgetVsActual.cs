@@ -10,7 +10,7 @@ namespace Pfm.Application.Reports;
 /// <summary>
 /// Am I within budget (spec RPT-6): budgeted against spent per category over the budget months a report period
 /// touches, with what was spent where no budget covered it listed apart. A comparison with the previous period is
-/// not part of this report (spec section 7), so &lt;see cref="ReportFilter.Compare"/&gt; is not read.
+/// not part of this report (spec section 7), so <see cref="ReportFilter.Compare"/> is not read.
 /// </summary>
 public sealed record GetBudgetVsActual(ReportFilter Filter);
 
@@ -46,12 +46,14 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
         var all = (await categories.ListAsync(cancellationToken)).ToDictionary(category => category.Id);
         var comparison = await budgets.CompareAsync(period.From, period.To, filter.AccountId, cancellationToken);
 
-        // The category filter: only the category and its subcategories are shown.
+        // The category filter: only the category and its subcategories are shown, and for a subcategory also the
+        // budget of the category it sits under, which counts what the subcategory spends (spec section 3, rule 6).
         bool Shown(Guid categoryId) =>
             all.TryGetValue(categoryId, out var category) && (filter.CategoryId is not { } only || category.Id == only || category.ParentId == only);
+        var budgetOver = filter.CategoryId is { } filtered ? all.GetValueOrDefault(filtered)?.ParentId : null;
 
         var items = comparison.Budgets
-            .Where(budget => Shown(budget.CategoryId))
+            .Where(budget => Shown(budget.CategoryId) || budget.CategoryId == budgetOver)
             .Select(budget => new BudgetedCategoryDetails(ReportCategoryDetails.Of(all[budget.CategoryId]), budget))
             .OrderBy(item => all[item.Category.Id].TopLevelName(all), NameOrder.Comparer)
             .ThenBy(item => item.Category.ParentId ?? item.Category.Id)
@@ -75,4 +77,5 @@ public sealed class GetBudgetVsActualHandler(ICategoryLookup categories, IBudget
                 items.SelectMany(item => item.Budget.NotConverted).Distinct().Count()),
             unbudgeted,
             new UnbudgetedTotal(unbudgeted.Sum(item => item.Spending.Spent), unbudgeted.SelectMany(item => item.Spending.NotConverted).Distinct().Count()));
-    }}
+    }
+}

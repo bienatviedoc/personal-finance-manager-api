@@ -144,6 +144,22 @@ public class BudgetVsActualTests(PfmApi api) : IAsyncLifetime
         Assert.Equal("2000000.00", report.Totals.Budgeted);
     }
 
+    [Fact]
+    public async Task The_category_filter_on_a_subcategory_shows_the_budget_of_the_category_it_sits_under()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await BudgetAsync(browser, "2026-03", "Food & drink", "3000000");
+        await BudgetAsync(browser, "2026-03", "Transport", "500000");
+        await SpendAsync(browser, everyday, "Groceries", "1200000", March);
+        await SpendAsync(browser, everyday, "Fuel", "100000", March);
+
+        var report = await ReportAsync(browser, $"{InMarch}&categoryId={await CategoryAsync(browser, "Groceries")}");
+
+        Assert.Equal([("Food & drink", "3000000.00", "1200000.00")], report.Items.Select(item => (item.Category.Name, item.Budgeted, item.Spent)));
+        Assert.Empty(report.Unbudgeted);
+    }
+
     // What it refuses.
 
     [Theory]

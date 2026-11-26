@@ -58,9 +58,13 @@ public sealed record BudgetComparison(IReadOnlyList<ComparedBudget> Budgets, IRe
             })
             .ToList();
 
-        var budgetedIn = budgets.ToLookup(budget => budget.Month, budget => budget.CategoryId);
+        var budgetedIn = budgets.GroupBy(budget => budget.Month).ToDictionary(month => month.Key, month => month.Select(budget => budget.CategoryId).ToHashSet());
         var unbudgeted = spentIn
-            .SelectMany(month => month.Value.Where(of => !IsCovered(of.CategoryId, budgetedIn[month.Key].ToHashSet(), byId)))
+            .SelectMany(month =>
+            {
+                var budgeted = budgetedIn.GetValueOrDefault(month.Key) ?? [];
+                return month.Value.Where(of => !IsCovered(of.CategoryId, budgeted, byId));
+            })
             .GroupBy(of => of.CategoryId)
             .Select(category => new UnbudgetedSpending(category.Key, category.Sum(of => of.Spent), category.SelectMany(of => of.NotConverted).ToHashSet()))
             .ToList();
