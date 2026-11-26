@@ -598,7 +598,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   order of `GET /transactions` (one `TransactionListParameters` reads both) and writes every transaction that
   passes, however many pages the list would take, a batch at a time (`ExportTransactions`). One line each:
   `date`, `type`, `isRefund`, `account` and `category` by name (a split's categories joined by `; `, a leg of a
-  transfer none), `payee`, `note`, `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
+  transfer none), `payee`, `note`, `tags` (joined by `; `), `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
 - **CSV is written one way** (`Csv`, RFC 4180, UTF-8 with a byte order mark so a spreadsheet reads Vietnamese
   as written), the same for this file and for the full export (`GET /export/all.zip`).
 - **Reports are exported by the SPA**, from the answer it already shows: a report's CSV holds the numbers of its

@@ -20,7 +20,7 @@ public sealed record TransactionExport(string FileName, Func<Stream, Cancellatio
 /// <summary>
 /// One line for each transaction, under a line of column names: its date as <c>YYYY-MM-DD</c>, its type and
 /// whether it is a refund as the API names them, the names of its account and category (a split's categories in
-/// the order of its lines, a leg of a transfer none), and its amount as a plain decimal, above zero as the API
+/// the order of its lines, a leg of a transfer none), its tags in the order the list gives them, and its amount as a plain decimal, above zero as the API
 /// answers it, beside its currency's code in a column of its own.
 /// </summary>
 public sealed class ExportTransactionsHandler(
@@ -29,7 +29,7 @@ public sealed class ExportTransactionsHandler(
     /// <summary>How many transactions are read from the database at a time.</summary>
     private const int Batch = 500;
 
-    private static readonly string[] Columns = ["date", "type", "isRefund", "account", "category", "payee", "note", "amount", "currency"];
+    private static readonly string[] Columns = ["date", "type", "isRefund", "account", "category", "payee", "note", "tags", "amount", "currency"];
 
     public async Task<TransactionExport> HandleAsync(ExportTransactions query, CancellationToken cancellationToken = default)
     {
@@ -69,6 +69,7 @@ public sealed class ExportTransactionsHandler(
         string.Join("; ", transaction.Lines.Select(line => categoryNames.GetValueOrDefault(line.CategoryId))),
         transaction.Payee,
         transaction.Note,
+        string.Join("; ", transaction.Tags.Select(tag => tag.Name)),
         AmountText.Of(transaction.Amount),
         transaction.Currency.ToString(),
     ];

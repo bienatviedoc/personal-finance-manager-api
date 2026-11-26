@@ -31,7 +31,7 @@ public class TransactionExportTests(PfmApi api)
         var bytes = await response.Content.ReadAsByteArrayAsync();
         Assert.Equal(Encoding.UTF8.Preamble.ToArray(), bytes[..3]);
         Assert.Equal(
-            "date,type,isRefund,account,category,payee,note,amount,currency\r\n",
+            "date,type,isRefund,account,category,payee,note,tags,amount,currency\r\n",
             Encoding.UTF8.GetString(bytes[3..]));
     }
 
@@ -70,10 +70,10 @@ public class TransactionExportTests(PfmApi api)
 
         Assert.Equal(
             [
-                ["2026-11-02", "expense", "false", "Travel, card", "Groceries", "Bánh mì \"Huỳnh Hoa\"", "", "1234.50", "USD"],
-                ["2026-11-01", "expense", "true", "Everyday", "Groceries", "", "", "45000.00", "VND"],
-                ["2026-10-31", "expense", "false", "Everyday", "Groceries; Household", "", "", "150000.00", "VND"],
-                ["2026-10-30", "income", "false", "Everyday", "Salary", "", "", "30000000.00", "VND"],
+                ["2026-11-02", "expense", "false", "Travel, card", "Groceries", "Bánh mì \"Huỳnh Hoa\"", "", "", "1234.50", "USD"],
+                ["2026-11-01", "expense", "true", "Everyday", "Groceries", "", "", "", "45000.00", "VND"],
+                ["2026-10-31", "expense", "false", "Everyday", "Groceries; Household", "", "", "", "150000.00", "VND"],
+                ["2026-10-30", "income", "false", "Everyday", "Salary", "", "", "", "30000000.00", "VND"],
             ],
             rows.Select(row => row.Values.ToArray()));
     }
@@ -94,14 +94,47 @@ public class TransactionExportTests(PfmApi api)
     }
 
     [Fact]
+    public async Task The_tag_filter_exports_only_the_transactions_with_the_tag_and_each_line_names_its_tags()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        foreach (var (amount, tags) in new[] { ("100", new[] { "Tet", "family" }), ("200", new[] { "work" }), ("300", Array.Empty<string>()) })
+        {
+            var response = await browser.PostAsync("/api/v1/transactions", new { type = "expense", accountId = everyday, amount, date = "2026-11-02", categoryId = groceries, tags });
+            Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        }
+
+        var tagged = await RowsAsync(browser, "?tag=TET");
+        var all = await RowsAsync(browser, "?sort=amount&order=asc");
+
+        Assert.Equal([("100.00", "family; tet")], tagged.Select(row => (row["amount"], row["tags"])));
+        Assert.Equal(["family; tet", "work", ""], all.Select(row => row["tags"]));
+    }
+
+    [Fact]
+    public async Task A_deleted_transaction_is_not_exported()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await SpendAsync(browser, everyday, "Groceries", "100", Day);
+        var deleted = await SpendAsync(browser, everyday, "Groceries", "200", Day);
+        (await browser.DeleteAsync($"/api/v1/transactions/{deleted}")).EnsureSuccessStatusCode();
+
+        var rows = await RowsAsync(browser, "");
+
+        Assert.Equal(["100.00"], rows.Select(row => row["amount"]));
+    }
+
+    [Fact]
     public async Task A_filter_the_list_cannot_read_is_refused_by_name()
     {
         var (browser, _) = await api.SignedInAsync();
 
-        var response = await browser.GetAsync($"{Export}?from=yesterday&type=gift");
+        var response = await browser.GetAsync($"{Export}?from=yesterday&type=gift&tag={new string('x', 51)}");
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal(["from", "type"], await response.ErrorFieldsAsync());
+        Assert.Equal(["from", "tag", "type"], await response.ErrorFieldsAsync());
     }
 
     /// <summary>The export's rows, each by column name, read by a CSV reader that knows quotes.</summary>
