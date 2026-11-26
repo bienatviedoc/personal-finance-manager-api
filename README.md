@@ -402,14 +402,16 @@ already uses it can still show it. An account can be archived at any balance.
   any of them is stale: posted transactions stay as they are, and the new schedule carries on after the
   last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
   is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
-- **A rule posts or reminds** (`mode`, REC-2): `autoPost`, when left out, has the worker post each occurrence;
+- **A rule posts or reminds** (`mode`, REC-2): `autoPost`, when left out of a new rule, has the worker post each
+  occurrence (left out of an edit, the rule keeps its mode);
   `remind` has it post nothing, and each occurrence due on or before today is a reminder instead
   (`GET /recurring-rules/reminders`, earliest due first). `POST /recurring-rules/{id}/reminders/{dueDate}/confirm`
   records its transaction through `CreateTransaction`, under the same idempotency key the worker would use, for
   the `amount` sent or else the rule's own; `.../dismiss` records nothing. Either moves the rule on, so a
   rule's reminders are answered earliest first: a later one is refused on `dueDate`. A paused rule has none.
 - **The upcoming list** (`GET /recurring-rules/upcoming?days=30`, REC-3, 1 to 90 days) is every occurrence of
-  every rule that is not paused, due after today and within the days asked for, earliest first, with its `mode`.
+  every rule that is not paused, due from today and within the days asked for, earliest first, with its `mode`.
+  One due today is listed until the worker posts it, and not at all when it is a reminder already.
   The domain works the dates out (`RecurringRule.Upcoming`); nothing is stored for an occurrence before it is settled.
 - Skipping or editing one occurrence (REC-4) is still to come.
 

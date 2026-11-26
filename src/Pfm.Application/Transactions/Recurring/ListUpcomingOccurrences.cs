@@ -4,8 +4,9 @@ using Pfm.Application.UseCases;
 namespace Pfm.Application.Transactions.Recurring;
 
 /// <summary>
-/// Every occurrence of the user's recurring rules due after today, in their time zone, and no more than
-/// <paramref name="Days"/> days after it, whether it will be posted or be a reminder (spec REC-3). A paused rule has none.
+/// Every occurrence of the user's recurring rules due from today, in their time zone, to no more than
+/// <paramref name="Days"/> days after it, whether it will be posted or be a reminder (spec REC-3). One due today
+/// is listed until it is posted, and not at all when it is a reminder already. A paused rule has none.
 /// </summary>
 /// <param name="Days">How many days ahead to look, 1 to <see cref="MaxDays"/>.</param>
 public sealed record ListUpcomingOccurrences(int Days = ListUpcomingOccurrences.DefaultDays)

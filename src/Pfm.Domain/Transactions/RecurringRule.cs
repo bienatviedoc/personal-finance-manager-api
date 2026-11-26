@@ -106,14 +106,15 @@ public sealed class RecurringRule : IUserOwned
         Mode == RecurringMode.Remind ? Unsettled().TakeWhile(dueDate => dueDate <= today) : [];
 
     /// <summary>
-    /// The due dates of the occurrences after today and no more than <paramref name="days"/> days after it,
-    /// earliest first. A paused rule has none.
+    /// The due dates of the occurrences from today to no more than <paramref name="days"/> days after it,
+    /// earliest first: one due today counts until it is posted, unless it is a reminder already. A paused rule has none.
     /// </summary>
     /// <param name="today">Today's date in the user's time zone.</param>
     public IEnumerable<DateOnly> Upcoming(DateOnly today, int days)
     {
         var last = today.AddDays(days);
-        return Unsettled().SkipWhile(dueDate => dueDate <= today).TakeWhile(dueDate => dueDate <= last);
+        var firstUpcoming = Mode == RecurringMode.Remind ? today.AddDays(1) : today;
+        return Unsettled().SkipWhile(dueDate => dueDate < firstUpcoming).TakeWhile(dueDate => dueDate <= last);
     }
 
     /// <summary>Whether the occurrence due on <paramref name="dueDate"/> is one of the rule's reminders today.</summary>
