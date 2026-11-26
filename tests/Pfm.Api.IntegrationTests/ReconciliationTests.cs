@@ -38,12 +38,14 @@ public class ReconciliationTests(PfmApi api)
         var everyday = await AddAccountAsync(browser, "Everyday", "USD");
 
         var missing = await browser.PostAsync($"/api/v1/accounts/{everyday}/reconciliations", new { });
-        var wrong = await browser.PostAsync($"/api/v1/accounts/{everyday}/reconciliations", new { statementDate = "2999-01-01", statementBalance = "10.005" });
+        var future = await browser.PostAsync($"/api/v1/accounts/{everyday}/reconciliations", new { statementDate = "2999-01-01", statementBalance = "10.00" });
+        var tooManyDecimals = await browser.PostAsync($"/api/v1/accounts/{everyday}/reconciliations", new { statementDate = "2026-10-31", statementBalance = "10.005" });
 
         Assert.Equal(HttpStatusCode.BadRequest, missing.StatusCode);
         Assert.Equal(["statementBalance", "statementDate"], await missing.ErrorFieldsAsync());
-        Assert.Equal(HttpStatusCode.BadRequest, wrong.StatusCode);
-        Assert.Equal(["statementBalance"], await wrong.ErrorFieldsAsync());
+        Assert.Equal(["statementDate"], await future.ErrorFieldsAsync());
+        Assert.Equal(HttpStatusCode.BadRequest, tooManyDecimals.StatusCode);
+        Assert.Equal(["statementBalance"], await tooManyDecimals.ErrorFieldsAsync());
     }
 
     [Fact]
@@ -198,6 +200,33 @@ public class ReconciliationTests(PfmApi api)
         Assert.Equal(HttpStatusCode.Conflict, outLegDeleted.StatusCode);
         Assert.Equal(("4000000.00", "1000000.00"), (await BalanceAsync(browser, everyday), await BalanceAsync(browser, savings)));
         Assert.True((await browser.Http.GetFromJsonAsync<TransferBody>($"/api/v1/transfers/{transfer.Id}"))!.IsReconciled);
+    }
+
+    [Fact]
+    public async Task A_reconciled_transaction_cannot_be_marked_as_a_transfer_nor_a_reconciled_transfer_unmarked()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var visa = await AddAccountAsync(browser, "Visa");
+        var payment = await SpendAsync(browser, everyday, "Groceries", "500000", October20);
+        var received = await RecordAsync(browser, "income", visa, "Salary", "500000", October20);
+        await ReconcileAsync(browser, everyday, "-500000", payment);
+
+        var mark = await browser.PostAsync("/api/v1/transfers/mark", new { expenseId = payment, incomeId = received });
+
+        Assert.Equal(HttpStatusCode.BadRequest, mark.StatusCode);
+        Assert.Equal(["expenseId"], await mark.ErrorFieldsAsync());
+
+        var created = await browser.PostAsync("/api/v1/transfers", new { fromAccountId = visa, toAccountId = everyday, amount = "1000", date = "2026-10-20" });
+        var transfer = (await created.Content.ReadFromJsonAsync<TransferBody>())!;
+        await ReconcileAsync(browser, visa, "499000", received, transfer.OutTransactionId);
+
+        var unmark = await browser.PostAsync(
+            $"/api/v1/transfers/{transfer.Id}/unmark",
+            new { expenseCategoryId = await CategoryAsync(browser, "Groceries"), incomeCategoryId = await CategoryAsync(browser, "Salary") });
+
+        Assert.Equal(HttpStatusCode.BadRequest, unmark.StatusCode);
+        Assert.Equal(["id"], await unmark.ErrorFieldsAsync());
     }
 
     [Fact]

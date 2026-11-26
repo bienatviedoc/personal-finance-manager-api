@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Mvc;
+using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Transfers;
 using Pfm.Domain;
 
@@ -26,15 +27,16 @@ public static class TransferEndpoints
         transfers.MapGet("/{id:guid}", Get).WithName("GetTransfer")
             .WithDescription("One transfer, by the transferId its two legs carry in the transaction list. The ETag header carries its row version. A deleted transfer is not found.");
         transfers.MapPut("/{id:guid}", Edit).WithName("EditTransfer")
-            .WithDescription("Changes a transfer, both legs together; the balances of the accounts it was and is now between follow at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428.")
+            .WithDescription("Changes a transfer, both legs together; the balances of the accounts it was and is now between follow at once. Send the row version last read as If-Match: a stale one answers 412, none answers 428. A transfer either of whose legs is reconciled refuses a change to its accounts, amounts or date, each named as the field at fault; its note can still change.")
             .ProducesProblem(StatusCodes.Status412PreconditionFailed)
             .ProducesProblem(StatusCodes.Status428PreconditionRequired);
         transfers.MapDelete("/{id:guid}", Delete).WithName("DeleteTransfer")
-            .WithDescription("Deletes the transfer, both legs together: they leave the transaction list and both accounts' balances at once.");
+            .WithDescription("Deletes the transfer, both legs together: they leave the transaction list and both accounts' balances at once. A transfer either of whose legs is reconciled answers 409 with the problem type urn:pfm:problem:transaction-reconciled and is not deleted.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
         transfers.MapPost("/mark", Mark).WithName("MarkAsTransfer")
-            .WithDescription("Marks an expense on one account and income on another as one transfer, such as the two rows imported statements show for paying a card: the expense becomes its transferOut leg and the income its transferIn leg, each keeping its id, account, amount, date and note and losing its category and payee, so neither counts as spending or income any more. The two must be on different accounts, on the same date and, between accounts in one currency, of the same amount; an expense that is a refund, or a transaction that is a leg of a transfer already, is refused. Nothing is matched automatically.");
+            .WithDescription("Marks an expense on one account and income on another as one transfer, such as the two rows imported statements show for paying a card: the expense becomes its transferOut leg and the income its transferIn leg, each keeping its id, account, amount, date and note and losing its category and payee, so neither counts as spending or income any more. The two must be on different accounts, on the same date and, between accounts in one currency, of the same amount; an expense that is a refund, a transaction that is a leg of a transfer already, or a reconciled one, is refused. Nothing is matched automatically.");
         transfers.MapPost("/{id:guid}/unmark", Unmark).WithName("UnmarkTransfer")
-            .WithDescription("Turns a transfer back into two ordinary transactions: its transferOut leg becomes an expense on expenseCategoryId and its transferIn leg income on incomeCategoryId, each keeping its id, account, amount, date and note. Any transfer can be unmarked, marked or recorded. Answers the two transactions; the transfer is no more.");
+            .WithDescription("Turns a transfer back into two ordinary transactions: its transferOut leg becomes an expense on expenseCategoryId and its transferIn leg income on incomeCategoryId, each keeping its id, account, amount, date and note. Any transfer can be unmarked, marked or recorded, unless either leg is reconciled: that is refused on id. Answers the two transactions; the transfer is no more.");
 
         return api;
     }
@@ -103,7 +105,8 @@ public static class TransferEndpoints
         };
     }
 
-    private static async Task<Results<NoContent, NotFound, ValidationProblem>> Delete(Guid id, DeleteTransferHandler handler, CancellationToken cancellationToken)
+    private static async Task<Results<NoContent, NotFound, ValidationProblem, ProblemHttpResult>> Delete(
+        Guid id, DeleteTransferHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(new DeleteTransferCommand(id), cancellationToken);
         if (!result.IsValid)
@@ -111,7 +114,12 @@ public static class TransferEndpoints
             return ValidationProblems.For(result);
         }
 
-        return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
+        return result.Outcome switch
+        {
+            null => TypedResults.NotFound(),
+            DeleteOutcome.Reconciled => TransactionEndpoints.Reconciled(),
+            _ => TypedResults.NoContent(),
+        };
     }
 
     private static async Task<Results<Created<TransferResponse>, ValidationProblem>> Mark(
@@ -178,12 +186,13 @@ public sealed record UnmarkedTransferResponse(TransactionResponse Expense, Trans
 /// <param name="OutTransactionId">The transferOut leg, a transaction on the source account.</param>
 /// <param name="InTransactionId">The transferIn leg, a transaction on the destination account.</param>
 /// <param name="RowVersion">Send it as <c>If-Match</c>, in double quotes, when editing the transfer.</param>
+/// <param name="IsReconciled">Whether either leg is reconciled, which locks the transfer's accounts, amounts and date and keeps it from being deleted or unmarked.</param>
 public sealed record TransferResponse(
     Guid Id, Guid FromAccountId, Guid ToAccountId, string Amount, Currency Currency, string ToAmount, Currency ToCurrency, DateOnly Date, string? Note,
-    Guid OutTransactionId, Guid InTransactionId, string RowVersion)
+    Guid OutTransactionId, Guid InTransactionId, string RowVersion, bool IsReconciled)
 {
     public static TransferResponse From(TransferDetails transfer) =>
         new(transfer.Id, transfer.FromAccountId, transfer.ToAccountId, AmountJson.Text(transfer.Amount), transfer.Currency, AmountJson.Text(transfer.ToAmount),
             transfer.ToCurrency, transfer.Date, transfer.Note, transfer.OutTransactionId, transfer.InTransactionId,
-            transfer.RowVersion.ToString(CultureInfo.InvariantCulture));
+            transfer.RowVersion.ToString(CultureInfo.InvariantCulture), transfer.IsReconciled);
 }

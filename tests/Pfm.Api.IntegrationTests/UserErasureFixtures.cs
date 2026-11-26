@@ -59,6 +59,12 @@ public static class UserErasureFixtures
         // Due far in the future, so it posts nothing meanwhile.
         (await browser.PostAsync("/api/v1/recurring-rules", new { type = "expense", accountId, amount = "9000000", categoryId = food, payee = "Landlord", frequency = "monthly", startDate = "2099-01-31" })).EnsureSuccessStatusCode();
 
+        // A completed reconciliation, which locks the lunch it ticked: the transaction references it.
+        var started = await browser.PostAsync($"/api/v1/accounts/{accountId}/reconciliations", new { statementDate = "2026-11-02", statementBalance = "1455000" });
+        var reconciliation = (await started.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<Identified>())!.Id;
+        (await browser.PutAsync($"/api/v1/reconciliations/{reconciliation}/transactions/{lunch}", new { })).EnsureSuccessStatusCode();
+        (await browser.PostAsync($"/api/v1/reconciliations/{reconciliation}/complete")).EnsureSuccessStatusCode();
+
         // A transfer, recorded last: its two legs are the last two transactions, and have no lines.
         var savingsId = await BrowserFixtures.AddAccountAsync(browser, "Savings");
         (await browser.PostAsync("/api/v1/transfers", new { fromAccountId = accountId, toAccountId = savingsId, amount = "200000", date = "2026-11-04", note = "For Tet" }))
@@ -72,6 +78,7 @@ public static class UserErasureFixtures
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
+            ["Reconciliations"] = 1,
             ["RecurringRules"] = 1,
             // One line for each income or expense, and two for the split; none for the legs of the transfer.
             ["TransactionLines"] = 5,
