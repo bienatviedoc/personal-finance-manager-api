@@ -21,6 +21,16 @@ public static class UserErasureFixtures
             return result.Outcome.Users;
         }
 
+        /// <summary>
+        /// Removes for good the transactions deleted more than 30 days ago the way the worker's job does, as it would
+        /// this much later. Answers how many it removed.
+        /// </summary>
+        public async Task<int> PurgeDeletedTransactionsAsync(TimeSpan after)
+        {
+            await using var scope = api.After(after).Services.CreateAsyncScope();
+            return (await scope.ServiceProvider.GetRequiredService<Pfm.Application.Transactions.DeletedTransactionPurge>().RunAsync()).Transactions;
+        }
+
         /// <summary>How many rows a user owns in each table that holds any of theirs, as a job acting for them reads it.</summary>
         public async Task<Dictionary<string, int>> RowsOwnedByAsync(Guid userId)
         {

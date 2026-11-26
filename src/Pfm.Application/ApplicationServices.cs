@@ -47,6 +47,7 @@ public static class ApplicationServices
         services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
+        services.AddScoped<DeletedTransactionPurge>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
         services.AddScoped<IAttachmentFiles, AttachmentFiles>();
