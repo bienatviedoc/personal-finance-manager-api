@@ -9,6 +9,9 @@ namespace Pfm.Application.UseCases;
 /// </summary>
 public static partial class AmountText
 {
+    /// <summary>The amount with at least two decimals and every digit it has: <c>"125000.00"</c>, <c>"-250.75"</c>.</summary>
+    public static string Of(decimal amount) => amount.ToString("0.00##", CultureInfo.InvariantCulture);
+
     public static bool TryParse(string? text, out decimal amount)
     {
         amount = default;

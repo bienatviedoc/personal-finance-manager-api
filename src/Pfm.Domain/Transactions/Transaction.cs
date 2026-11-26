@@ -27,7 +27,15 @@ public sealed class Transaction : IUserOwned
 
     public const int MaxLines = 50;
 
+    /// <summary>How long a deleted transaction can be restored (spec section 3, rule 10). After that it is removed for good.</summary>
+    public static readonly TimeSpan RecoveryPeriod = TimeSpan.FromDays(30);
+
+    /// <summary>The most tags one transaction takes.</summary>
+    public const int MaxTags = 20;
+
     private readonly List<TransactionLine> _lines = [];
+
+    private readonly List<TransactionTag> _tags = [];
 
     /// <summary>For persistence, which sets every property itself.</summary>
     private Transaction()
@@ -84,6 +92,9 @@ public sealed class Transaction : IUserOwned
     /// <summary>Whether the transaction is split across several lines, each with its own category.</summary>
     public bool IsSplit => _lines.Count > 1;
 
+    /// <summary>The tags on the transaction (spec TXN-5), by name.</summary>
+    public IReadOnlyList<TransactionTag> Tags => [.. _tags.OrderBy(tag => tag.Name, StringComparer.Ordinal)];
+
     /// <summary>Who was paid, or who paid; null when not entered.</summary>
     public string? Payee { get; private set; }
 
@@ -94,6 +105,19 @@ public sealed class Transaction : IUserOwned
     /// deleted.
     /// </summary>
     public Guid? RecurringRuleId { get; private set; }
+
+    /// <summary>
+    /// The reconciliation the transaction is ticked in; null while it is in none. It stays ticked when the
+    /// reconciliation completes, which locks it (&lt;see cref="IsReconciled"/&gt;).
+    /// </summary>
+    public Guid? ReconciliationId { get; private set; }
+
+    /// <summary>
+    /// Whether the transaction is in a completed reconciliation, which locks it: its amount, date and account,
+    /// and whatever else moves its account's balance (its type and whether it is a refund), cannot change, and it
+    /// cannot be deleted, until the reconciliation is reopened (spec section 3, rule 11).
+    /// </summary>
+    public bool IsReconciled { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -132,21 +156,36 @@ public sealed class Transaction : IUserOwned
     /// A split's lines share its converted amount as they share its amount, each share rounded to the base
     /// currency's decimals and the last line taking what is left, so the shares sum exactly to it.
     /// </summary>
-    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds)
+    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(SpentAmount, categoryIds);
+
+    /// <summary>
+    /// What the transaction brings in, in the base currency: income adds its converted amount (spec RPT-3).
+    /// Nothing for an expense or a leg of a transfer, which is not income (spec section 3, rule 3), once deleted,
+    /// or while not converted (rule 7).
+    /// </summary>
+    public decimal IncomeAmount => !IsDeleted && Type == TransactionType.Income && Conversion is { Amount: { } converted } ? converted : 0;
+
+    /// <summary>The part of <see cref="IncomeAmount"/> in these categories, shared among a split's lines as <see cref="SpentAmountIn"/> shares spent.</summary>
+    public decimal IncomeAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(IncomeAmount, categoryIds);
+
+    /// <summary>
+    /// The part of an amount in the base currency that the lines on these categories take: each line's share
+    /// rounded to the base currency's decimals, and the last line taking what is left, so the shares sum exactly to it.
+    /// </summary>
+    private decimal ShareIn(decimal whole, IReadOnlyCollection<Guid> categoryIds)
     {
         ArgumentNullException.ThrowIfNull(categoryIds);
-        var spent = SpentAmount;
-        if (spent == 0)
+        if (whole == 0)
         {
             return 0;
         }
 
         var decimals = Conversion!.BaseCurrency.DecimalPlaces();
         var lines = Lines;
-        var (left, inThese) = (spent, 0m);
+        var (left, inThese) = (whole, 0m);
         for (var position = 0; position < lines.Count; position++)
         {
-            var share = position == lines.Count - 1 ? left : decimal.Round(spent * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
+            var share = position == lines.Count - 1 ? left : decimal.Round(whole * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
             left -= share;
             if (categoryIds.Contains(lines[position].CategoryId))
             {
@@ -198,6 +237,38 @@ public sealed class Transaction : IUserOwned
     /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
     internal void EditLeg(LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
         Set(Type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+
+    /// <summary>
+    /// Makes income or an expense a leg of a transfer, for <see cref="Transfer.Mark"/> alone, which makes the
+    /// other leg with it. It keeps its account, amount, date, note and conversion, and drops what a leg has none
+    /// of: its lines, category and payee. It is no longer an occurrence of the recurring rule that posted it,
+    /// which posts income and expenses only.
+    /// </summary>
+    internal void BecomeLeg(Guid transferId, TransactionType type, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        Type = type;
+        TransferId = transferId;
+        CategoryId = null;
+        Payee = null;
+        RecurringRuleId = null;
+        UpdatedAt = now;
+        _lines.Clear();
+    }
+
+    /// <summary>
+    /// Makes a leg of a transfer income or an expense again, on one line with its whole amount, for
+    /// <see cref="Transfer.Unmark"/> alone, which does the same to the other leg.
+    /// </summary>
+    internal void BecomeOrdinary(TransactionType type, Category category, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        Type = type;
+        TransferId = null;
+        CategoryId = category.Id;
+        UpdatedAt = now;
+        Replace([new SplitLine(category, Amount)], now);
+    }
 
     /// <summary>Records a transaction split across several categories.</summary>
     /// <param name="currency">The currency of the account, which the transaction takes.</param>
@@ -257,6 +328,138 @@ public sealed class Transaction : IUserOwned
     }
 
     /// <summary>
+    /// Puts exactly these tags on the transaction: the ones it had and are not among them come off. Tags are
+    /// labels across categories (spec TXN-5), so they change nothing the transaction adds up to.
+    /// </summary>
+    /// <param name="tags">At most <see cref="MaxTags"/> of the user's tags, each once.</param>
+    /// <exception cref="TransactionRuleViolation">More than <see cref="MaxTags"/> tags.</exception>
+    public void TagWith(IReadOnlyCollection<Tag> tags, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+        GuardNotDeleted();
+        if (tags.Any(tag => tag is null))
+        {
+            throw new ArgumentException("A tag is never null.", nameof(tags));
+        }
+
+        var ids = tags.Select(tag => tag.Id).ToHashSet();
+        if (ids.Count != tags.Count)
+        {
+            throw new ArgumentException("A transaction has a tag once.", nameof(tags));
+        }
+
+        if (ids.Count > MaxTags)
+        {
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.");
+        }
+
+        var removed = _tags.RemoveAll(tag => !ids.Contains(tag.TagId));
+        var added = tags.Where(tag => !_tags.Any(has => has.TagId == tag.Id)).Select(tag => new TransactionTag(tag)).ToList();
+        _tags.AddRange(added);
+        if (removed > 0 || added.Count > 0)
+        {
+            UpdatedAt = now;
+        }
+    }
+
+    /// <summary>
+    /// Puts one more tag on the transaction, as a bulk action does (spec TXN-7); one it has already changes nothing.
+    /// </summary>
+    /// <exception cref="TransactionRuleViolation">It has <see cref="MaxTags"/> tags already.</exception>
+    public void AddTag(Tag tag, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tag);
+        GuardNotDeleted();
+        if (_tags.Any(has => has.TagId == tag.Id))
+        {
+            return;
+        }
+
+        if (_tags.Count >= MaxTags)
+        {
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.", BulkRefusal.TooManyTags);
+        }
+
+        _tags.Add(new TransactionTag(tag));
+        UpdatedAt = now;
+    }
+
+    /// <summary>Takes one tag off the transaction; one it does not have changes nothing.</summary>
+    public void RemoveTag(Guid tagId, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        if (_tags.RemoveAll(tag => tag.TagId == tagId) > 0)
+        {
+            UpdatedAt = now;
+        }
+    }
+
+    /// <summary>
+    /// Puts the whole of income or an expense on one category, as a bulk action does (spec TXN-7). It keeps its
+    /// line's note. A split keeps its lines: their categories are changed by editing it. A reconciled transaction
+    /// can change its category. Put on the category it is on already, it does not change.
+    /// </summary>
+    /// <param name="category">One of the user's categories of the kind the type takes, not archived unless it is the one the transaction is on.</param>
+    /// <exception cref="TransactionRuleViolation">It is a leg of a transfer or split, or the category is of the other kind or archived.</exception>
+    public void Recategorise(Category category, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        GuardNotDeleted();
+        RefuseALeg();
+        if (IsSplit)
+        {
+            throw new TransactionRuleViolation(nameof(Lines), "A split transaction keeps its lines: edit it to change their categories.", BulkRefusal.Split);
+        }
+
+        if (CategoryRuleBroken(category, Type, keeps: category.Id == CategoryId) is { } categoryRule)
+        {
+            throw new TransactionRuleViolation(
+                nameof(CategoryId), categoryRule, category.Kind != Type.CategoryKind() ? BulkRefusal.CategoryKind : null);
+        }
+
+        if (category.Id == CategoryId)
+        {
+            return;
+        }
+
+        CategoryId = category.Id;
+        UpdatedAt = now;
+        Replace([new SplitLine(category, Amount, Lines[0].Note)], now);
+    }
+
+    /// <summary>
+    /// Moves income or an expense to another account in its currency, as a bulk action does (spec TXN-7). Its
+    /// amount, date and currency stay, and so does what it was converted into the base currency. It leaves the
+    /// reconciliation it was ticked in, and a reconciled one cannot move.
+    /// </summary>
+    /// <param name="currency">The currency of the account it moves to.</param>
+    /// <exception cref="TransactionRuleViolation">It is a leg of a transfer or reconciled, or the account is in another currency.</exception>
+    public void MoveTo(Guid accountId, Currency currency, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        if (accountId == Guid.Empty)
+        {
+            throw new ArgumentException("A transaction is on an account.", nameof(accountId));
+        }
+
+        if (accountId == AccountId)
+        {
+            return;
+        }
+
+        RefuseALeg();
+        if (currency != Currency)
+        {
+            throw new TransactionRuleViolation(nameof(AccountId), "A transaction moves only to an account in its own currency.", BulkRefusal.OtherCurrency);
+        }
+
+        GuardUnlocked(Type, accountId, Amount, Date, IsRefund);
+        ReconciliationId = null;
+        AccountId = accountId;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
     /// Moves every line on <paramref name="from"/> onto <paramref name="into"/>, as merging the one category into
     /// the other does (spec CAT-3). The amounts and notes stay; a deleted transaction moves too, so it comes back on
     /// the category merged into.
@@ -303,6 +506,16 @@ public sealed class Transaction : IUserOwned
         if (IsTransferLeg)
         {
             throw new InvalidOperationException("A leg of a transfer changes only with its transfer, so the other leg changes with it.");
+        }
+    }
+
+    /// <summary>Refuses a change a bulk action makes to a leg of a transfer, which has no category and changes only with its transfer.</summary>
+    private void RefuseALeg()
+    {
+        if (IsTransferLeg)
+        {
+            throw new TransactionRuleViolation(
+                nameof(Type), "This is a leg of a transfer: it has no category, and changes only with its transfer.", BulkRefusal.TransferLeg);
         }
     }
 
@@ -383,6 +596,7 @@ public sealed class Transaction : IUserOwned
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
     /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
+    /// <exception cref="TransactionRuleViolation">The transaction is reconciled.</exception>
     public void Delete(DateTimeOffset now)
     {
         GuardNotALeg();
@@ -392,12 +606,57 @@ public sealed class Transaction : IUserOwned
     /// <summary>Deletes a leg, for <see cref="Transfer"/> alone, which deletes the other leg with it.</summary>
     internal void DeleteLeg(DateTimeOffset now) => DeleteWhateverItIs(now);
 
+    /// <summary>Whether the transaction is deleted, and was deleted no longer than <see cref="RecoveryPeriod"/> before <paramref name="now"/>.</summary>
+    public bool IsRecoverableAt(DateTimeOffset now) => DeletedAt is { } deletedAt && now - deletedAt <= RecoveryPeriod;
+
+    /// <summary>
+    /// Brings a deleted transaction back into lists and balances, as it was when it was deleted. Restoring one that is
+    /// not deleted changes nothing.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction is a leg of a transfer, which is restored as a transfer; or it was deleted longer than
+    /// <see cref="RecoveryPeriod"/> ago.
+    /// </exception>
+    public void Restore(DateTimeOffset now)
+    {
+        GuardNotALeg();
+        RestoreWhateverItIs(now);
+    }
+
+    /// <summary>Restores a leg, for <see cref="Transfer"/> alone, which restores the other leg with it.</summary>
+    internal void RestoreLeg(DateTimeOffset now) => RestoreWhateverItIs(now);
+
+    private void RestoreWhateverItIs(DateTimeOffset now)
+    {
+        if (!IsDeleted)
+        {
+            return;
+        }
+
+        if (!IsRecoverableAt(now))
+        {
+            throw new InvalidOperationException($"A transaction deleted more than {RecoveryPeriod.TotalDays} days ago cannot be restored.");
+        }
+
+        DeletedAt = null;
+        UpdatedAt = now;
+    }
+
     private void DeleteWhateverItIs(DateTimeOffset now)
     {
         if (IsDeleted)
         {
             return;
         }
+
+        if (IsReconciled)
+        {
+            throw new TransactionRuleViolation(
+                nameof(IsReconciled), "This transaction is reconciled: reopen its reconciliation to move or delete it.", BulkRefusal.Reconciled);
+        }
+
+        // A deleted transaction is on no statement: it leaves the reconciliation it was ticked in.
+        ReconciliationId = null;
 
         DeletedAt = now;
         UpdatedAt = now;
@@ -415,6 +674,8 @@ public sealed class Transaction : IUserOwned
         {
             throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type.");
         }
+
+        GuardUnlocked(type, accountId, amount, date, isRefund);
 
         if (!Enum.IsDefined(currency))
         {
@@ -464,6 +725,12 @@ public sealed class Transaction : IUserOwned
             DropConversion();
         }
 
+        // Moved to another account, it is on that account's statements, not on the one it was ticked against.
+        if (accountId != AccountId)
+        {
+            ReconciliationId = null;
+        }
+
         Type = type;
         AccountId = accountId;
         Currency = currency;
@@ -476,6 +743,46 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
         Replace(lines, now);
     }
+
+    /// <summary>
+    /// Refuses, while the transaction is reconciled, a change to what its account's balance depends on: the
+    /// amount, the date and the account (spec section 3, rule 11), and the type and refund flag, which give the
+    /// amount its sign.
+    /// </summary>
+    private void GuardUnlocked(TransactionType type, Guid accountId, decimal amount, DateOnly date, bool isRefund)
+    {
+        if (!IsReconciled)
+        {
+            return;
+        }
+
+        var changed =
+            amount != Amount ? nameof(Amount)
+            : date != Date ? nameof(Date)
+            : accountId != AccountId ? nameof(AccountId)
+            : type != Type ? nameof(Type)
+            : isRefund != IsRefund ? nameof(IsRefund)
+            : null;
+        if (changed is not null)
+        {
+            throw new TransactionRuleViolation(changed, Locked, BulkRefusal.Reconciled);
+        }
+    }
+
+    /// <summary>What a change refused on a reconciled transaction says.</summary>
+    internal const string Locked = "This transaction is reconciled, so its amount, date, account and type cannot change until its reconciliation is reopened.";
+
+    /// <summary>Ticks the transaction in a reconciliation, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void TickIn(Guid reconciliationId) => ReconciliationId = reconciliationId;
+
+    /// <summary>Unticks the transaction, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Untick() => ReconciliationId = null;
+
+    /// <summary>Locks the transaction as its reconciliation completes, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Reconcile() => IsReconciled = true;
+
+    /// <summary>Unlocks the transaction as its reconciliation is reopened, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Unreconcile() => IsReconciled = false;
 
     /// <summary>What rule an amount in this currency breaks, for a transaction, one of its lines or a recurring rule; null when it breaks none.</summary>
     internal static string? AmountRuleBroken(decimal amount, Currency currency) =>

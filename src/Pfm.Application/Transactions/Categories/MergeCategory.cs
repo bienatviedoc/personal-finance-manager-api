@@ -40,7 +40,7 @@ public sealed record CategoryMergeDetails(int Transactions, int Budgets);
 /// the merged category also has one.
 /// </remarks>
 public sealed class MergeCategoryHandler(
-    IValidator<MergeCategoryCommand> validator, ICategoryRepository categories, ICategoryUsage usage, ITransactionRepository transactions,
+    IValidator<MergeCategoryCommand> validator, ICategoryRepository categories, ITransactionRepository transactions,
     IRecurringRuleRepository recurringRules, IUserBudgets budgets, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<MergeCategoryCommand, CategoryMergeDetails?>(validator)
 {

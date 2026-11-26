@@ -27,7 +27,7 @@ internal sealed class RecurringRuleRepository(PfmDbContext db) : IRecurringRuleR
 
     public async Task<IReadOnlyList<Guid>> ListDueAsync(DateOnly today, CancellationToken cancellationToken) =>
         await db.Set<RecurringRule>()
-            .Where(rule => !rule.IsPaused && rule.NextRunDate <= today)
+            .Where(rule => rule.Mode == RecurringMode.AutoPost && !rule.IsPaused && rule.NextRunDate <= today)
             .OrderBy(rule => rule.Id)
             .Select(rule => rule.Id)
             .ToListAsync(cancellationToken);
@@ -39,9 +39,15 @@ internal sealed class RecurringRuleRepository(PfmDbContext db) : IRecurringRuleR
     /// </summary>
     public async Task<IReadOnlyList<Guid>> UsersWithDueRulesAsync(DateOnly date, CancellationToken cancellationToken) =>
         await db.Set<RecurringRule>().IgnoreQueryFilters()
-            .Where(rule => !rule.IsPaused && rule.NextRunDate <= date)
+            .Where(rule => rule.Mode == RecurringMode.AutoPost && !rule.IsPaused && rule.NextRunDate <= date)
             .Select(rule => rule.UserId)
             .Distinct()
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<RecurringRule>> ListUnsettledThroughAsync(DateOnly date, CancellationToken cancellationToken) =>
+        await db.Set<RecurringRule>()
+            .Where(rule => !rule.IsPaused && rule.NextRunDate <= date)
+            .OrderBy(rule => rule.Id)
             .ToListAsync(cancellationToken);
 
     public void Add(RecurringRule rule) => db.Set<RecurringRule>().Add(rule);

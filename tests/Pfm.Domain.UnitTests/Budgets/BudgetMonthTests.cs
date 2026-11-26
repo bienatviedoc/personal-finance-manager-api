@@ -15,6 +15,16 @@ public class BudgetMonthTests
     }
 
     [Fact]
+    public void The_budget_months_two_dates_span_are_every_month_from_the_first_ones_to_the_last_ones()
+    {
+        var months = BudgetMonth.Spanning(new DateOnly(2026, 11, 20), new DateOnly(2027, 2, 3));
+
+        Assert.Equal([new BudgetMonth(2026, 11), new BudgetMonth(2026, 12), new BudgetMonth(2027, 1), new BudgetMonth(2027, 2)], months);
+        Assert.Equal([new BudgetMonth(2026, 11)], BudgetMonth.Spanning(new DateOnly(2026, 11, 1), new DateOnly(2026, 11, 30)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => BudgetMonth.Spanning(new DateOnly(2026, 11, 2), new DateOnly(2026, 11, 1)));
+    }
+
+    [Fact]
     public void It_is_written_as_a_year_and_a_month()
     {
         Assert.True(BudgetMonth.TryParse("2026-11", out var november));

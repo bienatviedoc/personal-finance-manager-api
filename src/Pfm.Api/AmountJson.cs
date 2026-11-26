@@ -1,4 +1,4 @@
-using System.Globalization;
+using Pfm.Application.UseCases;
 
 namespace Pfm.Api;
 
@@ -6,5 +6,5 @@ namespace Pfm.Api;
 public static class AmountJson
 {
     /// <summary>The amount with at least two decimals and every digit it has: <c>"125000.00"</c>, <c>"-250.75"</c>.</summary>
-    public static string Text(decimal amount) => amount.ToString("0.00##", CultureInfo.InvariantCulture);
+    public static string Text(decimal amount) => AmountText.Of(amount);
 }

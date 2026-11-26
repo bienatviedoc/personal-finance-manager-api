@@ -10,7 +10,7 @@ namespace Pfm.Infrastructure.Transactions;
 /// What the user's transactions come to, asked of the database each time: nothing derived from them is
 /// stored (spec section 10).
 /// </summary>
-internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending
+internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions, ICategoryUsage, ICategorySpending, IIncomeAndSpending
 {
     /// <summary>
     /// Income − expenses + refunds + transfers in − transfers out of each account (spec section 3, rule 2),
@@ -32,6 +32,36 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     }
 
     /// <summary>
+    /// The database adds up the amounts of each account, day and type, refunds apart, up to the last of the days;
+    /// what was on or before each day is added up here, with the sign of each type as
+    /// <see cref="NetByAccountAsync"/> gives it. Deleted transactions are left out.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<decimal>>> NetByAccountOnAsync(
+        IReadOnlyCollection<Guid> accountIds, IReadOnlyList<DateOnly> days, CancellationToken cancellationToken)
+    {
+        if (days.Count == 0)
+        {
+            return new Dictionary<Guid, IReadOnlyList<decimal>>();
+        }
+
+        var last = days.Max();
+        var sums = await db.Set<Transaction>()
+            .Where(transaction => accountIds.Contains(transaction.AccountId) && transaction.DeletedAt == null && transaction.Date <= last)
+            .GroupBy(transaction => new { transaction.AccountId, transaction.Date, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new
+            {
+                ofType.Key.AccountId, ofType.Key.Date, ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount),
+            })
+            .ToListAsync(cancellationToken);
+
+        return sums
+            .GroupBy(sum => sum.AccountId)
+            .ToDictionary(
+                account => account.Key,
+                account => (IReadOnlyList<decimal>)[.. days.Select(day => account.Where(sum => sum.Date <= day).Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund)))]);
+    }
+
+    /// <summary>
     /// A deleted transaction still counts: it is recoverable, and would come back in a currency its account
     /// no longer has.
     /// </summary>
@@ -47,9 +77,23 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// </summary>
     public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
+        return SpentByCategory(await Expenses(from, to, accountId).ToListAsync(cancellationToken));
+    }
+
+    /// <summary>What each month's expenses spent in each category, by the same definition as <see cref="SpentByCategoryAsync"/>.</summary>
+    public async Task<IReadOnlyList<CategorySpentInMonth>> SpentByCategoryEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
+    {
         var expenses = await Expenses(from, to, accountId).ToListAsync(cancellationToken);
 
         return
+        [
+            .. expenses
+                .GroupBy(expense => new DateOnly(expense.Date.Year, expense.Date.Month, 1))
+                .SelectMany(month => SpentByCategory([.. month]).Select(spent => new CategorySpentInMonth(month.Key, spent))),
+        ];
+    }
+
+    private static List<CategorySpent> SpentByCategory(IReadOnlyList<Transaction> expenses) =>
         [
             .. expenses
                 .SelectMany(expense => expense.Lines.Select(line => line.CategoryId).Distinct().Select(categoryId => (CategoryId: categoryId, Expense: expense)))
@@ -59,7 +103,6 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
                     ofCategory.Sum(expense => expense.SpentAmountIn([ofCategory.Key])),
                     [.. ofCategory.Where(expense => !expense.IsConverted).Select(expense => expense.Id)])),
         ];
-    }
 
     /// <summary>
     /// The expenses with a line on the category, each with what it spent there by the same definition as
@@ -80,6 +123,38 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
                 expense.Lines.Where(line => line.CategoryId == categoryId).Sum(line => line.Amount), expense.Currency, expense.IsRefund,
                 expense.Lines.Any(line => line.CategoryId != categoryId),
                 expense.IsConverted ? expense.SpentAmountIn([categoryId]) : null)),
+        ];
+    }
+
+    /// <summary>
+    /// Read and added up here by the domain's own definitions (<see cref="Transaction.IncomeAmountIn"/>,
+    /// <see cref="Transaction.SpentAmountIn"/>). Only the types Income and Expense are read, so the legs of a
+    /// transfer never count.
+    /// </summary>
+    public async Task<IReadOnlyList<MoneyInOrOut>> IncomeAndExpensesAsync(
+        DateOnly from, DateOnly to, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
+    {
+        var transactions = db.Set<Transaction>().AsNoTracking()
+            .Where(transaction => (transaction.Type == TransactionType.Income || transaction.Type == TransactionType.Expense)
+                && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to);
+        if (accountId is { } account)
+        {
+            transactions = transactions.Where(transaction => transaction.AccountId == account);
+        }
+
+        if (categoryIds is not null)
+        {
+            transactions = transactions.Where(transaction => transaction.Lines.Any(line => categoryIds.Contains(line.CategoryId)));
+        }
+
+        return
+        [
+            .. (await transactions.ToListAsync(cancellationToken)).Select(transaction =>
+            {
+                var inThese = categoryIds ?? [.. transaction.Lines.Select(line => line.CategoryId)];
+                return new MoneyInOrOut(
+                    transaction.Id, transaction.Date, transaction.IncomeAmountIn(inThese), transaction.SpentAmountIn(inThese), transaction.IsConverted);
+            }),
         ];
     }
 

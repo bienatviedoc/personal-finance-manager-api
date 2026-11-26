@@ -4,7 +4,7 @@ namespace Pfm.Application.Transactions;
 
 /// <summary>
 /// The signed-in user's transactions. A deleted one is in none of the answers, except to the request that is
-/// retried with its idempotency key. Changes are saved through <see cref="Abstractions.IUnitOfWork"/>.
+/// retried with its idempotency key and to those that ask for deleted ones. Changes are saved through <see cref="Abstractions.IUnitOfWork"/>.
 /// </summary>
 public interface ITransactionRepository
 {
@@ -18,8 +18,14 @@ public interface ITransactionRepository
     /// <summary>Every transaction that passes <paramref name="filter"/>, counted and added up by currency and type.</summary>
     Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
+    /// <summary>Every expense, refunds included, that passes <paramref name="filter"/>, with its lines.</summary>
+    Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken);
+
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>The user's transactions with these ids, in no order; one they have none with, or deleted, is left out.</summary>
+    Task<IReadOnlyList<Transaction>> FindManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken);
 
     /// <summary>
     /// The user's transfer whose two legs share this transfer id; null when they have none, or deleted it
@@ -32,6 +38,33 @@ public interface ITransactionRepository
     /// fingerprint; null when none did.
     /// </summary>
     Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
+
+    /// <summary>The transactions ticked in this reconciliation, legs of transfers included; a deleted one is in none.</summary>
+    Task<IReadOnlyList<Transaction>> ListTickedAsync(Guid reconciliationId, CancellationToken cancellationToken);
+
+    /// <summary>The account's transactions dated on or before <paramref name="through"/> that are in no reconciliation.</summary>
+    Task<IReadOnlyList<Transaction>> ListUnreconciledAsync(Guid accountId, DateOnly through, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What the account's reconciled transactions come to, those of reconciliation <paramref name="except"/>
+    /// left out: income − expenses + refunds + transfers in − transfers out (spec section 3, rule 2).
+    /// </summary>
+    Task<decimal> ReconciledNetAsync(Guid accountId, Guid except, CancellationToken cancellationToken);
+
+    /// <summary>The user's deleted transaction with this id, however long ago it was deleted; null when they have none, or it is not deleted.</summary>
+    Task<Transaction?> FindDeletedAsync(Guid id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Up to <paramref name="take"/> of the user's transactions deleted at or after <paramref name="deletedSince"/>, the
+    /// last deleted first, starting after <paramref name="after"/>.
+    /// </summary>
+    Task<IReadOnlyList<Transaction>> ListDeletedAsync(DateTimeOffset deletedSince, int take, DeletedTransactionCursor? after, CancellationToken cancellationToken);
+
+    /// <summary>Every transaction of the user deleted before <paramref name="deletedBefore"/>.</summary>
+    Task<IReadOnlyList<Transaction>> ListDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
+
+    /// <summary>Every user, signed in or not, who has a transaction deleted before <paramref name="deletedBefore"/>.</summary>
+    Task<IReadOnlyList<Guid>> UsersWithDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken);
 
     /// <summary>Every transaction of the user with a line on the category, deleted or not.</summary>
     Task<IReadOnlyList<Transaction>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
@@ -50,6 +83,9 @@ public interface ITransactionRepository
 
     /// <param name="request">The key and fingerprint of the request recording it, if it sent a key: no second transaction can be saved with it.</param>
     void Add(Transaction transaction, IdempotentRequest? request);
+
+    /// <summary>Removes a transaction for good, with its lines; its attachments must be removed first.</summary>
+    void Remove(Transaction transaction);
 
     /// <summary>Adds both legs, to be saved together.</summary>
     /// <param name="request">The key and fingerprint of the request recording the transfer, if it sent a key; the Transfer out leg keeps them.</param>
