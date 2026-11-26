@@ -238,7 +238,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
 
-                    b.Property<Guid>("CategoryId")
+                    b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("CategoryKind")
@@ -279,6 +279,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId", "CategoryId", "Month")
                         .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "CategoryId", "Month"), false);
 
                     b.ToTable("Budgets", null, t =>
                         {
@@ -882,8 +884,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>

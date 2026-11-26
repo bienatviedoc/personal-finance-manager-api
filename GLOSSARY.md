@@ -68,6 +68,14 @@ _Avoid_: Batch edit, mass update, import batch (which is something else)
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
 _Avoid_: Limit, allowance, envelope
 
+**Overall budget**:
+A spending limit on all of a budget month's expenses together, in the base currency, whether or not their category has a budget of its own. A month has at most one; it is not a category budget and is not added into the category budgets' totals.
+_Avoid_: Total budget, monthly cap, global budget
+
+**Pace**:
+Whether a budget in the current budget month is being spent faster than the month is passing: ahead of pace when the share of the budget spent is larger than the share of the month elapsed, today included; otherwise on pace. A past month shows only its final result and has no pace.
+_Avoid_: Burn rate, forecast, trajectory
+
 **Archive**:
 To hide an institution, account or category from pickers while keeping its history in balances, net worth and reports.
 _Avoid_: Delete, disable, close, deactivate
@@ -153,7 +161,7 @@ Income minus expenses over some dates, as a percentage of that income. There is 
 _Avoid_: Saving ratio, margin
 
 **Unbudgeted**:
-Spent in a budget month where no budget covered its category: none on the category, nor on its parent.
+Spent in a budget month where no budget covered its category: none on the category, nor on its parent. The overall budget covers no category.
 _Avoid_: Over budget (which a budgeted category is), uncategorized
 
 **Export**:

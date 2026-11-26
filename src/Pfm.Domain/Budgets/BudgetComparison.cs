@@ -32,7 +32,7 @@ public sealed record UnbudgetedSpending(Guid CategoryId, decimal Spent, IReadOnl
 /// <param name="Unbudgeted">One for each category with spending no budget covered; in no particular order.</param>
 public sealed record BudgetComparison(IReadOnlyList<ComparedBudget> Budgets, IReadOnlyList<UnbudgetedSpending> Unbudgeted)
 {
-    /// <param name="budgets">The user's budgets in the months compared.</param>
+    /// <param name="budgets">The user's budgets in the months compared. The overall budget of a month is on no category, so it is left out.</param>
     /// <param name="categories">The user's categories, archived ones included.</param>
     /// <param name="spending">What was spent in each of the months compared.</param>
     /// <param name="warningPercent">The user's warning threshold.</param>
@@ -43,11 +43,12 @@ public sealed record BudgetComparison(IReadOnlyList<ComparedBudget> Budgets, IRe
         ArgumentNullException.ThrowIfNull(categories);
         ArgumentNullException.ThrowIfNull(spending);
         var byId = categories.ToDictionary(category => category.Id);
+        List<(Budget Budget, Guid CategoryId)> onCategories = [.. budgets.Where(budget => budget.CategoryId is not null).Select(budget => (budget, budget.CategoryId!.Value))];
         var spentIn = spending.GroupBy(month => month.Month).ToDictionary(month => month.Key, month => month.SelectMany(of => of.Spending).ToList());
 
-        var compared = budgets
-            .Select(budget => BudgetProgress.Of(budget, byId[budget.CategoryId], spentIn.GetValueOrDefault(budget.Month) ?? [], warningPercent))
-            .GroupBy(progress => progress.Budget.CategoryId)
+        var compared = onCategories
+            .Select(on => BudgetProgress.Of(on.Budget, byId[on.CategoryId], spentIn.GetValueOrDefault(on.Budget.Month) ?? [], warningPercent))
+            .GroupBy(progress => progress.Budget.CategoryId!.Value)
             .Select(category =>
             {
                 var budgeted = category.Sum(progress => progress.Budgeted);
@@ -58,7 +59,7 @@ public sealed record BudgetComparison(IReadOnlyList<ComparedBudget> Budgets, IRe
             })
             .ToList();
 
-        var budgetedIn = budgets.GroupBy(budget => budget.Month).ToDictionary(month => month.Key, month => month.Select(budget => budget.CategoryId).ToHashSet());
+        var budgetedIn = onCategories.GroupBy(on => on.Budget.Month).ToDictionary(month => month.Key, month => month.Select(on => on.CategoryId).ToHashSet());
         var unbudgeted = spentIn
             .SelectMany(month =>
             {

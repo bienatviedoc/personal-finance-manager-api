@@ -514,6 +514,18 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
   will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
   date in the user's time zone; left out, `month` is the month it is now there.
+- **The overall budget** (BUD-5) caps all of a month's spending, independent of the category budgets: a budget on
+  no category (`Budget.SetOverall`, `IsOverall`), at most one a month (a unique index whose nulls are not distinct).
+  `PUT /budgets/{month}/overall` sets it (201 new, 200 changed from its row version, 412 and 428 as above) and
+  `DELETE` on the same address removes it, leaving the category budgets. `GET /budgets` answers it as `overall`
+  (null when the month has none), against every expense of the month whether or not its category has a budget
+  (`BudgetProgress.OfOverall`), with the same states and `notConverted`. It is not one of the `items` nor in
+  their `totals`, nor in budget vs actual or the dashboard, which compare category budgets; it locks the base
+  currency like any budget, and copying a month copies it too when the month has none.
+- **Pace** (BUD-6): in the current month each budget and the overall budget have a `pace`, `aheadOfPace` when the
+  share spent is larger than the share of the month elapsed, today included, in the user's time zone, otherwise
+  `onPace` (`BudgetProgress.PaceOn`); the month answers that share as `percentOfMonthElapsed`. A past month,
+  and one still to come, has neither (null): it shows its final result.
 - **Roll-up** (rule 6): spending in a subcategory counts toward a budget on its parent, so a category and its
   subcategory cannot both have a budget in the same month (`Budget.EnsureCanBeSetOn`); two subcategories of one
   parent can. Two requests that budget a parent and its subcategory at the same moment cannot see each other

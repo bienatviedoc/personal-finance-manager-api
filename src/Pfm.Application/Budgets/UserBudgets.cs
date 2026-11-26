@@ -25,7 +25,7 @@ public sealed class UserBudgets(IBudgetRepository budgets, TimeProvider clock) :
                 merge.IntoId,
                 [.. all.Where(budget => budget.CategoryId == merge.MergedId)],
                 [.. all.Where(budget => budget.CategoryId == merge.IntoId)],
-                [.. all.Where(budget => relatives.Contains(budget.CategoryId))]);
+                [.. all.Where(budget => budget.CategoryId is { } categoryId && relatives.Contains(categoryId))]);
             foreach (var removed in plan.Apply(clock.GetUtcNow()))
             {
                 budgets.Remove(removed);

@@ -36,7 +36,8 @@ public sealed record CopyBudgetsOutcome(int Copied);
 /// <summary>
 /// Copies each budget of the source month whose category takes a new budget in the month: one that has none
 /// there yet, is not archived, and whose parent or subcategory has none there either (spec section 3, rule 6).
-/// The rest are left as they are, and the outcome counts only what was copied.
+/// The overall budget is copied too, when the month has none yet. The rest are left as they are, and the
+/// outcome counts only what was copied.
 /// </summary>
 /// <remarks>
 /// A budget set in the month by another request while copying makes the copy start again on what was saved,
@@ -67,11 +68,24 @@ public sealed class CopyBudgetsHandler(
         var (month, sourceMonth) = (command.ParsedMonth!.Value, command.ParsedSourceMonth!.Value);
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);
-        HashSet<Guid> budgeted = [.. (await budgets.ListForMonthAsync(month, cancellationToken)).Select(budget => budget.CategoryId)];
+        var inMonth = await budgets.ListForMonthAsync(month, cancellationToken);
+        HashSet<Guid> budgeted = [.. inMonth.CategoryIds()];
         List<(Budget Budget, BudgetCategory Category)> copied = [];
+        var overallCopied = 0;
         foreach (var source in await budgets.ListForMonthAsync(sourceMonth, cancellationToken))
         {
-            if (budgeted.Contains(source.CategoryId) || tree.BudgetCategory(source.CategoryId) is not { } category)
+            if (source.CategoryId is not { } categoryId)
+            {
+                if (!inMonth.Any(budget => budget.IsOverall))
+                {
+                    budgets.Add(Budget.SetOverall(month, source.Amount, currency, clock.GetUtcNow()));
+                    overallCopied = 1;
+                }
+
+                continue;
+            }
+
+            if (budgeted.Contains(categoryId) || tree.BudgetCategory(categoryId) is not { } category)
             {
                 continue;
             }
@@ -88,12 +102,12 @@ public sealed class CopyBudgetsHandler(
                 continue;
             }
 
-            budgeted.Add(source.CategoryId);
+            budgeted.Add(categoryId);
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
         var takenBack = await TakeBackWhatBreaksRuleSixAsync(copied, month, cancellationToken);
-        return new CopyBudgetsOutcome(copied.Count - takenBack);
+        return new CopyBudgetsOutcome(copied.Count - takenBack + overallCopied);
     }
 
     /// <summary>
@@ -109,7 +123,7 @@ public sealed class CopyBudgetsHandler(
             return 0;
         }
 
-        List<Guid> saved = [.. (await budgets.ListForMonthAsync(month, cancellationToken)).Select(budget => budget.CategoryId)];
+        var saved = (await budgets.ListForMonthAsync(month, cancellationToken)).CategoryIds();
         var takenBack = 0;
         foreach (var (budget, category) in copied)
         {

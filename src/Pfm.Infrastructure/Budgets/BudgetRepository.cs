@@ -17,10 +17,10 @@ internal sealed class BudgetRepository(PfmDbContext db) : IBudgetRepository
     public Task<bool> AnyAsync(CancellationToken cancellationToken) => db.Set<Budget>().AnyAsync(cancellationToken);
 
     public Task<bool> AnyOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
-        db.Set<Budget>().AnyAsync(budget => categoryIds.Contains(budget.CategoryId), cancellationToken);
+        db.Set<Budget>().AnyAsync(budget => budget.CategoryId != null && categoryIds.Contains(budget.CategoryId.Value), cancellationToken);
 
     public async Task<IReadOnlyList<Budget>> ListOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
-        await db.Set<Budget>().Where(budget => categoryIds.Contains(budget.CategoryId)).ToListAsync(cancellationToken);
+        await db.Set<Budget>().Where(budget => budget.CategoryId != null && categoryIds.Contains(budget.CategoryId.Value)).ToListAsync(cancellationToken);
 
     public void Add(Budget budget) => db.Set<Budget>().Add(budget);
 

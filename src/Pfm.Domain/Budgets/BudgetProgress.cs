@@ -14,6 +14,19 @@ public enum BudgetState
 }
 
 /// <summary>
+/// Whether a budget is being spent faster than its month is passing (spec BUD-6): the share of the budget spent
+/// against the share of the month elapsed, today included. Only the current month has a pace.
+/// </summary>
+public enum BudgetPace
+{
+    /// <summary>The share spent is no more than the share of the month elapsed.</summary>
+    OnPace = 1,
+
+    /// <summary>A larger share of the budget is spent than of the month has passed.</summary>
+    AheadOfPace = 2,
+}
+
+/// <summary>
 /// What the expenses of one category in a budget month come to in the base currency, minus its refunds. Each
 /// amount is as it was converted at the exchange rate of its transaction's date (decision record 0002).
 /// </summary>
@@ -68,12 +81,52 @@ public sealed record BudgetProgress(Budget Budget, decimal Spent, IReadOnlySet<G
             throw new ArgumentException("Progress is worked out for the budget's own category.", nameof(category));
         }
 
+        return Counting(budget, spending.Where(of => of.CategoryId == category.Id || category.SubcategoryIds.Contains(of.CategoryId)), warningPercent);
+    }
+
+    /// <summary>
+    /// The progress of the month's overall budget: what was spent in every category, whether or not it has a
+    /// budget of its own (spec BUD-5).
+    /// </summary>
+    /// <param name="spending">What was spent in the budget's month, by category.</param>
+    /// <param name="warningPercent">The user's warning threshold.</param>
+    public static BudgetProgress OfOverall(Budget budget, IEnumerable<CategorySpending> spending, int warningPercent)
+    {
+        ArgumentNullException.ThrowIfNull(budget);
+        ArgumentNullException.ThrowIfNull(spending);
+        if (!budget.IsOverall)
+        {
+            throw new ArgumentException("Only the overall budget counts every category's spending.", nameof(budget));
+        }
+
+        return Counting(budget, spending, warningPercent);
+    }
+
+    /// <summary>
+    /// Whether the budget is being spent faster than its month is passing, on <paramref name="today"/> in the
+    /// user's time zone (spec BUD-6); null unless today is in the budget's month, so a past month shows only
+    /// its final result.
+    /// </summary>
+    public BudgetPace? PaceOn(DateOnly today)
+    {
+        var month = Budget.Month;
+        if (month.PercentElapsedOn(today) is null)
+        {
+            return null;
+        }
+
+        // Spent / budgeted above day / days, multiplied out so that a budget of zero needs no division.
+        return Spent * month.Days > Budgeted * today.Day ? BudgetPace.AheadOfPace : BudgetPace.OnPace;
+    }
+
+    private static BudgetProgress Counting(Budget budget, IEnumerable<CategorySpending> spending, int warningPercent)
+    {
         if (!IsValidWarningPercent(warningPercent))
         {
             throw new ArgumentOutOfRangeException(nameof(warningPercent), warningPercent, "A warning threshold is from 1 to 100 percent.");
         }
 
-        var counted = spending.Where(of => of.CategoryId == category.Id || category.SubcategoryIds.Contains(of.CategoryId)).ToList();
+        var counted = spending.ToList();
         var spent = counted.Sum(of => of.Spent);
         return new BudgetProgress(budget, spent, counted.SelectMany(of => of.NotConverted).ToHashSet(), StateOf(budget.Amount, spent, warningPercent));
     }
