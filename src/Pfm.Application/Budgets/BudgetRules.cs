@@ -20,6 +20,9 @@ internal static class BudgetRules
     public static List<Guid> CategoryIds(this IEnumerable<Budget> budgets) =>
         [.. budgets.Where(budget => budget.CategoryId is not null).Select(budget => budget.CategoryId!.Value)];
 
+    /// <summary>The overall budget among <paramref name="budgets"/> of one month; null when they hold none.</summary>
+    public static Budget? Overall(this IEnumerable<Budget> budgets) => budgets.SingleOrDefault(budget => budget.IsOverall);
+
     /// <summary>A broken budget rule, as errors keyed by the command property at fault.</summary>
     public static IReadOnlyDictionary<string, string[]> AsErrors(this BudgetRuleViolation violation) =>
         FieldError.On(violation.Property, violation.Message);

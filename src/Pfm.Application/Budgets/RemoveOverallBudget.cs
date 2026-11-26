@@ -27,7 +27,7 @@ public sealed class RemoveOverallBudgetHandler(IValidator<RemoveOverallBudgetCom
         unitOfWork.RetryOnConcurrentChangeAsync<Result<Done?>>(async () =>
         {
             var ofMonth = await budgets.ListForMonthAsync(command.ParsedMonth!.Value, cancellationToken);
-            if (ofMonth.SingleOrDefault(budget => budget.IsOverall) is not { } budget)
+            if (ofMonth.Overall() is not { } budget)
             {
                 return (Done?)null;
             }

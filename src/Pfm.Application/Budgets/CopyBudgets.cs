@@ -77,7 +77,7 @@ public sealed class CopyBudgetsHandler(
         {
             if (source.CategoryId is not { } categoryId)
             {
-                if (!inMonth.Any(budget => budget.IsOverall))
+                if (inMonth.Overall() is null)
                 {
                     budgets.Add(Budget.SetOverall(month, source.Amount, currency, clock.GetUtcNow()));
                     overallCopied = 1;
