@@ -1,7 +1,7 @@
-using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
+using Pfm.Application.Contracts.Identity;
+using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Transactions;
@@ -25,9 +25,10 @@ public sealed record ListTransactions(
 /// <param name="Min">The smallest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Max">The largest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Search">Text the payee, the note or the note of any line contains, in upper or lower case.</param>
+/// <param name="Tag">The name of a tag, as <see cref="Domain.Transactions.Tag.Normalised"/> keeps it: only transactions with it are listed.</param>
 public sealed record TransactionFilter(
     DateOnly? From = null, DateOnly? To = null, Guid? AccountId = null, Guid? CategoryId = null, TransactionType? Type = null,
-    decimal? Min = null, decimal? Max = null, string? Search = null)
+    decimal? Min = null, decimal? Max = null, string? Search = null, string? Tag = null)
 {
     public const int MaxSearchLength = 200;
 
@@ -66,7 +67,18 @@ public sealed record TransactionList(Page<TransactionDetails> Page, FilteredTota
 /// counted once and adds only its lines in that category and its subcategories, as spent does (spec section 6):
 /// a split is listed whole but counts only the part it spent there.
 /// </summary>
-public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Currencies);
+/// <param name="Spent">
+/// Filtered by a category, what the transactions spent in it and its subcategories, in the base currency: spent
+/// as a budget counts it (spec section 6), so the transactions behind a budget come to its spent (spec BUD-8).
+/// Null when the list is not filtered by a category.
+/// </param>
+public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Currencies, SpentTotal? Spent = null);
+
+/// <summary>What the filtered transactions spent in a category and its subcategories, by the one definition of spent.</summary>
+/// <param name="Currency">The user's base currency.</param>
+/// <param name="Amount">The expenses minus the refunds, each converted at the rate of its own date, a split counting only its lines in the categories. It can be negative.</param>
+/// <param name="NotConverted">How many of the expenses are not converted, and so are left out of <paramref name="Amount"/>.</param>
+public sealed record SpentTotal(Currency Currency, decimal Amount, int NotConverted);
 
 /// <summary>The filtered transactions in one currency, added up.</summary>
 /// <param name="Income">The income among them, added up.</param>
@@ -74,7 +86,7 @@ public sealed record FilteredTotal(int Count, IReadOnlyList<CurrencyTotal> Curre
 /// <param name="Net">What they do to balances together: each amount with the sign of its type.</param>
 public sealed record CurrencyTotal(Currency Currency, decimal Income, decimal Expenses, decimal Net);
 
-public sealed class ListTransactionsHandler(ITransactionRepository transactions) : IQueryHandler
+public sealed class ListTransactionsHandler(ITransactionRepository transactions, ICategoryRepository categories, IBaseCurrency baseCurrency) : IQueryHandler
 {
     public async Task<TransactionList> HandleAsync(ListTransactions query, CancellationToken cancellationToken = default)
     {
@@ -83,7 +95,27 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions)
         var next = found.Count > query.Limit ? TransactionCursor.At(found[query.Limit - 1]).ToString() : null;
         var page = new Page<TransactionDetails>([.. found.Take(query.Limit).Select(TransactionDetails.Of)], next);
 
-        return new TransactionList(page, Total(await transactions.SumAsync(query.Filter, cancellationToken)));
+        var total = Total(await transactions.SumAsync(query.Filter, cancellationToken));
+        if (query.Filter.CategoryId is { } categoryId)
+        {
+            total = total with { Spent = await SpentAsync(query.Filter, categoryId, cancellationToken) };
+        }
+
+        return new TransactionList(page, total);
+    }
+
+    /// <summary>
+    /// Spent by the expenses that pass the filter, added up here by <see cref="Transaction.SpentAmountIn"/>, as
+    /// budgets add it up, so that the two never disagree, rounding of a converted split included.
+    /// </summary>
+    private async Task<SpentTotal> SpentAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
+    {
+        var categoryIds = await categories.ListIdsWithSubcategoriesAsync(categoryId, cancellationToken);
+        var expenses = await transactions.ListExpensesAsync(filter, cancellationToken);
+        return new SpentTotal(
+            await baseCurrency.OfCurrentUserAsync(cancellationToken),
+            expenses.Sum(expense => expense.SpentAmountIn(categoryIds)),
+            expenses.Count(expense => !expense.IsConverted));
     }
 
     /// <summary>
@@ -128,13 +160,8 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out TransactionCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor))
-        {
-            return false;
-        }
-
-        var text = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor));
-        if (text.Length <= AmountAt
+        if (!CursorText.TryDecode(cursor, out var text)
+            || text.Length <= AmountAt
             || !DateOnly.TryParseExact(text[..DateFormat.Length], DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
             || !Guid.TryParseExact(text[DateFormat.Length..AmountAt], "N", out var id)
             || !AmountText.TryParse(text[AmountAt..], out var amount))
@@ -147,6 +174,5 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     }
 
     public override string ToString() =>
-        Base64Url.EncodeToString(Encoding.UTF8.GetBytes(
-            $"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}"));
+        CursorText.Encode($"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}");
 }

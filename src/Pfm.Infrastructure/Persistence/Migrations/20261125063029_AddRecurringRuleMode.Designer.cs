@@ -13,8 +13,8 @@ using Pfm.Infrastructure.Persistence;
 namespace Pfm.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PfmDbContext))]
-    [Migration("20261125062952_AddOverallBudgets")]
-    partial class AddOverallBudgets
+    [Migration("20261125063029_AddRecurringRuleMode")]
+    partial class AddRecurringRuleMode
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -241,7 +241,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasPrecision(19, 4)
                         .HasColumnType("numeric(19,4)");
 
-                    b.Property<Guid?>("CategoryId")
+                    b.Property<Guid>("CategoryId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("CategoryKind")
@@ -282,8 +282,6 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("UserId", "CategoryId", "Month")
                         .IsUnique();
-
-                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "CategoryId", "Month"), false);
 
                     b.ToTable("Budgets", null, t =>
                         {
@@ -451,6 +449,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsPaused")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
                     b.Property<DateOnly?>("NextRunDate")
                         .HasColumnType("date");
 
@@ -494,7 +497,7 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("NextRunDate")
                         .HasDatabaseName("IX_RecurringRules_NextRunDate_Due")
-                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\"");
+                        .HasFilter("\"NextRunDate\" IS NOT NULL AND NOT \"IsPaused\" AND \"Mode\" = 'AutoPost'");
 
                     b.HasIndex("UserId");
 
@@ -505,6 +508,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             t.HasCheckConstraint("CK_RecurringRules_Ends_After_It_Starts", "\"EndDate\" IS NULL OR \"EndDate\" >= \"StartDate\"");
 
                             t.HasCheckConstraint("CK_RecurringRules_Interval_Positive", "\"Interval\" >= 1");
+
+                            t.HasCheckConstraint("CK_RecurringRules_Mode_AutoPostOrRemind", "\"Mode\" IN ('AutoPost', 'Remind')");
 
                             t.HasCheckConstraint("CK_RecurringRules_Type_IncomeOrExpense", "\"Type\" IN ('Income', 'Expense')");
                         });
@@ -794,7 +799,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
-                        .OnDelete(DeleteBehavior.Restrict);
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>

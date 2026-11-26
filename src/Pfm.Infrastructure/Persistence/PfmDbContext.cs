@@ -51,6 +51,14 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         {
             throw new ConcurrentChangeException(exception);
         }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException
+        {
+            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation, ConstraintName: Transactions.TagConfiguration.OneTagOfEachName,
+        })
+        {
+            // Another request created the tag first: the use case is made again and finds it.
+            throw new ConcurrentChangeException(exception);
+        }
         catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
         {
             throw new AlreadyExistsException(exception);

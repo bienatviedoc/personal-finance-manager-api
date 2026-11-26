@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -21,9 +22,11 @@ namespace Pfm.Application.Transactions;
 /// </param>
 /// <param name="Lines">The lines of a split, which sum exactly to the amount; <paramref name="CategoryId"/> is then left empty.</param>
 /// <param name="RecurringRuleId">The recurring rule posting the transaction as one of its occurrences; null when a user records it.</param>
+/// <param name="Tags">The names of its tags, in any case; a name the user has no tag with yet creates one.</param>
 public sealed record CreateTransactionCommand(
     string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note, string? IdempotencyKey = null,
-    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null, Guid? RecurringRuleId = null)
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null, Guid? RecurringRuleId = null,
+    IReadOnlyList<string?>? Tags = null)
     : ITransactionCommand
 {
     public const int MaxIdempotencyKeyLength = 200;
@@ -59,7 +62,7 @@ public sealed record CreateTransactionOutcome(TransactionDetails? Recorded)
 /// </summary>
 public sealed class CreateTransactionHandler(
     IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
-    TransactionConversion conversion, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionConversion conversion, TransactionTags tags, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CreateTransactionCommand, CreateTransactionOutcome>(validator)
 {
     protected override Task<Result<CreateTransactionOutcome>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken) =>
@@ -97,6 +100,7 @@ public sealed class CreateTransactionHandler(
             return Result<CreateTransactionOutcome>.Invalid(violation.AsErrors());
         }
 
+        transaction.TagWith(await tags.FindOrCreateAsync(TagNames.Of(command.Tags), cancellationToken), clock.GetUtcNow());
         if (command.RecurringRuleId is { } recurringRuleId)
         {
             transaction.PostedBy(recurringRuleId);

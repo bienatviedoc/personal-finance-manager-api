@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.Transactions.Transfers;
 using Pfm.Domain.Transactions;
 
@@ -51,6 +52,9 @@ public sealed record IdempotentRequest(string Key, string Fingerprint)
                 line.ParsedAmount!.Value.ToString(AmountFormat, CultureInfo.InvariantCulture),
                 Transaction.Normalised(line.Note),
             }),
+
+            // And only tags add theirs, each once whatever its case and in any order it was sent.
+            .. TagNames.Of(command.Tags) is { Count: > 0 } tags ? ["tags", .. tags] : Array.Empty<string?>(),
         ];
 
         return new IdempotentRequest(

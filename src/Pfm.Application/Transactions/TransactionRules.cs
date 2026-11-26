@@ -1,4 +1,5 @@
 using FluentValidation;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -29,6 +30,9 @@ internal interface ITransactionCommand
     IReadOnlyList<TransactionLineInput>? Lines { get; }
     /// <summary>Whether the expense is a refund. Only an expense can be one, which the transaction itself checks.</summary>
     bool IsRefund { get; }
+
+    /// <summary>The names of the transaction's tags as sent; null or none puts no tag on it.</summary>
+    IReadOnlyList<string?>? Tags { get; }
 
     TransactionFields Parsed { get; }
 }
@@ -92,6 +96,11 @@ internal static class TransactionRules
             line.RuleFor(entered => entered.Note).Must(Transaction.IsValidNote)
                 .WithMessage($"Enter a note of at most {Transaction.MaxNoteLength} characters.");
         });
+        validator.RuleFor(command => command.Tags)
+            .Must(tags => tags is null || tags.All(Tag.IsValidName))
+            .WithMessage($"Enter tags of 1 to {Tag.MaxNameLength} characters.")
+            .Must(tags => TagNames.Of(tags).Count <= Transaction.MaxTags)
+            .WithMessage($"Give a transaction at most {Transaction.MaxTags} tags.");
         validator.RuleFor(command => command.Payee).Must(Transaction.IsValidPayee)
             .WithMessage($"Enter a payee of at most {Transaction.MaxPayeeLength} characters.");
         validator.RuleFor(command => command.Note).Must(Transaction.IsValidNote)

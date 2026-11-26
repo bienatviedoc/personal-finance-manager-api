@@ -26,12 +26,12 @@ public class DataExportTests(PfmApi api)
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
         Assert.Equal(
-            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "recurring-rules.csv", "transaction-lines.csv", "transactions.csv"],
+            ["README.txt", "accounts.csv", "attachments.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "reconciliations.csv", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
             files.Keys.Where(file => !file.StartsWith("attachments/", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
             owned,
-            files.Where(file => file.Key.EndsWith(".csv", StringComparison.Ordinal)).ToDictionary(file => TableOf(file.Key), file => Csv(file.Value).Count - 1));
+            files.Where(file => file.Key.EndsWith(".csv", StringComparison.Ordinal)).ToDictionary(file => TableOf(file.Key), file => CsvFiles.Read(file.Value).Count - 1));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public class DataExportTests(PfmApi api)
 
         var files = await FilesAsync(await browser.GetAsync(Export));
 
-        var attachment = Row(Csv(files["attachments.csv"]), 1);
+        var attachment = Row(CsvFiles.Read(files["attachments.csv"]), 1);
         Assert.Equal((UserErasureFixtures.ReceiptName, "application/pdf"), (attachment["fileName"], attachment["contentType"]));
         var file = Assert.Single(files, file => file.Key.StartsWith("attachments/", StringComparison.Ordinal));
         Assert.Equal($"attachments/{attachment["id"]}-{UserErasureFixtures.ReceiptName}", file.Key);
@@ -94,7 +94,7 @@ public class DataExportTests(PfmApi api)
 
         var files = await FilesAsync(await browser.GetAsync(Export));
 
-        var transactions = Csv(files["transactions.csv"]);
+        var transactions = CsvFiles.Read(files["transactions.csv"]);
         var kept = Row(transactions, 1);
         var deleted = Row(transactions, 2);
         Assert.Equal("expense", kept["type"]);
@@ -112,7 +112,7 @@ public class DataExportTests(PfmApi api)
         Assert.Equal(("expense", "true"), (Row(transactions, 3)["type"], Row(transactions, 3)["isRefund"]));
         // A split's lines are in a file of their own, each naming its transaction and its category.
         var split = Row(transactions, 4);
-        var lines = Csv(files["transaction-lines.csv"]).Skip(1).Select(line => Csv(files["transaction-lines.csv"])[0].Zip(line).ToDictionary(cell => cell.First, cell => cell.Second)).ToList();
+        var lines = CsvFiles.Read(files["transaction-lines.csv"]).Skip(1).Select(line => CsvFiles.Read(files["transaction-lines.csv"])[0].Zip(line).ToDictionary(cell => cell.First, cell => cell.Second)).ToList();
         Assert.Equal("Co.opmart", split["payee"]);
         Assert.Equal(
             [(320000m, "Rice"), (180000m, "")],
@@ -130,17 +130,17 @@ public class DataExportTests(PfmApi api)
         Assert.All(legs, leg => Assert.Equal((200000m, "For Tet"), (decimal.Parse(leg["amount"], System.Globalization.CultureInfo.InvariantCulture), leg["note"])));
         Assert.DoesNotContain(lines, line => line["transactionId"] == legs[0]["id"] || line["transactionId"] == legs[1]["id"]);
         // A budget names its category and its budget month by the month's first day.
-        var budget = Row(Csv(files["budgets.csv"]), 1);
+        var budget = Row(CsvFiles.Read(files["budgets.csv"]), 1);
         Assert.Equal(3000000m, decimal.Parse(budget["amount"], System.Globalization.CultureInfo.InvariantCulture));
         Assert.Equal(("VND", $"{DateTime.UtcNow:yyyy-MM}-01"), (budget["currency"], budget["month"]));
-        Assert.Contains(Csv(files["categories.csv"]).Skip(1), category => category.Contains(budget["categoryId"]) && category.Contains("Food & drink"));
+        Assert.Contains(CsvFiles.Read(files["categories.csv"]).Skip(1), category => category.Contains(budget["categoryId"]) && category.Contains("Food & drink"));
         // An account, an institution and a category are named by the id their own file lists them under.
-        var account = Row(Csv(files["accounts.csv"]), 1);
+        var account = Row(CsvFiles.Read(files["accounts.csv"]), 1);
         Assert.Equal(account["id"], kept["accountId"]);
         Assert.Equal("Everyday", account["name"]);
         Assert.Equal("current", account["type"]);
-        Assert.Equal(Row(Csv(files["institutions.csv"]), 1)["id"], account["institutionId"]);
-        Assert.Contains(Csv(files["categories.csv"]).Skip(1), category => category.Contains(kept["categoryId"]) && category.Contains("Street food"));
+        Assert.Equal(Row(CsvFiles.Read(files["institutions.csv"]), 1)["id"], account["institutionId"]);
+        Assert.Contains(CsvFiles.Read(files["categories.csv"]).Skip(1), category => category.Contains(kept["categoryId"]) && category.Contains("Street food"));
     }
 
     [Fact]
@@ -152,7 +152,7 @@ public class DataExportTests(PfmApi api)
 
         Assert.All(files.Where(file => file.Key.EndsWith(".csv", StringComparison.Ordinal)), file =>
         {
-            var columns = Csv(file.Value)[0];
+            var columns = CsvFiles.Read(file.Value)[0];
             Assert.DoesNotContain("userId", columns);
             Assert.DoesNotContain("xmin", columns);
             Assert.DoesNotContain("rowVersion", columns);
@@ -166,9 +166,9 @@ public class DataExportTests(PfmApi api)
 
         var files = await FilesAsync(await browser.GetAsync(Export));
 
-        Assert.Single(Csv(files["transactions.csv"]));
-        Assert.Contains("payee", Csv(files["transactions.csv"])[0]);
-        Assert.Single(Csv(files["transaction-lines.csv"]));
+        Assert.Single(CsvFiles.Read(files["transactions.csv"]));
+        Assert.Contains("payee", CsvFiles.Read(files["transactions.csv"])[0]);
+        Assert.Single(CsvFiles.Read(files["transaction-lines.csv"]));
     }
 
     [Fact]
@@ -181,7 +181,7 @@ public class DataExportTests(PfmApi api)
 
         var files = await FilesAsync(await browser.GetAsync(Export));
 
-        Assert.Equal(2, Csv(files["accounts.csv"]).Count);
+        Assert.Equal(2, CsvFiles.Read(files["accounts.csv"]).Count);
         Assert.All(files.Values, text =>
         {
             Assert.DoesNotContain("Somebody else's savings", text);
@@ -218,57 +218,4 @@ public class DataExportTests(PfmApi api)
 
     private static Dictionary<string, string> Row(List<string[]> csv, int row) =>
         csv[0].Zip(csv[row]).ToDictionary(cell => cell.First, cell => cell.Second);
-
-    /// <summary>Reads CSV as RFC 4180 writes it: fields that hold a comma, a quote or a line break are quoted, and a quote inside is doubled.</summary>
-    private static List<string[]> Csv(string text)
-    {
-        var rows = new List<string[]>();
-        var row = new List<string>();
-        var field = new StringBuilder();
-        var quoted = false;
-        for (var i = 0; i < text.Length; i++)
-        {
-            var c = text[i];
-            if (quoted)
-            {
-                if (c == '"' && i + 1 < text.Length && text[i + 1] == '"')
-                {
-                    field.Append('"');
-                    i++;
-                }
-                else if (c == '"')
-                {
-                    quoted = false;
-                }
-                else
-                {
-                    field.Append(c);
-                }
-            }
-            else if (c == '"')
-            {
-                quoted = true;
-            }
-            else if (c == ',')
-            {
-                row.Add(field.ToString());
-                field.Clear();
-            }
-            else if (c == '\r' && i + 1 < text.Length && text[i + 1] == '\n')
-            {
-                row.Add(field.ToString());
-                field.Clear();
-                rows.Add([.. row]);
-                row.Clear();
-                i++;
-            }
-            else
-            {
-                field.Append(c);
-            }
-        }
-
-        Assert.True(field.Length == 0 && row.Count == 0, "The last line of a CSV file ends with a line break.");
-        return rows;
-    }
 }

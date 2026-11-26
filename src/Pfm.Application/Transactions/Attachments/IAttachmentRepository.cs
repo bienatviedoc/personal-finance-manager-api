@@ -14,6 +14,9 @@ public interface IAttachmentRepository
     /// <summary>Every attachment of the user, those of deleted transactions included, the first attached first.</summary>
     Task<IReadOnlyList<Attachment>> ListEveryAsync(CancellationToken cancellationToken);
 
+    /// <summary>The attachments of these transactions, deleted or not.</summary>
+    Task<IReadOnlyList<Attachment>> ListOfAsync(IReadOnlyCollection<Guid> transactionIds, CancellationToken cancellationToken);
+
     /// <summary>The user's attachment with this id; null when they have none.</summary>
     Task<Attachment?> FindAsync(Guid id, CancellationToken cancellationToken);
 
