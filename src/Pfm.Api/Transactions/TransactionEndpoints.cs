@@ -22,6 +22,10 @@ public static class TransactionEndpoints
             .WithDescription("The user's transactions that pass every filter sent, a page at a time, with the total of all that pass, whichever page is asked for. Newest date first and, within a date, last recorded first, unless sort and order say otherwise. A deleted transaction is never listed or counted. The two legs of a transfer are listed like any transaction, each on its own account, with the transferId they share; the total counts them and adds them to neither income nor expenses.");
         transactions.MapGet("/quick-add", QuickAdd).WithName("GetQuickAdd")
             .WithDescription("What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before.");
+        transactions.MapGet("/deleted", ListDeleted).WithName("ListDeletedTransactions")
+            .WithDescription("The user's recently deleted transactions: those deleted in the last 30 days, which can still be restored, the last deleted first, a page at a time. Each leg of a deleted transfer is listed. After 30 days a deleted transaction is no longer listed or restorable, and the worker removes it for good.");
+        transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
+            .WithDescription("Restores a transaction deleted in the last 30 days: it is back in lists and its account's balance at once, as it was when it was deleted. Restoring a leg of a transfer restores the whole transfer, the other leg with it. One that is not deleted, or was deleted longer ago, is not found. The ETag header carries its row version.");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
@@ -113,6 +117,38 @@ public static class TransactionEndpoints
 
         var quickAdd = await handler.HandleAsync(new GetQuickAdd(read, payee), cancellationToken);
         return TypedResults.Ok(new QuickAddResponse(quickAdd.LastAccountId, quickAdd.SuggestedCategoryId));
+    }
+
+    /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    private static async Task<Results<Ok<DeletedTransactionListResponse>, ValidationProblem>> ListDeleted(
+        ListDeletedTransactionsHandler handler, CancellationToken cancellationToken, int limit = Paging.DefaultLimit, string? cursor = null)
+    {
+        if (!Paging.IsValidLimit(limit))
+        {
+            return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+        }
+
+        DeletedTransactionCursor? after = null;
+        if (cursor is not null && !DeletedTransactionCursor.TryParse(cursor, out after))
+        {
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
+        }
+
+        var page = await handler.HandleAsync(new ListDeletedTransactions(limit, after), cancellationToken);
+        return TypedResults.Ok(new DeletedTransactionListResponse([.. page.Items.Select(DeletedTransactionResponse.From)], page.NextCursor));
+    }
+
+    private static async Task<Results<Ok<TransactionResponse>, NotFound, ValidationProblem>> Restore(
+        Guid id, RestoreTransactionHandler handler, HttpContext http, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new RestoreTransactionCommand(id), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome is { } restored ? TypedResults.Ok(Versioned(http, TransactionResponse.From(restored))) : TypedResults.NotFound();
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
@@ -257,6 +293,28 @@ public sealed record TransactionResponse(
             transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
             transaction.RecurringRuleId, transaction.IsReconciled);
 }
+
+/// <summary>A recently deleted transaction, as it was when it was deleted.</summary>
+/// <param name="Type"><c>transferOut</c> and <c>transferIn</c> are the legs of a deleted transfer; restoring either restores both.</param>
+/// <param name="Amount">A decimal string in <paramref name="Currency"/>, greater than zero; the type gives the sign, except that a refund raises the balance.</param>
+/// <param name="DeletedAt">When it was deleted.</param>
+/// <param name="RestorableUntil">When it can no longer be restored: 30 days after it was deleted. The worker then removes it for good.</param>
+public sealed record DeletedTransactionResponse(
+    Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
+    Guid? TransferId, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, DateTimeOffset DeletedAt, DateTimeOffset RestorableUntil)
+{
+    public static DeletedTransactionResponse From(DeletedTransactionDetails deleted)
+    {
+        var transaction = deleted.Transaction;
+        return new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
+            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.IsRefund,
+            [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
+            deleted.DeletedAt, deleted.RestorableUntil);
+    }
+}
+
+/// <summary>A page of recently deleted transactions. <c>nextCursor</c> asks for the next page; it is null on the last.</summary>
+public sealed record DeletedTransactionListResponse(IReadOnlyList<DeletedTransactionResponse> Items, string? NextCursor);
 
 /// <summary>What quick add starts a new transaction from.</summary>
 /// <param name="LastAccountId">The account, not archived, that the user recorded a transaction on last; null when they have recorded none.</param>
