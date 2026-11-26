@@ -529,6 +529,19 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   change, or the budget, when the two are saved at the same moment; the use case is then made again.
 - **A budgeted category stays an expense category**: changing the kind of a category that has a budget, or whose
   subcategory has one, is refused, and a second foreign key holds that when the two are saved at the same moment.
+- **Budget notifications** (BUD-7): after any change that affects spent (a transaction recorded, edited, deleted,
+  restored or converted once its rate arrives, a bulk action, a transfer unmarked, an occurrence posted) or a budget
+  set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
+  the dates it touched. `BudgetNotifications` reads each of those budget months as the budget screen does and
+  raises a `BudgetNotification` for each budget that moved into `warning` or `over` and has not raised that
+  one in the month (`BudgetNotification.Due`): one warning and one over at most, and no warning after over, even
+  when spent drops back and crosses again. A unique index holds that when two requests raise the same one at once.
+  A notification keeps `budgeted`, `spent` and `percentSpent` as they stood. Each new one is emailed in the
+  user's locale with a link to the budget month, unless `emailBudgetNotifications` (`PATCH /me`, true until
+  switched off) is false; an email that cannot be sent is logged and the notification stays in the app.
+  `GET /budget-notifications` lists them the newest first, a page at a time, with how many are `unread`;
+  `POST /budget-notifications/{id}/read` and `POST /budget-notifications/read` mark one or all read.
+  Lowering the warning threshold changes no spent, so it raises nothing until the next change does.
 - Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
   Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 

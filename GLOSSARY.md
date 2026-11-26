@@ -68,6 +68,10 @@ _Avoid_: Batch edit, mass update, import batch (which is something else)
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
 _Avoid_: Limit, allowance, envelope
 
+**Budget notification**:
+A message, shown in the app and emailed, that a category's budget moved into warning or over in a budget month. Each category raises at most one warning and one over a budget month, and keeps what the budget stood at when it was raised. Email can be switched off in settings; the app always shows it.
+_Avoid_: Alert, reminder (which is a recurring rule's), budget email
+
 **Archive**:
 To hide an institution, account or category from pickers while keeping its history in balances, net worth and reports.
 _Avoid_: Delete, disable, close, deactivate
