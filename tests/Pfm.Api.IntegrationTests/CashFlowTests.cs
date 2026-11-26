@@ -105,17 +105,16 @@ public class CashFlowTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task An_account_the_user_does_not_have_reports_nothing()
+    public async Task An_account_the_user_does_not_have_is_not_found()
     {
         var (browser, _) = await api.SignedInAsync();
         var (stranger, _) = await api.SignedInAsync();
         await AddAccountAsync(browser, "Everyday", "VND", "1000000");
         var theirs = await AddAccountAsync(stranger, "Theirs", "USD", "500");
 
-        var report = await ReportAsync(browser, $"from=2026-03-01&to=2026-03-02&accountId={theirs}");
+        var response = await browser.GetAsync($"/api/v1/reports/cash-flow?from=2026-03-01&to=2026-03-02&accountId={theirs}");
 
-        Assert.Equal(("VND", (Guid?)null), (report.Currency, report.AccountId));
-        Assert.Equal([new Point(March, "0.00", 0), new Point(March.AddDays(1), "0.00", 0)], report.Items);
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Theory]

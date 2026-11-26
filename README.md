@@ -652,7 +652,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **Cash flow** (RPT-4). `GET /reports/cash-flow` answers the running balance at the end of every day of the period,
   or with `interval=week` at the end of every week (Monday to Sunday) and of the period's last day
   (`ReportPeriod.ClosingDays`). With `accountId`, it is that account's balance in its own currency, as the account
-  detail page charts it; without, it is every account's, archived ones included, in the base currency. The balances
+  detail page charts it, and 404 when the user has no such account, as on every route about one account; without, it is every account's, archived ones included, in the base currency. The balances
   come from `IAccountBalances`, as net worth's do (none before an account opened), and across accounts the balances in
   one currency are added up and converted at the rate of the day shown, or the nearest earlier one, all of a period's
   rates read at once (`ICurrencyConversion` with dated amounts); a balance with no rate is left out and counted in

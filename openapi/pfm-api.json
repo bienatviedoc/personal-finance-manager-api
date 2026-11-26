@@ -5432,6 +5432,9 @@
               }
             }
           },
+          "404": {
+            "description": "Not Found"
+          },
           "400": {
             "description": "Bad Request",
             "content": {

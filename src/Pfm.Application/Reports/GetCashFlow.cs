@@ -16,8 +16,7 @@ public sealed record GetCashFlow(ReportFilter Filter, BalanceInterval Interval =
 
 /// <summary>The running balance over a period.</summary>
 /// <param name="Currency">
-/// What every balance is in: the account's own currency for one account; the base currency across all of them
-/// (and for an account the user does not have, which reports nothing).
+/// What every balance is in: the account's own currency for one account; the base currency across all of them.
 /// </param>
 /// <param name="AccountId">The account whose balance this is; null across all accounts.</param>
 /// <param name="Items">At the end of each of the period's closing days (<see cref="ReportPeriod.ClosingDays"/>), earliest first.</param>
@@ -33,18 +32,20 @@ public sealed class GetCashFlowHandler(IAccountBalances balances, IBaseCurrency 
     /// One account's balance is shown in its own currency, as the account shows it. Across accounts, a balance is as
     /// of the end of a day, so it is converted at that day's rate, or the nearest earlier one, as net worth converts
     /// it; the balances in one currency are added up first, so a total is rounded once. An account counts nothing
-    /// before it opened.
+    /// before it opened. Answers null when the user has no account with the id asked for.
     /// </summary>
-    public async Task<CashFlowDetails> HandleAsync(GetCashFlow query, CancellationToken cancellationToken = default)
+    public async Task<CashFlowDetails?> HandleAsync(GetCashFlow query, CancellationToken cancellationToken = default)
     {
         var filter = query.Filter;
         var days = filter.Period.ClosingDays(query.Interval);
         var accounts = await balances.OnAsync(days, filter.AccountId, cancellationToken);
 
-        if (filter.AccountId is not null && accounts is [var one])
+        if (filter.AccountId is not null)
         {
-            return new CashFlowDetails(
-                filter.Period, query.Interval, one.Currency, one.Id, [.. days.Select((day, index) => new BalanceOnDay(day, one.Balances[index] ?? 0m, 0))]);
+            return accounts is [var one]
+                ? new CashFlowDetails(
+                    filter.Period, query.Interval, one.Currency, one.Id, [.. days.Select((day, index) => new BalanceOnDay(day, one.Balances[index] ?? 0m, 0))])
+                : null;
         }
 
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);

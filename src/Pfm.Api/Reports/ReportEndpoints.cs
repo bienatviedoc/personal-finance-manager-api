@@ -86,9 +86,9 @@ public static class ReportEndpoints
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>; on or after <paramref name="from"/>.</param>
-    /// <param name="accountId">One of the user's accounts: only its balance, in its own currency. Left out for all accounts in the base currency.</param>
+    /// <param name="accountId">One of the user's accounts: only its balance, in its own currency (404 when the user has no such account). Left out for all accounts in the base currency.</param>
     /// <param name="interval"><c>day</c> (the default) for the balance at the end of every day; <c>week</c> for the end of every week and of the period.</param>
-    private static async Task<Results<Ok<CashFlowResponse>, ValidationProblem>> CashFlow(
+    private static async Task<Results<Ok<CashFlowResponse>, NotFound, ValidationProblem>> CashFlow(
         GetCashFlowHandler handler, CancellationToken cancellationToken, string? from = null, string? to = null, string? accountId = null, string? interval = null)
     {
         var parameters = new ReportParameters();
@@ -104,7 +104,9 @@ public static class ReportEndpoints
             return TypedResults.ValidationProblem(parameters.Refused);
         }
 
-        return TypedResults.Ok(CashFlowResponse.Of(await handler.HandleAsync(new GetCashFlow(filter, every.Value), cancellationToken)));
+        return await handler.HandleAsync(new GetCashFlow(filter, every.Value), cancellationToken) is { } report
+            ? TypedResults.Ok(CashFlowResponse.Of(report))
+            : TypedResults.NotFound();
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
