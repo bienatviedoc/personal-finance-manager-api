@@ -33,6 +33,17 @@ public interface IUserBudgets
 public sealed record CategoryMerge(Guid MergedId, Guid IntoId, Guid? IntoParentId, IReadOnlyCollection<Guid> IntoSubcategoryIds);
 
 /// <summary>What merging a category did to its budgets.</summary>
-/// <param name="Moved">How many budgets of the merged category moved.</param>
-/// <param name="Refused">Why the budgets cannot be merged; null when they were.</param>
-public sealed record BudgetMergeOutcome(int Moved, string? Refused);
+public abstract record BudgetMergeOutcome
+{
+    private BudgetMergeOutcome()
+    {
+    }
+
+    /// <summary>The budgets moved.</summary>
+    /// <param name="Moved">How many budgets of the merged category moved.</param>
+    public sealed record Merged(int Moved) : BudgetMergeOutcome;
+
+    /// <summary>Nothing changed: the budgets cannot be merged.</summary>
+    /// <param name="Reason">Why, for the user.</param>
+    public sealed record Refused(string Reason) : BudgetMergeOutcome;
+}

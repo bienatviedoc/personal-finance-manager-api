@@ -31,11 +31,11 @@ public sealed class UserBudgets(IBudgetRepository budgets, TimeProvider clock) :
                 budgets.Remove(removed);
             }
 
-            return new BudgetMergeOutcome(plan.Moving, Refused: null);
+            return new BudgetMergeOutcome.Merged(plan.Moving);
         }
         catch (BudgetRuleViolation violation)
         {
-            return new BudgetMergeOutcome(0, violation.Message);
+            return new BudgetMergeOutcome.Refused(violation.Message);
         }
     }
 }
