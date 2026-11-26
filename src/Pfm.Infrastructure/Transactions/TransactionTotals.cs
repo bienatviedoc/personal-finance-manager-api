@@ -99,6 +99,9 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// Whether any line is on one of the categories, so a split counts for the category of each of its lines. A
     /// deleted transaction still counts, as for an account: it would come back with a category of the wrong kind.
     /// </summary>
+    public Task<int> CountTransactionsAsync(Guid categoryId, CancellationToken cancellationToken) =>
+        db.Set<Transaction>().CountAsync(transaction => transaction.DeletedAt == null && transaction.Lines.Any(line => line.CategoryId == categoryId), cancellationToken);
+
     public Task<bool> HasTransactionsAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken) =>
         db.Set<Transaction>().AnyAsync(transaction => transaction.Lines.Any(line => categoryIds.Contains(line.CategoryId)), cancellationToken);
 }

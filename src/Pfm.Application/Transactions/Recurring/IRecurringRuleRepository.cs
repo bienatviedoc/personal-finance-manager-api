@@ -20,6 +20,9 @@ public interface IRecurringRuleRepository
     /// </summary>
     Task<IReadOnlyList<Guid>> UsersWithDueRulesAsync(DateOnly date, CancellationToken cancellationToken);
 
+    /// <summary>Every rule of the user on the category, paused or not.</summary>
+    Task<IReadOnlyList<RecurringRule>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
+
     void Add(RecurringRule rule);
 
     /// <summary>Deletes the rule. The transactions it posted stay, no longer linked to a rule.</summary>

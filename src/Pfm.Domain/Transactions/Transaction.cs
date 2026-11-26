@@ -256,6 +256,40 @@ public sealed class Transaction : IUserOwned
         Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
     }
 
+    /// <summary>
+    /// Moves every line on <paramref name="from"/> onto <paramref name="into"/>, as merging the one category into
+    /// the other does (spec CAT-3). The amounts and notes stay; a deleted transaction moves too, so it comes back on
+    /// the category merged into.
+    /// </summary>
+    public void MoveLines(Category from, Category into, DateTimeOffset now)
+    {
+        GuardMerge(from, into);
+        var moving = _lines.Where(line => line.CategoryId == from.Id).ToList();
+        if (moving.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var line in moving)
+        {
+            line.MoveTo(into);
+        }
+
+        CategoryId = Lines[0].CategoryId;
+        UpdatedAt = now;
+    }
+
+    /// <summary>Two categories one of which is merged into the other, which <see cref="Category.MergeInto"/> has checked.</summary>
+    internal static void GuardMerge(Category from, Category into)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(into);
+        if (from.Kind != into.Kind || into.IsArchived || from.Id == into.Id)
+        {
+            throw new ArgumentException("Only a category of the same kind that is not archived can be merged into.", nameof(into));
+        }
+    }
+
     private void GuardNotDeleted()
     {
         if (IsDeleted)

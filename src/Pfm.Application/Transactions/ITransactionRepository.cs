@@ -33,6 +33,9 @@ public interface ITransactionRepository
     /// </summary>
     Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
 
+    /// <summary>Every transaction of the user with a line on the category, deleted or not.</summary>
+    Task<IReadOnlyList<Transaction>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken);
+
     /// <summary>Every transaction of the user, deleted or not.</summary>
     Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
 

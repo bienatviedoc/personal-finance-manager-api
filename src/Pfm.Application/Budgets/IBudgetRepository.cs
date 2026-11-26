@@ -14,6 +14,9 @@ public interface IBudgetRepository
     /// <summary>Whether any of the given categories has a budget, in any month.</summary>
     Task<bool> AnyOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken);
 
+    /// <summary>The budgets of the given categories, in every month.</summary>
+    Task<IReadOnlyList<Budget>> ListOnAsync(IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken);
+
     void Add(Budget budget);
 
     /// <summary>A removed budget is gone: unlike a category it has no history of its own to keep.</summary>
