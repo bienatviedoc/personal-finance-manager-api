@@ -8,14 +8,16 @@ namespace Pfm.ArchitectureTests;
 public class UserOwnedDataTests
 {
     /// <summary>
-    /// The three queries that look past the user filter, a file listed once for each. A job that runs for nobody
+    /// The four queries that look past the user filter, a file listed once for each. A job that runs for nobody
     /// asks which users have something for it to do: recurring rules with an occurrence due, transactions flagged
-    /// not converted, or any transaction for the integrity check to verify. Each answers user ids and no row; the
+    /// not converted, any transaction for the integrity check to verify, or transactions deleted more than 30 days
+    /// ago for the purge to remove. Each answers user ids and no row; the
     /// job then acts for each user in turn, inside the filter.
     /// </summary>
     private static readonly string[] MayIgnoreQueryFilters =
     [
         "src/Pfm.Infrastructure/Transactions/RecurringRuleRepository.cs",
+        "src/Pfm.Infrastructure/Transactions/TransactionRepository.cs",
         "src/Pfm.Infrastructure/Transactions/TransactionRepository.cs",
         "src/Pfm.Infrastructure/Transactions/TransactionRepository.cs",
     ];

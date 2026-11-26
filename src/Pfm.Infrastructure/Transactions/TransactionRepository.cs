@@ -138,6 +138,39 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .Select(transaction => new RecordedRequest(transaction, EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyFingerprint)))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public Task<Transaction?> FindDeletedAsync(Guid id, CancellationToken cancellationToken) =>
+        db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt != null, cancellationToken);
+
+    public async Task<IReadOnlyList<Transaction>> ListDeletedAsync(
+        DateTimeOffset deletedSince, int take, DeletedTransactionCursor? after, CancellationToken cancellationToken)
+    {
+        var deleted = db.Set<Transaction>().Where(transaction => transaction.DeletedAt >= deletedSince);
+        if (after is not null)
+        {
+            deleted = deleted.Where(transaction =>
+                transaction.DeletedAt < after.DeletedAt || (transaction.DeletedAt == after.DeletedAt && transaction.Id < after.Id));
+        }
+
+        return await deleted
+            .OrderByDescending(transaction => transaction.DeletedAt).ThenByDescending(transaction => transaction.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Transaction>> ListDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => transaction.DeletedAt < deletedBefore).ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Another query that looks past the user filter, for the purge of deleted transactions, which runs for no
+    /// user: it answers who has transactions to remove for good and none of them.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> UsersWithDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().IgnoreQueryFilters()
+            .Where(transaction => transaction.DeletedAt < deletedBefore)
+            .Select(transaction => transaction.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().ToListAsync(cancellationToken);
 
@@ -172,6 +205,8 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         added.Property(TransactionConfiguration.IdempotencyKey).CurrentValue = request?.Key;
         added.Property(TransactionConfiguration.IdempotencyFingerprint).CurrentValue = request?.Fingerprint;
     }
+
+    public void Remove(Transaction transaction) => db.Set<Transaction>().Remove(transaction);
 
     public void Add(Transfer transfer, IdempotentRequest? request)
     {

@@ -146,6 +146,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         // Finds the other leg, and a transfer has one leg of each type, never two (spec section 10).
         transaction.HasIndex(row => new { row.TransferId, row.Type }).IsUnique();
 
+        // Recently deleted, and the purge of what was deleted more than 30 days ago, read only deleted transactions.
+        transaction.HasIndex(row => new { row.UserId, row.DeletedAt }).HasFilter("\"DeletedAt\" IS NOT NULL").HasDatabaseName("IX_Transactions_UserId_Deleted");
+
         // A retried request cannot record its transaction twice. Rows without a key never collide.
         transaction.HasIndex(nameof(Transaction.UserId), IdempotencyKey).IsUnique();
     }

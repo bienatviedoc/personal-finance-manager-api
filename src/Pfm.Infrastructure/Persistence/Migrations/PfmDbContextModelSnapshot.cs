@@ -629,6 +629,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("TransferId", "Type")
                         .IsUnique();
 
+                    b.HasIndex("UserId", "DeletedAt")
+                        .HasDatabaseName("IX_Transactions_UserId_Deleted")
+                        .HasFilter("\"DeletedAt\" IS NOT NULL");
+
                     b.HasIndex("UserId", "IdempotencyKey")
                         .IsUnique();
 

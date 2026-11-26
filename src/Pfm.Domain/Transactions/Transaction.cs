@@ -27,6 +27,9 @@ public sealed class Transaction : IUserOwned
 
     public const int MaxLines = 50;
 
+    /// <summary>How long a deleted transaction can be restored (spec section 3, rule 10). After that it is removed for good.</summary>
+    public static readonly TimeSpan RecoveryPeriod = TimeSpan.FromDays(30);
+
     private readonly List<TransactionLine> _lines = [];
 
     /// <summary>For persistence, which sets every property itself.</summary>
@@ -404,6 +407,42 @@ public sealed class Transaction : IUserOwned
 
     /// <summary>Deletes a leg, for <see cref="Transfer"/> alone, which deletes the other leg with it.</summary>
     internal void DeleteLeg(DateTimeOffset now) => DeleteWhateverItIs(now);
+
+    /// <summary>Whether the transaction is deleted, and was deleted no longer than <see cref="RecoveryPeriod"/> before <paramref name="now"/>.</summary>
+    public bool IsRecoverableAt(DateTimeOffset now) => DeletedAt is { } deletedAt && now - deletedAt <= RecoveryPeriod;
+
+    /// <summary>
+    /// Brings a deleted transaction back into lists and balances, as it was when it was deleted. Restoring one that is
+    /// not deleted changes nothing.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction is a leg of a transfer, which is restored as a transfer; or it was deleted longer than
+    /// <see cref="RecoveryPeriod"/> ago.
+    /// </exception>
+    public void Restore(DateTimeOffset now)
+    {
+        GuardNotALeg();
+        RestoreWhateverItIs(now);
+    }
+
+    /// <summary>Restores a leg, for <see cref="Transfer"/> alone, which restores the other leg with it.</summary>
+    internal void RestoreLeg(DateTimeOffset now) => RestoreWhateverItIs(now);
+
+    private void RestoreWhateverItIs(DateTimeOffset now)
+    {
+        if (!IsDeleted)
+        {
+            return;
+        }
+
+        if (!IsRecoverableAt(now))
+        {
+            throw new InvalidOperationException($"A transaction deleted more than {RecoveryPeriod.TotalDays} days ago cannot be restored.");
+        }
+
+        DeletedAt = null;
+        UpdatedAt = now;
+    }
 
     private void DeleteWhateverItIs(DateTimeOffset now)
     {

@@ -189,6 +189,20 @@ public sealed class Transfer
         InLeg.DeleteLeg(now);
     }
 
+    /// <summary>Restores both legs together, so both accounts' balances move again. Restoring one that is not deleted changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">The transfer was deleted longer than <see cref="Transaction.RecoveryPeriod"/> ago.</exception>
+    public void Restore(DateTimeOffset now)
+    {
+        // Checked on both before either changes, so one leg is never restored alone.
+        if (IsDeleted && (!OutLeg.IsRecoverableAt(now) || !InLeg.IsRecoverableAt(now)))
+        {
+            throw new InvalidOperationException($"A transfer deleted more than {Transaction.RecoveryPeriod.TotalDays} days ago cannot be restored.");
+        }
+
+        OutLeg.RestoreLeg(now);
+        InLeg.RestoreLeg(now);
+    }
+
     private static void GuardCanBecomeLeg(Transaction transaction, string property, TransactionType type, string notThatType)
     {
         if (transaction.IsTransferLeg)
