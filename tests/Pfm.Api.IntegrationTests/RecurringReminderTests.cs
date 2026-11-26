@@ -34,6 +34,23 @@ public class RecurringReminderTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Editing_a_rule_without_a_mode_keeps_the_mode_it_has()
+    {
+        var browser = await SignedInOnUtcAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var rule = await AddRuleAsync(browser, everyday, "100", Today.AddDays(1), mode: "remind");
+        var version = (await browser.GetAsync($"{Rules}/{rule.Id}")).Headers.ETag!.Tag;
+
+        var response = await browser.PutAsync(
+            $"{Rules}/{rule.Id}",
+            new { type = "expense", accountId = everyday, amount = "120", categoryId = rule.CategoryId, frequency = "weekly", startDate = Text(Today.AddDays(1)) },
+            version);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(("120.00", "remind"), ((await response.Content.ReadFromJsonAsync<RuleBody>())!.Amount, (await RuleAsync(browser, rule.Id)).Mode));
+    }
+
+    [Fact]
     public async Task A_mode_that_is_not_one_is_refused()
     {
         var browser = await SignedInOnUtcAsync();

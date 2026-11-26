@@ -192,7 +192,7 @@ public static class RecurringRuleEndpoints
 /// <param name="Note">At most 1000 characters.</param>
 /// <param name="Interval">How many days apart, 1 to 365, for <c>everyNDays</c>; left out for any other frequency.</param>
 /// <param name="EndDate">The last date an occurrence can be due, <c>YYYY-MM-DD</c>; left out for a rule that goes on.</param>
-/// <param name="Mode"><c>autoPost</c>: the worker posts each occurrence on its due date; <c>remind</c>: each becomes a reminder the user confirms or dismisses. Left out, <c>autoPost</c>.</param>
+/// <param name="Mode"><c>autoPost</c>: the worker posts each occurrence on its due date; <c>remind</c>: each becomes a reminder the user confirms or dismisses. Left out, <c>autoPost</c> for a new rule and the mode it has for an edited one.</param>
 public sealed record RecurringRuleRequest(
     string Type, Guid AccountId, string Amount, Guid CategoryId, string Frequency, string StartDate, string? Payee = null, string? Note = null,
     int? Interval = null, string? EndDate = null, string? Mode = null);

@@ -36,14 +36,14 @@ internal interface IRecurringRuleCommand
 }
 
 /// <summary>A recurring rule command's values, read: null where one was left out or is not what it should be.</summary>
-/// <param name="Mode">The mode sent, or auto-post when none was.</param>
+/// <param name="Mode">The mode sent; null when none was, which setting up reads as auto-post and editing as the mode the rule has.</param>
 public sealed record RecurringRuleFields(
     TransactionType? Type, decimal? Amount, RecurringFrequency? Frequency, DateOnly? StartDate, DateOnly? EndDate, RecurringMode? Mode)
 {
     public static RecurringRuleFields Read(string? type, string? amount, string? frequency, string? startDate, string? endDate, string? mode) =>
         new(EnumText<TransactionType>.Read(type), AmountText.TryParse(amount, out var parsed) ? parsed : null,
             EnumText<RecurringFrequency>.Read(frequency), DateText.Read(startDate), DateText.Read(endDate),
-            mode is null ? RecurringMode.AutoPost : EnumText<RecurringMode>.Read(mode));
+            EnumText<RecurringMode>.Read(mode));
 }
 
 /// <summary>
@@ -80,8 +80,8 @@ internal static class RecurringRuleRules
             .When(command => command.Parsed.Frequency is not null)
             .WithMessage($"Send how many days apart, 1 to {RecurringSchedule.MaxInterval}, for everyNDays and leave it out for any other frequency.");
         validator.RuleFor(command => command.Mode)
-            .Must((command, _) => command.Parsed.Mode is not null)
-            .WithMessage($"Choose one of: {string.Join(", ", EnumText<RecurringMode>.Names)}, or leave it out to post each occurrence.");
+            .Must((command, written) => written is null || command.Parsed.Mode is not null)
+            .WithMessage($"Choose one of: {string.Join(", ", EnumText<RecurringMode>.Names)}, or leave it out.");
         validator.RuleFor(command => command.StartDate)
             .Must((command, _) => command.Parsed.StartDate is not null)
             .WithMessage(DateText.Message);
