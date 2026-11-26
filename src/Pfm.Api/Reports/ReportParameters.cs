@@ -1,6 +1,8 @@
+using System.Globalization;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Reports;
 
 namespace Pfm.Api.Reports;
@@ -58,6 +60,35 @@ internal sealed class ReportParameters
         }
 
         return (followed, read);
+    }
+
+    /// <summary>A whole calendar month, written <c>2026-11</c>; required.</summary>
+    public ReportPeriod? Month(string name, string? text)
+    {
+        if (!DateOnly.TryParseExact(text, "yyyy-MM", CultureInfo.InvariantCulture, DateTimeStyles.None, out var first) || first < ReportPeriod.Earliest)
+        {
+            Refused[name] = ["Enter a month as YYYY-MM."];
+            return null;
+        }
+
+        return new ReportPeriod(first, first.AddMonths(1).AddDays(-1));
+    }
+
+    /// <summary>An optional locale, by its language tag; null when left out.</summary>
+    public Locale? Locale(string name, string? tag)
+    {
+        if (tag is null)
+        {
+            return null;
+        }
+
+        if (!Locales.TryParse(tag, out var locale))
+        {
+            Refused[name] = [ValidationRules.LocaleMessage];
+            return null;
+        }
+
+        return locale;
     }
 
     /// <summary>An optional id; null when left out.</summary>

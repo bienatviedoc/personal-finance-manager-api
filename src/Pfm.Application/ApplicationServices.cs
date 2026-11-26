@@ -53,6 +53,7 @@ public static class ApplicationServices
         services.AddScoped<DeletedTransactionPurge>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+        services.AddScoped<IUserLocale, CurrentUserLocale>();
         services.AddScoped<IAttachmentFiles, AttachmentFiles>();
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();

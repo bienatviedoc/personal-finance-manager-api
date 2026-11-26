@@ -20,6 +20,7 @@ using Pfm.Infrastructure.Email;
 using Pfm.Infrastructure.ExchangeRates;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
+using Pfm.Infrastructure.Printing;
 using Pfm.Infrastructure.Storage;
 using Pfm.Infrastructure.Transactions;
 
@@ -85,6 +86,7 @@ public static class InfrastructureServices
         services.AddScoped<ITransactionTrends, TransactionTrends>();
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddExchangeRates();
+        services.AddSingleton<IPdfWriter, MigraDocPdfWriter>();
 
         return services;
     }

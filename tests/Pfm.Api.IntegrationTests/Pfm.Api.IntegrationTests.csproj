@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="PdfPig" />
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
 

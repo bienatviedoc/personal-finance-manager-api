@@ -32,7 +32,28 @@ public static class ReportEndpoints
         reports.MapGet("/net-worth", NetWorth).WithName("GetNetWorth")
             .WithDescription("What the user is worth over a period: at each month end in it, and on its last day when it ends inside a month, the balances of the assets (every account but credit cards and loans) and the amount owed on the liabilities (credit cards and loans), and the assets minus the liabilities, in the user's base currency. Archived accounts count; an account counts from its opening date. Each balance is converted at the exchange rate of the day it is shown on, or the nearest earlier one; one with no rate on or before that day is left out and counted in notConverted. Not paged: one item per month.");
 
+        reports.MapGet("/monthly-summary.pdf", MonthlySummary).WithName("GetMonthlySummary").WithTags("Export")
+            .Produces(StatusCodes.Status200OK, contentType: "application/pdf")
+            .WithDescription("A one-document summary of a calendar month, as a PDF file to download: its income, expenses, net and savings rate, spending by top-level category with each one's share, and each budget against what was spent, with what was spent where no budget covered it, all in the user's base currency, worked out as the income vs expenses, spending by category and budget vs actual reports work them out for that month. Written in the locale asked for, or the user's own, or English when they have none, with amounts written the locale's way.");
+
         return api;
+    }
+
+    /// <param name="month">The calendar month summed up, as <c>2026-11</c>.</param>
+    /// <param name="locale">The language tag it is written in, <c>en</c> or <c>vi</c>; left out for the user's own locale.</param>
+    private static async Task<Results<FileContentHttpResult, ValidationProblem>> MonthlySummary(
+        GetMonthlySummaryHandler handler, CancellationToken cancellationToken, string? month = null, string? locale = null)
+    {
+        var parameters = new ReportParameters();
+        var period = parameters.Month(nameof(month), month);
+        var language = parameters.Locale(nameof(locale), locale);
+        if (period is null || parameters.Refused.Count > 0)
+        {
+            return TypedResults.ValidationProblem(parameters.Refused);
+        }
+
+        var summary = await handler.HandleAsync(new GetMonthlySummary(period, language), cancellationToken);
+        return TypedResults.File(summary.Content, "application/pdf", summary.FileName);
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>; the report starts on the 1st of its month.</param>

@@ -551,6 +551,13 @@ already uses it can still show it. An account can be archived at any balance.
   with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
   belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
   `compare`.
+- **The monthly summary** (spec section 7, export). `GET /reports/monthly-summary.pdf?month=2026-11` answers one
+  calendar month as a PDF file to download (`monthly-summary-2026-11.pdf`): income, expenses, net and savings rate,
+  spending by top-level category with shares, and budget vs actual with what was spent unbudgeted. `GetMonthlySummary`
+  asks the three reports' handlers for that month, so every figure is the one the reports show, and writes what they
+  answer in `locale` (`en` or `vi`), or the user's own (`IUserLocale`), or English, with amounts as the SPA writes
+  them (`Locales.WriteAmount`, `WritePercent`). `IPdfWriter` lays it out with MigraDoc, in Noto Sans carried in the
+  assembly ([decision record 0005](docs/adr/0005-pdf-documents-with-migradoc.md)).
 
 ## Signing in
 
