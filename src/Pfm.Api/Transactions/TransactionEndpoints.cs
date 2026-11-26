@@ -212,11 +212,7 @@ public static class TransactionEndpoints
         if (request.Filter is { } sent)
         {
             var asked = new TransactionListParameters();
-            const string In = "filter.";
-            filter = new TransactionFilter(
-                asked.Date(In + "from", sent.From), asked.Date(In + "to", sent.To), asked.Id(In + "accountId", sent.AccountId),
-                asked.Id(In + "categoryId", sent.CategoryId), asked.OneOf<TransactionType>(In + "type", sent.Type), asked.Amount(In + "min", sent.Min),
-                asked.Amount(In + "max", sent.Max), asked.Search(In + "q", sent.Q), asked.Tag(In + "tag", sent.Tag));
+            filter = asked.Filter(sent, "filter.");
             if (asked.Refused.Count > 0)
             {
                 return TypedResults.ValidationProblem(asked.Refused);
@@ -511,27 +507,30 @@ internal sealed class TransactionListParameters
     /// <summary>The filters and the sort order, the API's own order (newest date first) for what is left out.</summary>
     public (TransactionFilter Filter, TransactionSort Sort) Read(
         string? from, string? to, string? accountId, string? categoryId, string? type, string? min, string? max, string? q, string? tag, string? sort, string? order) =>
-        (new TransactionFilter(
-                Date(nameof(from), from), Date(nameof(to), to), Id(nameof(accountId), accountId), Id(nameof(categoryId), categoryId),
-                OneOf<TransactionType>(nameof(type), type), Amount(nameof(min), min), Amount(nameof(max), max), Search(nameof(q), q),
-                Tag(nameof(tag), tag)),
+        (Filter(new BulkFilterRequest(from, to, accountId, categoryId, type, min, max, q, tag)),
             new TransactionSort(
                 OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc));
 
-    public DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
+    /// <summary>The filters, each refused under its query name after &lt;paramref name="prefix"/&gt; (&lt;c&gt;filter.min&lt;/c&gt;).</summary>
+    public TransactionFilter Filter(BulkFilterRequest sent, string prefix = "") =>
+        new(Date(prefix + "from", sent.From), Date(prefix + "to", sent.To), Id(prefix + "accountId", sent.AccountId), Id(prefix + "categoryId", sent.CategoryId),
+            OneOf<TransactionType>(prefix + "type", sent.Type), Amount(prefix + "min", sent.Min), Amount(prefix + "max", sent.Max), Search(prefix + "q", sent.Q),
+            Tag(prefix + "tag", sent.Tag));
 
-    public Guid? Id(string name, string? text) => Read(name, text, Guid.TryParse(text, out var id) ? id : (Guid?)null, "Send an id.");
+    private DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
 
-    public TEnum? OneOf<TEnum>(string name, string? text)
+    private Guid? Id(string name, string? text) => Read(name, text, Guid.TryParse(text, out var id) ? id : (Guid?)null, "Send an id.");
+
+    private TEnum? OneOf<TEnum>(string name, string? text)
         where TEnum : struct, Enum =>
         Read(name, text, EnumText<TEnum>.Read(text), $"Choose one of: {string.Join(", ", EnumText<TEnum>.Names)}.");
 
     /// <summary>A transaction's amount is above zero, so a negative one bounds nothing.</summary>
-    public decimal? Amount(string name, string? text) =>
+    private decimal? Amount(string name, string? text) =>
         Read(name, text, AmountText.TryParse(text, out var amount) && amount >= 0 ? amount : (decimal?)null, "Enter an amount that is not negative, such as 125000.00.");
 
     /// <summary>The text to search for, trimmed; nothing but spaces searches for nothing.</summary>
-    public string? Search(string name, string? text)
+    private string? Search(string name, string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -543,7 +542,7 @@ internal sealed class TransactionListParameters
     }
 
     /// <summary>A tag's name as tags keep it; nothing but spaces filters by no tag.</summary>
-    public string? Tag(string name, string? text) =>
+    private string? Tag(string name, string? text) =>
         string.IsNullOrWhiteSpace(text) ? null : Read(name, text, Domain.Transactions.Tag.IsValidName(text) ? Domain.Transactions.Tag.Normalised(text) : null, $"Send a tag of at most {Domain.Transactions.Tag.MaxNameLength} characters.");
 
     private T? Read<T>(string name, string? text, T? read, string message)
