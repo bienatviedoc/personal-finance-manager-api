@@ -72,4 +72,42 @@ public class BulkEditTests
 
         Assert.Equal(nameof(Transaction.Tags), Assert.Throws<TransactionRuleViolation>(() => transaction.AddTag(trip, Tuesday)).Property);
     }
+
+    [Fact]
+    public void Each_change_a_transaction_cannot_take_is_refused_with_the_reason_a_bulk_action_names_it_by()
+    {
+        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var split = Transaction.RecordSplit(
+            TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], null, null, Today, Monday);
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var reconciled = Reconciled(Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday));
+        var reconciledTransfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        Reconciled(reconciledTransfer.OutLeg);
+        var tagged = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        foreach (var number in Enumerable.Range(1, Transaction.MaxTags))
+        {
+            tagged.AddTag(Tag.Create($"tag-{number}", Monday), Tuesday);
+        }
+
+        Assert.Equal(BulkRefusal.TransferLeg, RefusalOf(() => transfer.OutLeg.Recategorise(Household, Tuesday)));
+        Assert.Equal(BulkRefusal.Split, RefusalOf(() => split.Recategorise(Household, Tuesday)));
+        Assert.Equal(BulkRefusal.CategoryKind, RefusalOf(() => expense.Recategorise(Salary, Tuesday)));
+        Assert.Equal(BulkRefusal.TransferLeg, RefusalOf(() => transfer.InLeg.MoveTo(Guid.CreateVersion7(), Currency.VND, Tuesday)));
+        Assert.Equal(BulkRefusal.OtherCurrency, RefusalOf(() => expense.MoveTo(Savings, Currency.USD, Tuesday)));
+        Assert.Equal(BulkRefusal.Reconciled, RefusalOf(() => reconciled.MoveTo(Savings, Currency.VND, Tuesday)));
+        Assert.Equal(BulkRefusal.TooManyTags, RefusalOf(() => tagged.AddTag(Tag.Create("one-more", Monday), Tuesday)));
+        Assert.Equal(BulkRefusal.Reconciled, RefusalOf(() => reconciled.Delete(Tuesday)));
+        Assert.Equal(BulkRefusal.Reconciled, RefusalOf(() => reconciledTransfer.Delete(Tuesday)));
+        Assert.False(reconciled.IsDeleted || reconciledTransfer.IsDeleted);
+    }
+
+    private static BulkRefusal? RefusalOf(Action change) => Assert.Throws<TransactionRuleViolation>(change).Refusal;
+
+    private static Transaction Reconciled(Transaction transaction)
+    {
+        var reconciliation = Reconciliation.Start(transaction.AccountId, Currency.VND, Today, -transaction.Amount, Today, Monday);
+        reconciliation.Tick(transaction, Monday);
+        reconciliation.Complete(0m, [transaction], Monday);
+        return transaction;
+    }
 }

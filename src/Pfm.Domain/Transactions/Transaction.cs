@@ -377,7 +377,7 @@ public sealed class Transaction : IUserOwned
 
         if (_tags.Count >= MaxTags)
         {
-            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.");
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.", BulkRefusal.TooManyTags);
         }
 
         _tags.Add(new TransactionTag(tag));
@@ -400,20 +400,21 @@ public sealed class Transaction : IUserOwned
     /// can change its category.
     /// </summary>
     /// <param name="category">One of the user's categories of the kind the type takes, not archived unless it is the one the transaction is on.</param>
-    /// <exception cref="TransactionRuleViolation">The transaction is split, or the category is of the other kind or archived.</exception>
+    /// <exception cref="TransactionRuleViolation">It is a leg of a transfer or split, or the category is of the other kind or archived.</exception>
     public void Recategorise(Category category, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(category);
         GuardNotDeleted();
-        GuardNotALeg();
+        RefuseALeg();
         if (IsSplit)
         {
-            throw new TransactionRuleViolation(nameof(Lines), "A split transaction keeps its lines: edit it to change their categories.");
+            throw new TransactionRuleViolation(nameof(Lines), "A split transaction keeps its lines: edit it to change their categories.", BulkRefusal.Split);
         }
 
         if (CategoryRuleBroken(category, Type, keeps: category.Id == CategoryId) is { } categoryRule)
         {
-            throw new TransactionRuleViolation(nameof(CategoryId), categoryRule);
+            throw new TransactionRuleViolation(
+                nameof(CategoryId), categoryRule, category.Kind != Type.CategoryKind() ? BulkRefusal.CategoryKind : null);
         }
 
         CategoryId = category.Id;
@@ -427,11 +428,10 @@ public sealed class Transaction : IUserOwned
     /// reconciliation it was ticked in, and a reconciled one cannot move.
     /// </summary>
     /// <param name="currency">The currency of the account it moves to.</param>
-    /// <exception cref="TransactionRuleViolation">The account is in another currency, or the transaction is reconciled.</exception>
+    /// <exception cref="TransactionRuleViolation">It is a leg of a transfer or reconciled, or the account is in another currency.</exception>
     public void MoveTo(Guid accountId, Currency currency, DateTimeOffset now)
     {
         GuardNotDeleted();
-        GuardNotALeg();
         if (accountId == Guid.Empty)
         {
             throw new ArgumentException("A transaction is on an account.", nameof(accountId));
@@ -442,9 +442,10 @@ public sealed class Transaction : IUserOwned
             return;
         }
 
+        RefuseALeg();
         if (currency != Currency)
         {
-            throw new TransactionRuleViolation(nameof(AccountId), "A transaction moves only to an account in its own currency.");
+            throw new TransactionRuleViolation(nameof(AccountId), "A transaction moves only to an account in its own currency.", BulkRefusal.OtherCurrency);
         }
 
         GuardUnlocked(Type, accountId, Amount, Date, IsRefund);
@@ -466,6 +467,16 @@ public sealed class Transaction : IUserOwned
         if (IsTransferLeg)
         {
             throw new InvalidOperationException("A leg of a transfer changes only with its transfer, so the other leg changes with it.");
+        }
+    }
+
+    /// <summary>Refuses a change a bulk action makes to a leg of a transfer, which has no category and changes only with its transfer.</summary>
+    private void RefuseALeg()
+    {
+        if (IsTransferLeg)
+        {
+            throw new TransactionRuleViolation(
+                nameof(Type), "This is a leg of a transfer: it has no category, and changes only with its transfer.", BulkRefusal.TransferLeg);
         }
     }
 
@@ -545,9 +556,8 @@ public sealed class Transaction : IUserOwned
     private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
-    /// <exception cref="InvalidOperationException">
-    /// The transaction is a leg of a transfer, which is deleted as a transfer, or it is reconciled.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
+    /// <exception cref="TransactionRuleViolation">The transaction is reconciled.</exception>
     public void Delete(DateTimeOffset now)
     {
         GuardNotALeg();
@@ -602,7 +612,8 @@ public sealed class Transaction : IUserOwned
 
         if (IsReconciled)
         {
-            throw new InvalidOperationException("A reconciled transaction cannot be deleted until its reconciliation is reopened.");
+            throw new TransactionRuleViolation(
+                nameof(IsReconciled), "This transaction is reconciled: reopen its reconciliation to move or delete it.", BulkRefusal.Reconciled);
         }
 
         // A deleted transaction is on no statement: it leaves the reconciliation it was ticked in.
@@ -715,7 +726,7 @@ public sealed class Transaction : IUserOwned
             : null;
         if (changed is not null)
         {
-            throw new TransactionRuleViolation(changed, Locked);
+            throw new TransactionRuleViolation(changed, Locked, BulkRefusal.Reconciled);
         }
     }
 

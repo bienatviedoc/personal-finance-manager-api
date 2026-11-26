@@ -82,26 +82,20 @@ public abstract record BulkEditOutcome
 }
 
 /// <summary>A transaction a bulk action selected that cannot take it.</summary>
-public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason)
+/// <param name="Message">Why, in words: what the rule it breaks says.</param>
+public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, string Message)
 {
-    /// <summary>Why, in words.</summary>
-    public string Message => Reason switch
-    {
-        BulkRefusal.NotFound => "You have no such transaction, or it was deleted.",
-        BulkRefusal.TransferLeg => "This is a leg of a transfer: it has no category, and changes only with its transfer.",
-        BulkRefusal.Split => "This transaction is split: edit it to change the categories of its lines.",
-        BulkRefusal.CategoryKind => "This category is of the other kind: income takes an income category, an expense an expense one.",
-        BulkRefusal.Reconciled => "This transaction is reconciled: reopen its reconciliation to move or delete it.",
-        BulkRefusal.OtherCurrency => "This transaction is in another currency than the account: a transaction moves only to an account in its currency.",
-        BulkRefusal.TooManyTags => $"This transaction has {Transaction.MaxTags} tags already.",
-        _ => throw new ArgumentOutOfRangeException(nameof(Reason), Reason, "Not a reason a bulk action is refused."),
-    };
+    /// <summary>A transaction the user has no such one of, or deleted.</summary>
+    public static RefusedTransaction NotFound(Guid transactionId) =>
+        new(transactionId, BulkRefusal.NotFound, "You have no such transaction, or it was deleted.");
 }
 
 /// <summary>
-/// Acts on every selected transaction in one save, or on none. A delete of a leg of a transfer deletes the
-/// transfer, as deleting one alone does. Like a delete, it names no row version: one that meets a change made at
-/// the same moment is made again on what was saved.
+/// Acts on every selected transaction in one save, or on none. Each transaction takes the change through its own
+/// method, which refuses it with the reason a bulk action names (&lt;see cref="TransactionRuleViolation.Refusal"/&gt;); one
+/// refused, nothing is saved. A delete of a leg of a transfer deletes the transfer, as deleting one alone does.
+/// Like a delete, it names no row version: one that meets a change made at the same moment is made again on what
+/// was saved.
 /// </summary>
 public sealed class BulkEditTransactionsHandler(
     IValidator<BulkEditTransactionsCommand> validator, ITransactionRepository transactions, ICategoryRepository categories, IAccountLookup accounts,
@@ -129,155 +123,101 @@ public sealed class BulkEditTransactionsHandler(
         {
             var ids = command.TransactionIds!.Distinct().ToList();
             var found = (await transactions.FindManyAsync(ids, cancellationToken)).ToDictionary(transaction => transaction.Id);
-            refused.AddRange(ids.Where(id => !found.ContainsKey(id)).Select(id => new RefusedTransaction(id, BulkRefusal.NotFound)));
+            refused.AddRange(ids.Where(id => !found.ContainsKey(id)).Select(RefusedTransaction.NotFound));
             selected = [.. ids.Where(found.ContainsKey).Select(id => found[id])];
         }
 
-        var now = clock.GetUtcNow();
-        var act = await PlanAsync(command, selected, refused, cancellationToken);
-        if (!act.IsValid)
+        var acted = await ActOnEachAsync(command, selected, refused, clock.GetUtcNow(), cancellationToken);
+        if (!acted.IsValid)
         {
-            return Result<BulkEditOutcome>.Invalid(act.Errors);
+            return Result<BulkEditOutcome>.Invalid(acted.Errors);
         }
 
         if (refused.Count > 0)
         {
+            // Nothing is saved, so what the others took is dropped with this request.
             var order = (command.TransactionIds ?? [.. selected.Select(transaction => transaction.Id)]).Distinct().ToList();
             return new BulkEditOutcome.Refused([.. refused.OrderBy(row => order.IndexOf(row.TransactionId))]);
         }
 
-        await act.Outcome(now);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return new BulkEditOutcome.Done(selected.Count);
     }
 
     /// <summary>
-    /// What the action does to the selected transactions, once none is refused; adds to <paramref name="refused"/>
-    /// each that cannot take it. Invalid when what the action names (a category, an account) cannot be used at all.
+    /// Makes the action's change to each selected transaction, adding to &lt;paramref name="refused"/&gt; each that refuses
+    /// it. Invalid when what the action names (a category, an account) cannot be used at all.
     /// </summary>
-    private async Task<Result<Func<DateTimeOffset, Task>>> PlanAsync(
-        BulkEditTransactionsCommand command, IReadOnlyList<Transaction> selected, List<RefusedTransaction> refused, CancellationToken cancellationToken)
+    private async Task<Result<Done>> ActOnEachAsync(
+        BulkEditTransactionsCommand command, IReadOnlyList<Transaction> selected, List<RefusedTransaction> refused, DateTimeOffset now,
+        CancellationToken cancellationToken)
     {
-        void Refuse(Transaction transaction, BulkRefusal reason) => refused.Add(new RefusedTransaction(transaction.Id, reason));
+        void Change(IEnumerable<Transaction> these, Action<Transaction> change)
+        {
+            foreach (var transaction in these)
+            {
+                try
+                {
+                    change(transaction);
+                }
+                catch (TransactionRuleViolation violation) when (violation.Refusal is { } reason)
+                {
+                    refused.Add(new RefusedTransaction(transaction.Id, reason, violation.Message));
+                }
+            }
+        }
 
         switch (command.ParsedAction!.Value)
         {
             case BulkAction.SetCategory:
                 if (await categories.FindAsync(command.CategoryId!.Value, cancellationToken) is not { IsArchived: false } category)
                 {
-                    return Result<Func<DateTimeOffset, Task>>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
+                    return Result<Done>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
                 }
 
-                foreach (var transaction in selected)
-                {
-                    if (transaction.IsTransferLeg)
-                    {
-                        Refuse(transaction, BulkRefusal.TransferLeg);
-                    }
-                    else if (category.Kind != transaction.Type.CategoryKind())
-                    {
-                        Refuse(transaction, BulkRefusal.CategoryKind);
-                    }
-                    else if (transaction.IsSplit)
-                    {
-                        Refuse(transaction, BulkRefusal.Split);
-                    }
-                }
-
-                return Plan(now => Each(selected, transaction => transaction.Recategorise(category, now)));
+                Change(selected, transaction => transaction.Recategorise(category, now));
+                break;
 
             case BulkAction.AddTag:
-                var name = Domain.Transactions.Tag.Normalised(command.Tag)!;
-                foreach (var transaction in selected.Where(transaction =>
-                    transaction.Tags.Count >= Transaction.MaxTags && !transaction.Tags.Any(tag => tag.Name == name)))
-                {
-                    Refuse(transaction, BulkRefusal.TooManyTags);
-                }
-
-                return Plan(async now =>
-                {
-                    var tag = (await tags.FindOrCreateAsync([name], cancellationToken))[0];
-                    await Each(selected, transaction => transaction.AddTag(tag, now));
-                });
+                var tag = (await tags.FindOrCreateAsync([Domain.Transactions.Tag.Normalised(command.Tag)!], cancellationToken))[0];
+                Change(selected, transaction => transaction.AddTag(tag, now));
+                break;
 
             case BulkAction.RemoveTag:
                 var named = await tagRepository.FindByNamesAsync([Domain.Transactions.Tag.Normalised(command.Tag)!], cancellationToken);
-                return Plan(now => Each(selected, transaction =>
+                Change(selected, transaction =>
                 {
-                    foreach (var tag in named)
+                    foreach (var had in named)
                     {
-                        transaction.RemoveTag(tag.Id, now);
+                        transaction.RemoveTag(had.Id, now);
                     }
-                }));
+                });
+                break;
 
             case BulkAction.MoveToAccount:
                 if (await accounts.FindChoosableAsync(command.AccountId!.Value, keeps: null, cancellationToken) is not { } account)
                 {
-                    return Result<Func<DateTimeOffset, Task>>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
+                    return Result<Done>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
                 }
 
-                foreach (var transaction in selected.Where(transaction => transaction.AccountId != account.Id))
-                {
-                    if (transaction.IsTransferLeg)
-                    {
-                        Refuse(transaction, BulkRefusal.TransferLeg);
-                    }
-                    else if (transaction.Currency != account.Currency)
-                    {
-                        Refuse(transaction, BulkRefusal.OtherCurrency);
-                    }
-                    else if (transaction.IsReconciled)
-                    {
-                        Refuse(transaction, BulkRefusal.Reconciled);
-                    }
-                }
-
-                return Plan(now => Each(selected, transaction => transaction.MoveTo(account.Id, account.Currency, now)));
+                Change(selected, transaction => transaction.MoveTo(account.Id, account.Currency, now));
+                break;
 
             case BulkAction.Delete:
-                var transfers = new Dictionary<Guid, Transfer>();
-                foreach (var transaction in selected)
+                Change(selected.Where(transaction => !transaction.IsTransferLeg), transaction => transaction.Delete(now));
+                foreach (var legs in selected.Where(transaction => transaction.IsTransferLeg).GroupBy(transaction => transaction.TransferId!.Value))
                 {
-                    if (transaction.TransferId is { } transferId)
-                    {
-                        // The other leg deleted by another request in between fails the save, and the action is made again.
-                        var transfer = transfers.TryGetValue(transferId, out var known)
-                            ? known
-                            : transfers[transferId] = (await transactions.FindTransferAsync(transferId, deletedToo: true, cancellationToken))!;
-                        if (transfer.IsReconciled)
-                        {
-                            Refuse(transaction, BulkRefusal.Reconciled);
-                        }
-                    }
-                    else if (transaction.IsReconciled)
-                    {
-                        Refuse(transaction, BulkRefusal.Reconciled);
-                    }
+                    // The other leg deleted by another request in between fails the save, and the action is made again.
+                    var transfer = (await transactions.FindTransferAsync(legs.Key, deletedToo: true, cancellationToken))!;
+                    Change(legs, _ => transfer.Delete(now));
                 }
 
-                return Plan(async now =>
-                {
-                    await Each(selected.Where(transaction => !transaction.IsTransferLeg).ToList(), transaction => transaction.Delete(now));
-                    foreach (var transfer in transfers.Values)
-                    {
-                        transfer.Delete(now);
-                    }
-                });
+                break;
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(command), command.ParsedAction, "Not a bulk action.");
         }
-    }
 
-    private static Result<Func<DateTimeOffset, Task>> Plan(Func<DateTimeOffset, Task> act) => act;
-
-    private static Task Each(IReadOnlyList<Transaction> selected, Action<Transaction> act)
-    {
-        foreach (var transaction in selected)
-        {
-            act(transaction);
-        }
-
-        return Task.CompletedTask;
+        return new Done();
     }
 }
