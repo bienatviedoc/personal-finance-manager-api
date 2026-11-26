@@ -61,6 +61,25 @@ public sealed record ReportPeriod
     public IReadOnlyList<DateOnly> MonthEnds => [.. Months.Select(month => month.To)];
 
     /// <summary>
+    /// The days cash flow shows the running balance at the end of (spec RPT-4), earliest first: every day of the
+    /// period; or the last day of every week (a week runs Monday to Sunday) that ends in the period, and the period's
+    /// own last day.
+    /// </summary>
+    public IReadOnlyList<DateOnly> ClosingDays(BalanceInterval interval)
+    {
+        var days = new List<DateOnly>();
+        for (var day = From; day <= To; day = day.AddDays(1))
+        {
+            if (interval == BalanceInterval.Day || day.DayOfWeek == DayOfWeek.Sunday || day == To)
+            {
+                days.Add(day);
+            }
+        }
+
+        return days;
+    }
+
+    /// <summary>
     /// The months of the period compared with (<see cref="Previous"/>), one for each of <see cref="Months"/> and in
     /// the same order, so the two can be set side by side by place. Before whole calendar months they are as many
     /// whole months; before any other period each is the month at the same place moved back by the period's days,

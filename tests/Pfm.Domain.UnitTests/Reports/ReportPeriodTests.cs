@@ -97,4 +97,33 @@ public class ReportPeriodTests
         Assert.Equal([new DateOnly(2026, 1, 31), new DateOnly(2026, 2, 28), new DateOnly(2026, 3, 10)], fromMidJanuary.MonthEnds);
         Assert.Equal([new DateOnly(2026, 3, 14)], tenDays.MonthEnds);
     }
+
+    [Fact]
+    public void A_daily_cash_flow_shows_the_balance_at_the_end_of_every_day_of_the_period()
+    {
+        var period = new ReportPeriod(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 4));
+
+        Assert.Equal(
+            [new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 2), new DateOnly(2026, 3, 3), new DateOnly(2026, 3, 4)],
+            period.ClosingDays(BalanceInterval.Day));
+    }
+
+    [Fact]
+    public void A_weekly_cash_flow_shows_the_balance_at_the_end_of_every_week_from_monday_to_sunday_and_of_the_period()
+    {
+        // 2026-03-01 is a Sunday; the Sundays after it are the 8th, 15th, 22nd and 29th.
+        var march = new ReportPeriod(new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 31));
+
+        Assert.Equal(
+            [new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 8), new DateOnly(2026, 3, 15), new DateOnly(2026, 3, 22), new DateOnly(2026, 3, 29), new DateOnly(2026, 3, 31)],
+            march.ClosingDays(BalanceInterval.Week));
+    }
+
+    [Fact]
+    public void A_period_inside_one_week_has_one_weekly_balance_at_its_end()
+    {
+        var wednesdayToFriday = new ReportPeriod(new DateOnly(2026, 3, 4), new DateOnly(2026, 3, 6));
+
+        Assert.Equal([new DateOnly(2026, 3, 6)], wednesdayToFriday.ClosingDays(BalanceInterval.Week));
+    }
 }
