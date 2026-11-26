@@ -1,5 +1,12 @@
 namespace Pfm.Domain.Transactions;
 
+/// <summary>Where a reconciliation stands: being ticked, or completed, which locks its transactions.</summary>
+public enum ReconciliationStatus
+{
+    InProgress,
+    Completed,
+}
+
 /// <summary>
 /// Matching an account's transactions against a statement's closing balance (spec ACC-7). The user ticks the
 /// transactions the statement shows until the difference between the statement balance and what is ticked is
@@ -45,6 +52,8 @@ public sealed class Reconciliation : IUserOwned
     public uint RowVersion { get; private set; }
 
     public bool IsCompleted => CompletedAt is not null;
+
+    public ReconciliationStatus Status => IsCompleted ? ReconciliationStatus.Completed : ReconciliationStatus.InProgress;
 
     /// <param name="currency">The currency of the account, which the statement balance is in.</param>
     /// <param name="today">Today's date in the user's time zone.</param>

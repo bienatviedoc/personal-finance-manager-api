@@ -33,6 +33,18 @@ public interface ITransactionRepository
     /// </summary>
     Task<RecordedRequest?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken);
 
+    /// <summary>The transactions ticked in this reconciliation, legs of transfers included; a deleted one is in none.</summary>
+    Task<IReadOnlyList<Transaction>> ListTickedAsync(Guid reconciliationId, CancellationToken cancellationToken);
+
+    /// <summary>The account's transactions dated on or before <paramref name="through"/> that are in no reconciliation.</summary>
+    Task<IReadOnlyList<Transaction>> ListUnreconciledAsync(Guid accountId, DateOnly through, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// What the account's reconciled transactions come to, those of reconciliation <paramref name="except"/>
+    /// left out: income − expenses + refunds + transfers in − transfers out (spec section 3, rule 2).
+    /// </summary>
+    Task<decimal> ReconciledNetAsync(Guid accountId, Guid except, CancellationToken cancellationToken);
+
     /// <summary>Every transaction of the user, deleted or not.</summary>
     Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken);
 
