@@ -1,7 +1,5 @@
-using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -42,13 +40,8 @@ public sealed record DeletedTransactionCursor(DateTimeOffset DeletedAt, Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out DeletedTransactionCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor))
-        {
-            return false;
-        }
-
-        var text = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor));
-        if (text.Length <= 32
+        if (!CursorText.TryDecode(cursor, out var text)
+            || text.Length <= 32
             || !Guid.TryParseExact(text[..32], "N", out var id)
             || !long.TryParse(text[32..], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
             || ticks > DateTimeOffset.MaxValue.UtcTicks)
@@ -61,5 +54,5 @@ public sealed record DeletedTransactionCursor(DateTimeOffset DeletedAt, Guid Id)
     }
 
     public override string ToString() =>
-        Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{Id:N}{DeletedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}"));
+        CursorText.Encode($"{Id:N}{DeletedAt.UtcTicks.ToString(CultureInfo.InvariantCulture)}");
 }
