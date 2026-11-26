@@ -12,6 +12,7 @@ using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Reconciliations;
 using Pfm.Application.Transactions.Recurring;
 using Pfm.Application.Transactions.Transfers;
 using Pfm.Application.UseCases;
@@ -45,6 +46,7 @@ public static class ApplicationServices
         services.AddScoped<TransactionContext>();
         services.AddScoped<TransferContext>();
         services.AddScoped<RecurringRuleContext>();
+        services.AddScoped<ReconciliationContext>();
         services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
