@@ -36,13 +36,17 @@ _Avoid_: Transfer transaction, internal payment, move
 One of the two transactions that make up a transfer.
 _Avoid_: Side, half
 
+**Mark as transfer**:
+To join an expense on one account and income on another, both picked by the user, into the two legs of one transfer, such as the two rows imported statements show for paying a card. Unmarking turns a transfer back into an expense and income.
+_Avoid_: Match (nothing is matched automatically), link, merge, split (for unmarking)
+
 **Refund**:
 An expense transaction flagged as money coming back, which raises the account balance and lowers spent in its category.
 _Avoid_: Negative expense, reversal, income (for money returned)
 
 **Spent**:
 The total of a category's expenses in a budget month (or a report period), minus its refunds, in the base currency. It is always derived from transactions and can be negative.
-_Avoid_: Actual, used, consumed
+_Avoid_: Actual, used, consumed (the budget vs actual report keeps the name the specification gives it, RPT-6; within it, say spent)
 
 **Attachment**:
 A receipt kept with a transaction: a JPEG, PNG or PDF file of at most 5 MB that the user can open again later. Removing it deletes the file.
@@ -51,6 +55,14 @@ _Avoid_: Document, upload, file (for the thing attached)
 **Category**:
 What a transaction was for, at most two levels deep (Food > Groceries). Its kind is either income or expense, shared with its parent and fixed once it has transactions.
 _Avoid_: Type (for the kind), group, label
+
+**Tag**:
+A free-form label a user puts on transactions across categories, such as `tet-2027` or `japan-trip`. A tag is the user's own, kept in lower case, and created the first time they give a transaction it.
+_Avoid_: Label, keyword, category (for a tag)
+
+**Bulk action**:
+One change made to many transactions the user selects at once, one by one or every one that passes the list's filters: setting their category, adding or removing a tag, moving them to another account, or deleting them. Every one takes it or none does; the ones that cannot are named, with why.
+_Avoid_: Batch edit, mass update, import batch (which is something else)
 
 **Budget**:
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
@@ -67,6 +79,10 @@ _Avoid_: Debt, negative balance (in the interface)
 **Recurring rule**:
 A template that produces income or expense transactions on a schedule, each dated on its due date.
 _Avoid_: Subscription, schedule, repeating transaction
+
+**Reminder**:
+An occurrence of a recurring rule set to remind, due on or before today, waiting for the user to confirm it (recording its transaction, optionally for another amount) or dismiss it (recording nothing).
+_Avoid_: Notification, alert, pending transaction
 
 **Import batch**:
 One uploaded statement file together with the transactions created from it.
@@ -115,6 +131,30 @@ _Avoid_: Period, cycle, salary month
 **Report period**:
 The dates a report covers, from one calendar date to another, both included. It is compared with the previous period: as many whole months before it when it is whole calendar months, otherwise as many days.
 _Avoid_: Range (in the interface), window, budget month (for a report)
+
+**Trend**:
+One category (with its subcategories) or one payee followed over a report period: what it came to in each month, and its period-over-period change, the amount and percentage by which each month's total differs from the month before.
+_Avoid_: History, timeline, family (for a category and its subcategories)
+
+**Dashboard**:
+The screen a user lands on: their total balance, this month's income, expenses and net, budget status, top five spending categories, latest transactions and what is coming up from recurring rules, each linking to the screen or report behind it.
+_Avoid_: Home, overview, summary (which is the monthly summary)
+
+**Net worth**:
+What a user is worth on a day, in the base currency: the balances of their assets (every account but credit cards and loans) minus the amount owed on their liabilities (credit cards and loans), archived accounts included.
+_Avoid_: Wealth, equity, balance (for the total)
+
+**Savings rate**:
+Income minus expenses over some dates, as a percentage of that income. There is none when there was no income.
+_Avoid_: Saving ratio, margin
+
+**Unbudgeted**:
+Spent in a budget month where no budget covered its category: none on the category, nor on its parent.
+_Avoid_: Over budget (which a budgeted category is), uncategorized
+
+**Export**:
+A file a user downloads to take their numbers elsewhere. A CSV export holds what one transaction list or one report shows: every transaction that passes the list's filters, not only the page loaded, or the numbers of the report's table view, with amounts as plain decimals beside their currency and dates as `YYYY-MM-DD`. The full export is everything the user owns, in one ZIP file.
+_Avoid_: Download (for the file itself), backup, report (for the file)
 
 **Integrity check**:
 The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.

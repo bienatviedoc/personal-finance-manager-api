@@ -24,6 +24,16 @@ public class AccountTests
         Assert.Equal(7, account.Id.Version);
     }
 
+    [Fact]
+    public void An_account_has_a_balance_on_a_day_from_its_opening_date_on_and_none_before()
+    {
+        var account = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 1_500_000m, FirstOfNovember, Monday);
+
+        Assert.Null(account.BalanceOn(FirstOfNovember.AddDays(-1), netTransactionsUpTo: 0m));
+        Assert.Equal(1_500_000m, account.BalanceOn(FirstOfNovember, netTransactionsUpTo: 0m));
+        Assert.Equal(1_200_000m, account.BalanceOn(FirstOfNovember.AddDays(10), netTransactionsUpTo: -300_000m));
+    }
+
     [Theory]
     [InlineData(AccountType.CreditCard)]
     [InlineData(AccountType.Loan)]

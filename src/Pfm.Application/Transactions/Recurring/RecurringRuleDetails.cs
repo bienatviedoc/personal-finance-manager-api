@@ -11,10 +11,10 @@ namespace Pfm.Application.Transactions.Recurring;
 /// <param name="RowVersion">The version an edit must name. Posting an occurrence, pausing and resuming change it too.</param>
 public sealed record RecurringRuleDetails(
     Guid Id, TransactionType Type, Guid AccountId, decimal Amount, Currency Currency, Guid CategoryId, string? Payee, string? Note,
-    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused, uint RowVersion)
+    RecurringFrequency Frequency, int? Interval, DateOnly StartDate, DateOnly? EndDate, DateOnly? NextRunDate, bool IsPaused, RecurringMode Mode, uint RowVersion)
 {
     public static RecurringRuleDetails Of(RecurringRule rule, Currency currency) =>
         new(rule.Id, rule.Type, rule.AccountId, rule.Amount, currency, rule.CategoryId, rule.Payee, rule.Note, rule.Frequency,
             rule.Frequency == RecurringFrequency.EveryNDays ? rule.Interval : null, rule.StartDate, rule.EndDate, rule.NextRunDate, rule.IsPaused,
-            rule.RowVersion);
+            rule.Mode, rule.RowVersion);
 }

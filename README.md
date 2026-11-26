@@ -37,6 +37,23 @@ dotnet run --project src/Pfm.Api -- migrate
 dotnet run --project src/Pfm.Api
 ```
 
+### Sample data
+
+`seed` gives a new user a year of sample data, up to today, and exits: two institutions, four accounts (one a
+credit card), the default categories, a budget on the main expense categories in every month, and transactions
+with pay, bills, transfers, splits and refunds among everyday spending (`SampleDataSeeder`). The user signs in as
+`sample@example.com` with the password `sample data password`, their email already confirmed. For a local
+environment only: outside the `Development` environment it refuses and exits with code 2.
+
+```bash
+docker compose run --rm api seed
+# or, from source:
+dotnet run --project src/Pfm.Api -- seed [--email <email>] [--password <password>] [--transactions <count>]
+```
+
+`--transactions` sets how many the year holds (each leg of a transfer counting as one); left out, a few a day.
+Seeding an email that already has a user is refused.
+
 ## Test
 
 ```bash
@@ -52,6 +69,49 @@ user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authent
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
+
+### Load test
+
+`tests/load/load-test.js` is a [k6](https://k6.io) test of the speed targets (spec section 8): every list and
+report the app reads, for a user with 50,000 transactions, must answer in under 300 ms (lists) and under 1 s
+(reports) at the 95th percentile. Each request is named, so the summary shows each one's own percentile, and
+the run fails when any is over its target. Seed the user, then run it against an API built in Release:
+
+```bash
+dotnet run --project src/Pfm.Api -c Release -- seed --transactions 50000
+dotnet run --project src/Pfm.Api -c Release
+docker run --rm --network host -v "$PWD/tests/load:/load:ro" grafana/k6:2.4.0 run /load/load-test.js
+```
+
+It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (the seeded user), `VUS`, the
+users browsing at once with no pause between requests (10), `DURATION` (`2m`), and `MIN_TRANSACTIONS`
+(50000), below which the run refuses to start, as the targets are for a user that size; pass each with `-e`.
+
+Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
+in Docker:
+
+| Request | p95, 1 user | p95, 10 users | Target |
+| --- | --- | --- | --- |
+| Transactions, first and next page | 44 ms, 35 ms | 271 ms, 215 ms | 300 ms |
+| Transactions this month, searched, by amount | 11 ms, 139 ms, 83 ms | 77 ms, 476 ms, 276 ms | 300 ms |
+| **Transactions in a category** | **761 ms** | **4.69 s** | 300 ms |
+| Accounts, institutions, categories, recurring rules | 37 ms or less | 217 ms or less | 300 ms |
+| Budgets (a month) | 92 ms | 958 ms | 300 ms |
+| Spending by category, this month | 111 ms | 934 ms | 1 s |
+| Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
+| Spending transactions of a category | 154 ms | 1.31 s | 1 s |
+| Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
+| Income vs expenses, this year, last 12 months compared | 286 ms, 291 ms | 1.09 s, 1.08 s | 1 s |
+| Net worth, last 12 months | 23 ms | 104 ms | 1 s |
+| Budget vs actual, this month, this year | 47 ms, 294 ms | 173 ms, 1.07 s | 1 s |
+
+The last three rows were measured later the same day, in runs of one minute (`-e DURATION=1m`), on the same
+machine and data.
+
+With one user every report meets its target, and every list but one: the transactions of a category, whose
+spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
+read a year of transactions into memory to add them up (spending by category, trends) fall well behind, and income
+vs expenses and budget vs actual over a year, which do the same, just miss it. Both are followed up in #70.
 
 ## Layout
 
@@ -229,9 +289,35 @@ already uses it can still show it. An account can be archived at any balance.
   deletes the whole transfer; `PUT /transactions/{id}` on a leg is refused on `type`. `POST /transfers` takes an
   `Idempotency-Key` like `POST /transactions`, kept on the Transfer out leg: a key stands for one transaction or
   one transfer, never one of each.
+- **Mark as transfer** (spec IMP-7). `POST /transfers/mark` joins an `expenseId` on one account and an `incomeId` on
+  another, which the user picked, into one transfer (`Transfer.Mark`): the expense becomes the `transferOut` leg and
+  the income the `transferIn` leg. Each keeps its id, account, amount, date, note and conversion and loses its lines,
+  category and payee, so the two drop out of income, expense and budget totals. They must be on different accounts,
+  on the same date and, between accounts in one currency, of the same amount; a refund, a leg of a transfer already,
+  and income sent as the expense (or the other way round) are refused on the id at fault. Nothing is matched
+  automatically. `POST /transfers/{id}/unmark` turns any transfer back (`Transfer.Unmark`): the `transferOut` leg
+  becomes an expense on `expenseCategoryId` and the `transferIn` leg income on `incomeCategoryId`, as a leg has no
+  category to go back to. A reconciled transaction cannot be marked, and a transfer with a reconciled leg cannot be
+  unmarked, until its reconciliation is reopened (see [Reconciliations](#reconciliations)).
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
+  `GET /transactions/deleted` lists those still held, the last deleted first, and `POST /transactions/{id}/restore`
+  brings one back, both legs of a transfer together, until 30 days after it was deleted.
+- **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
+  `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
+  one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
+  1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
+  (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
+  (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
+  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), each with the transaction as it is (`transaction`, null when
+  not found), so a client can name one it has not loaded, and nothing changes. A category or account that
+  cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
+  transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
+  moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and
+  tagged but not moved or deleted, and deleting a leg deletes its transfer, as `DELETE` does. Done, it answers the `count`
+  of transactions changed, the other leg of each transfer deleted included. Like a delete it names
+  no row version.
 - **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
@@ -279,9 +365,10 @@ already uses it can still show it. An account can be archived at any balance.
   `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
   transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
   The foreign key from an attachment to its transaction restricts deletes (`AttachmentConfiguration`), so the
-  job that will purge deleted transactions after 30 days (spec rule 10) must delete their attachments first:
-  the files from storage, then the rows. Deleting the transaction alone fails, and cascading would leave the
-  files behind with nothing pointing at them.
+  worker's `DeletedTransactionPurgeJob`, which removes transactions deleted more than 30 days ago for good (spec
+  rule 10) every hour (`DeletedTransactionPurge__RunEvery`), deletes their attachments first: the files from
+  storage, then the rows (`DeletedTransactionPurge`). Deleting the transaction alone fails, and cascading would
+  leave the files behind with nothing pointing at them.
 - **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
   (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
   it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
@@ -333,8 +420,18 @@ already uses it can still show it. An account can be archived at any balance.
   any of them is stale: posted transactions stay as they are, and the new schedule carries on after the
   last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
   is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
-- Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
-  (REC-4) are still to come.
+- **A rule posts or reminds** (`mode`, REC-2): `autoPost`, when left out of a new rule, has the worker post each
+  occurrence (left out of an edit, the rule keeps its mode);
+  `remind` has it post nothing, and each occurrence due on or before today is a reminder instead
+  (`GET /recurring-rules/reminders`, earliest due first). `POST /recurring-rules/{id}/reminders/{dueDate}/confirm`
+  records its transaction through `CreateTransaction`, under the same idempotency key the worker would use, for
+  the `amount` sent or else the rule's own; `.../dismiss` records nothing. Either moves the rule on, so a
+  rule's reminders are answered earliest first: a later one is refused on `dueDate`. A paused rule has none.
+- **The upcoming list** (`GET /recurring-rules/upcoming?days=30`, REC-3, 1 to 90 days) is every occurrence of
+  every rule that is not paused, due from today and within the days asked for, earliest first, with its `mode`.
+  One due today is listed until the worker posts it, and not at all when it is a reminder already.
+  The domain works the dates out (`RecurringRule.Upcoming`); nothing is stored for an occurrence before it is settled.
+- Skipping or editing one occurrence (REC-4) is still to come.
 
 ### Integrity check
 
@@ -357,6 +454,33 @@ already uses it can still show it. An account can be archived at any balance.
   A stale `last_run` for `consistent` and `drift` both means the check has stopped running.
 - The domain's rules and the database's constraints keep all of this from happening; tests break the rows in
   the database to see each drift found (`IntegrityCheckTests`).
+
+### Reconciliations
+
+An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11), under
+`Pfm.Application.Transactions.Reconciliations`:
+
+- `POST /accounts/{id}/reconciliations` starts one with the statement's closing date and balance. An account has
+  one in progress at a time (a unique index on the account where `CompletedAt` is null; another answers 409
+  `urn:pfm:problem:reconciliation-in-progress`), and a statement is not dated before the account's last one.
+- `GET /reconciliations/{id}/transactions` lists what can be ticked: the account's transactions dated on or before
+  the statement date that no reconciliation holds, and those ticked in this one (`Transaction.ReconciliationId`).
+  `PUT` and `DELETE /reconciliations/{id}/transactions/{transactionId}` tick and untick (`TickTransaction`,
+  `UntickTransaction`, which differ only in what they ask of the domain: `TickHandler`), answering the new
+  difference.
+- The difference is measured from the account's **reconciled balance**: its opening balance plus every
+  transaction reconciled in its other reconciliations (`ReconciliationContext`). So the next statement, which
+  carries everything before it, is matched by ticking only what came since.
+- `POST /reconciliations/{id}/complete` locks the ticked transactions (`Transaction.IsReconciled`) only at a
+  difference of exactly zero; otherwise 409 `urn:pfm:problem:reconciliation-difference-not-zero`. Nothing is
+  ever added to make it zero.
+- A reconciled transaction refuses a change to its amount, date, account, type or refund flag, each named as the
+  field at fault; its payee, note and category still change. Deleting it answers 409
+  `urn:pfm:problem:transaction-reconciled`. A transfer is locked as soon as either leg is reconciled, and can
+  then be neither marked from a reconciled transaction nor unmarked.
+- `POST /reconciliations/{id}/reopen` unlocks its transactions, which stay ticked. Only the account's latest can
+  be (409 `urn:pfm:problem:reconciliation-not-latest`), as each later one is measured from it.
+  `DELETE /reconciliations/{id}` cancels one in progress, unticking what it held.
 
 ### Budgets
 
@@ -391,6 +515,12 @@ already uses it can still show it. An account can be archived at any balance.
 - **Not converted.** An expense with no exchange rate on or before its date is left out of spent and counted in
   `notConverted`, on its budget and on the totals, until a rate arrives. A split is one expense, counted once
   however many of a budget's categories, or of the month's budgets, its lines are in.
+- **Drilling down** (BUD-8): the transactions behind a budget are the transaction list filtered by its category
+  (which takes in its subcategories) and the first and last days of its month. Filtered by a category, the list's
+  `total` also answers `spent`: what those transactions spent there in the base currency, with how many are
+  `notConverted`, added up by `Transaction.SpentAmountIn` like the budget's, so a split counts only its lines there
+  and a refund comes off. The per-currency totals beside it are in each transaction's own currency, so only
+  `spent` is sure to equal the budget's figure.
 - **The base currency locks once a budget exists** (rule 12,
   [decision record 0002](docs/adr/0002-convert-once-and-lock-base-currency.md)). `GET /me` says so
   (`baseCurrencyLocked`), and `PATCH /me` refuses another `baseCurrency` by name while the user has a budget;
@@ -414,8 +544,21 @@ already uses it can still show it. An account can be archived at any balance.
   before any other.
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
-- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ICategoryLookup`)
-  and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`,
+  `IIncomeAndSpending`, `ICategoryLookup`, `IRecentActivity`), account balances through `IAccountBalances`,
+  `IAccountTotals` and `IAccountLookup` (Accounts), budgets through
+  `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Dashboard** (RPT-1). `GET /reports/dashboard` answers the whole dashboard in one request, and takes no filters:
+  it is of this calendar month in the user's time zone (`from`, `to`). `balance` is what every account that is not
+  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
+  with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
+  actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
+  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
+  ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
+  next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
+  has an account that is not archived, for the screen to show a new user where to start. `GetDashboard` holds the
+  counts.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
   counts in its own, and income and transfers never count. Each item has its `share` of the total, to one
@@ -426,6 +569,66 @@ already uses it can still show it. An account can be archived at any balance.
   lists the expenses with a line on one category itself, each with what it `spent` there, so they add up to that
   category's spent: a split shows only its part, unlike the transaction list's total, which counts it whole. With
   `compare`, each item has `previousSpent`, and a category that spent only in the period before is listed at zero.
+- **Income vs expenses** (RPT-3). `GET /reports/income-vs-expenses` answers the `income`, `expenses` and `net` of
+  every calendar month the period touches, in order and empty ones included, each with its own `from` and `to` (a
+  period starting or ending inside a month covers only its days there), and the same over the whole period as
+  `total` (`IncomeVsExpenses`). Income is what income transactions brought in (`Transaction.IncomeAmount`);
+  expenses are spent, by the same definition as spending by category, so a refund lowers them; transfers are
+  neither. Net is income minus expenses, and the `savingsRate` is net as a percentage of income, to one decimal,
+  none when income is not above zero. Reports reads them through `IIncomeAndSpending`. With `categoryId`, only
+  the lines in that category and its subcategories count. With `compare`, `previous` has the period before's
+  months and total.
+- **Trends** (RPT-7). `GET /reports/trends` follows one category (`categoryId`, with its subcategories) or one payee
+  (`payee`, matched whole, trimmed and in any case) over the period: `months` lists every calendar month the period
+  touches, cut to it at either end and at zero when nothing happened, each with its `total` and its `change` from
+  the month before as an `amount` and a `percent` (of the earlier total's size, to one decimal; none from zero; the first
+  month's is from the last month of the period compared with, and none without `compare`). `PeriodChange` and `Trend` (`Pfm.Domain.Reports`) work that out. An expense category
+  adds up spent, by the same definition as spending by category; an income category adds up the income received in
+  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it, or with `type=income` the
+  income received from it; with `categoryId` as well, only in that category, whose kind says which (so `type` is
+  refused with it). `ReportParameters` reads `payee` and `type` beside the filters. A category the user does not have is not found, as the trend is of
+  it. With `compare`, `previous` is the trend over the period before and `change` how the total
+  moved from it. `previous.months` has one month for each of `months`, at the same place, so the two pair up by
+  position (`ReportPeriod.PreviousMonths`): before whole calendar months, as many calendar months; before any other
+  period, each month moved back by the period's days, so 10 March to 20 April is set against 27 January to
+  17 February and 18 February to 9 March.
+- **Budget vs actual** (RPT-6). `GET /reports/budget-vs-actual` sets each category's budgets against what was spent
+  against them over the whole budget months the period touches (`ReportPeriod.WholeMonths`): one month, or several
+  summed, `months` saying how many each category has a budget in. Budgets answers it through `IBudgetComparison`, by
+  its own rules (`BudgetComparison` in `Pfm.Domain.Budgets`): a budget counts what was spent in its own month, in its
+  category and, for a top-level one, its subcategories, and its `state` is worked out as on the budget screen with
+  the user's warning threshold. What was spent in a month where no budget covered its category is listed apart
+  under `unbudgeted`, most first. The account filter narrows spent, never the budgets; the category filter shows
+  only that category and its subcategories. Not compared with the period before.
+- **Net worth** (RPT-5). `GET /reports/net-worth` answers, at each month end in the period and on its last day when
+  it ends inside a month (`ReportPeriod.MonthEnds`), the `assets` (every account but credit cards and loans), the
+  `liabilities` (what is owed on credit cards and loans, as a positive number) and `netWorth`, assets minus
+  liabilities (`NetWorthOn`, `Pfm.Domain.Reports`). Accounts answers each account's balance at the end of each day
+  through `IAccountBalances`, worked out from its transactions as every balance is (none before it opened); archived
+  accounts count (spec section 3, rule 10). Unlike a transaction, a balance is converted at the rate of the day it is
+  shown on, or the nearest earlier one, the balances in one currency added up first so a total is rounded once; one
+  with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
+  belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
+  `compare`.
+- **The monthly summary** (spec section 7, export). `GET /reports/monthly-summary.pdf?month=2026-11` answers one
+  calendar month as a PDF file to download (`monthly-summary-2026-11.pdf`): income, expenses, net and savings rate,
+  spending by top-level category with shares, and budget vs actual with what was spent unbudgeted. `GetMonthlySummary`
+  asks the three reports' handlers for that month, so every figure is the one the reports show, and writes what they
+  answer in `locale` (`en` or `vi`), or the user's own (`IUserLocale`), or English, with amounts as the SPA writes
+  them (`Locales.WriteAmount`, `WritePercent`). `IPdfWriter` lays it out with MigraDoc, in Noto Sans carried in the
+  assembly ([decision record 0005](docs/adr/0005-pdf-documents-with-migradoc.md)).
+
+### Export
+
+- **The transaction list as CSV** (spec section 7, Export). `GET /export/transactions.csv` takes the filters and sort
+  order of `GET /transactions` (one `TransactionListParameters` reads both) and writes every transaction that
+  passes, however many pages the list would take, a batch at a time (`ExportTransactions`). One line each:
+  `date`, `type`, `isRefund`, `account` and `category` by name (a split's categories joined by `; `, a leg of a
+  transfer none), `payee`, `note`, `tags` (joined by `; `), `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
+- **CSV is written one way** (`Csv`, RFC 4180, UTF-8 with a byte order mark so a spreadsheet reads Vietnamese
+  as written), the same for this file and for the full export (`GET /export/all.zip`).
+- **Reports are exported by the SPA**, from the answer it already shows: a report's CSV holds the numbers of its
+  table view and nothing the API did not answer, so no report needs a second endpoint.
 
 ## Signing in
 
@@ -627,10 +830,12 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Three answers are not paged, and answer all of their `items` in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
-  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts. Reports
+  (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
+  its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
   recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
@@ -655,7 +860,11 @@ Registration uses it to create the new user's default categories.
   transaction records nothing and answers 422 with the problem type `urn:pfm:problem:idempotency-key-reused`,
   so a corrected transaction needs a new key. The retry answers the transaction as it is now, edited since or
   not, and a deleted transaction's key stays used: its retry answers the deleted transaction and records
-  nothing, so a late retry cannot bring back what the user deleted.
+  nothing, so a late retry cannot bring back what the user deleted. A transfer unmarked since
+  (`POST /transfers/{id}/unmark`) keeps its key on what was its Transfer out leg, so it is not recorded twice
+  either; as there is no transfer to answer any more, its retry answers 409 with the problem type
+  `urn:pfm:problem:transfer-unmarked` (`CreateTransferOutcome.Unmarked`), whose detail says a new transfer needs a
+  new key. The same key with a different transfer still answers 422 `idempotency-key-reused`.
 - **Money and settings in JSON:** amounts are decimal strings next to a currency, which travels as its ISO 4217
   code (`"VND"`), with at least two decimals and never more than the currency has (`AmountJson`, `AmountText`, `Amounts`); a locale travels as its language tag (`"vi"`); time zones are IANA ids
   (`"Asia/Ho_Chi_Minh"`). The supported currencies are `Pfm.Domain.Currency`. Every other enum travels as its

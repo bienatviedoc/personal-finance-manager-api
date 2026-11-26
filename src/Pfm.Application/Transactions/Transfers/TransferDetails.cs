@@ -10,11 +10,12 @@ namespace Pfm.Application.Transactions.Transfers;
 /// <param name="OutTransactionId">The Transfer out leg, as the transaction list shows it.</param>
 /// <param name="InTransactionId">The Transfer in leg, as the transaction list shows it.</param>
 /// <param name="RowVersion">The version an edit must name (<see cref="Transfer.RowVersion"/>).</param>
+/// <param name="IsReconciled">Whether either leg is reconciled, which locks the transfer (spec section 3, rule 3).</param>
 public sealed record TransferDetails(
     Guid Id, Guid FromAccountId, Guid ToAccountId, decimal Amount, Currency Currency, decimal ToAmount, Currency ToCurrency, DateOnly Date, string? Note,
-    Guid OutTransactionId, Guid InTransactionId, uint RowVersion)
+    Guid OutTransactionId, Guid InTransactionId, uint RowVersion, bool IsReconciled = false)
 {
     public static TransferDetails Of(Transfer transfer) =>
         new(transfer.Id, transfer.FromAccountId, transfer.ToAccountId, transfer.Amount, transfer.OutLeg.Currency, transfer.ToAmount, transfer.InLeg.Currency,
-            transfer.Date, transfer.Note, transfer.OutLeg.Id, transfer.InLeg.Id, transfer.RowVersion);
+            transfer.Date, transfer.Note, transfer.OutLeg.Id, transfer.InLeg.Id, transfer.RowVersion, transfer.IsReconciled);
 }

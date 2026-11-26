@@ -21,6 +21,16 @@ public static class UserErasureFixtures
             return result.Outcome.Users;
         }
 
+        /// <summary>
+        /// Removes for good the transactions deleted more than 30 days ago the way the worker's job does, as it would
+        /// this much later. Answers how many it removed.
+        /// </summary>
+        public async Task<int> PurgeDeletedTransactionsAsync(TimeSpan after)
+        {
+            await using var scope = api.After(after).Services.CreateAsyncScope();
+            return (await scope.ServiceProvider.GetRequiredService<Pfm.Application.Transactions.DeletedTransactionPurge>().RunAsync()).Transactions;
+        }
+
         /// <summary>How many rows a user owns in each table that holds any of theirs, as a job acting for them reads it.</summary>
         public async Task<Dictionary<string, int>> RowsOwnedByAsync(Guid userId)
         {
@@ -51,7 +61,7 @@ public static class UserErasureFixtures
         await RecordAsync(browser, accountId, streetFood, "15000", "Bánh mì Huỳnh Hoa", isRefund: true);
         (await browser.PostAsync("/api/v1/transactions", new
         {
-            type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart",
+            type = "expense", accountId, amount = "500000", date = "2026-11-03", payee = "Co.opmart", tags = new[] { "tet-2027", "groceries" },
             lines = new object[] { new { categoryId = food, amount = "320000", note = "Rice" }, new { categoryId = streetFood, amount = "180000" } },
         })).EnsureSuccessStatusCode();
         // Set below what November already spent, so it raises a budget notification.
@@ -59,6 +69,12 @@ public static class UserErasureFixtures
 
         // Due far in the future, so it posts nothing meanwhile.
         (await browser.PostAsync("/api/v1/recurring-rules", new { type = "expense", accountId, amount = "9000000", categoryId = food, payee = "Landlord", frequency = "monthly", startDate = "2099-01-31" })).EnsureSuccessStatusCode();
+
+        // A completed reconciliation, which locks the lunch it ticked: the transaction references it.
+        var started = await browser.PostAsync($"/api/v1/accounts/{accountId}/reconciliations", new { statementDate = "2026-11-02", statementBalance = "1455000" });
+        var reconciliation = (await started.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<Identified>())!.Id;
+        (await browser.PutAsync($"/api/v1/reconciliations/{reconciliation}/transactions/{lunch}", new { })).EnsureSuccessStatusCode();
+        (await browser.PostAsync($"/api/v1/reconciliations/{reconciliation}/complete")).EnsureSuccessStatusCode();
 
         // A transfer, recorded last: its two legs are the last two transactions, and have no lines.
         var savingsId = await BrowserFixtures.AddAccountAsync(browser, "Savings");
@@ -74,10 +90,15 @@ public static class UserErasureFixtures
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["Institutions"] = 1,
+            ["Reconciliations"] = 1,
             ["RecurringRules"] = 1,
+            ["Tags"] = 2,
             // One line for each income or expense, and two for the split; none for the legs of the transfer.
             ["TransactionLines"] = 5,
             ["Transactions"] = 6,
+
+            // The split's two tags.
+            ["TransactionTags"] = 2,
         };
     }
 

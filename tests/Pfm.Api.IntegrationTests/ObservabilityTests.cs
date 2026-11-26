@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Pfm.Infrastructure.Observability;
@@ -82,9 +83,13 @@ public class ObservabilityTests(PfmApi api)
         Assert.Equal(traceId, report.Event.GetProperty("tags").GetProperty("trace_id").GetString());
         Assert.Equal(traceId, report.Event.GetProperty("contexts").GetProperty("trace").GetProperty("trace_id").GetString());
         // Neither the query string, the body, the user, the exception's data, nor the values of the log event's properties.
+        // The build's own identifiers (debug_meta: each assembly's debug id, a hash of the build) are left out of the
+        // search: any digits can turn up in them, and they say nothing about the user.
+        var content = Regex.Replace(report.Raw, @"""debug_meta"":\{""images"":\[[^\]]*\]\}", "");
+        Assert.NotEqual(report.Raw, content);
         foreach (var leaked in new[] { "Corner", "Bakery", "4815", "birthday", email, $"\"{PfmApi.ThrowingPath}\"" })
         {
-            Assert.DoesNotContain(leaked, report.Raw);
+            Assert.DoesNotContain(leaked, content);
         }
     }
 

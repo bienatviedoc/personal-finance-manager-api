@@ -227,6 +227,29 @@ public class TransferTests
     }
 
     [Fact]
+    public void Restoring_a_deleted_transfer_restores_both_legs_together()
+    {
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        transfer.Delete(Monday);
+
+        transfer.Restore(Tuesday);
+
+        Assert.False(transfer.IsDeleted);
+        Assert.All(new[] { transfer.OutLeg, transfer.InLeg }, leg => Assert.Equal(((DateTimeOffset?)null, Tuesday, false), (leg.DeletedAt, leg.UpdatedAt, leg.IsDeleted)));
+        Assert.Equal((-100m, 100m), (transfer.OutLeg.SignedAmount, transfer.InLeg.SignedAmount));
+    }
+
+    [Fact]
+    public void A_leg_is_never_restored_on_its_own()
+    {
+        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        transfer.Delete(Monday);
+
+        Assert.Throws<InvalidOperationException>(() => transfer.InLeg.Restore(Tuesday));
+        Assert.True(transfer.InLeg.IsDeleted);
+    }
+
+    [Fact]
     public void A_leg_is_never_edited_or_deleted_on_its_own()
     {
         var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);

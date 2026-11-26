@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -16,9 +17,10 @@ namespace Pfm.Application.Transactions;
 /// The lines of a split, which replace the ones the transaction had; <paramref name="CategoryId"/> is then
 /// left empty. Null makes a split transaction one category again.
 /// </param>
+/// <param name="Tags">The names of its tags, which replace the ones it had; null or none takes every tag off.</param>
 public sealed record EditTransactionCommand(
     Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, string? Date, Guid CategoryId, string? Payee, string? Note,
-    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null)
+    bool IsRefund = false, IReadOnlyList<TransactionLineInput>? Lines = null, IReadOnlyList<string?>? Tags = null)
     : ITransactionCommand
 {
     public TransactionFields Parsed { get; } = TransactionFields.Read(Type, Amount, Date);
@@ -48,7 +50,7 @@ public sealed record EditTransactionOutcome(TransactionDetails? Edited)
 /// </summary>
 public sealed class EditTransactionHandler(
     IValidator<EditTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
-    TransactionConversion conversion, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionConversion conversion, TransactionTags tags, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<EditTransactionCommand, EditTransactionOutcome?>(validator)
 {
     protected override async Task<Result<EditTransactionOutcome?>> ExecuteAsync(EditTransactionCommand command, CancellationToken cancellationToken)
@@ -112,6 +114,8 @@ public sealed class EditTransactionHandler(
         {
             return Result<EditTransactionOutcome?>.Invalid(violation.AsErrors());
         }
+
+        transaction.TagWith(await tags.FindOrCreateAsync(TagNames.Of(command.Tags), cancellationToken), clock.GetUtcNow());
 
         // Converts again only what an edit of the amount, the date or the account left without a converted amount.
         await conversion.ConvertAsync(transaction, against.BaseCurrency, cancellationToken);
