@@ -8,7 +8,7 @@ namespace Pfm.Application.Transactions.Recurring;
 /// <summary>
 /// Replaces what a recurring rule's next transactions say and when they are due, from the row version the
 /// caller last read (<paramref name="RowVersion"/>). Transactions it already posted stay as they are, and a new
-/// schedule carries on after the last occurrence posted or skipped.
+/// schedule carries on after the last occurrence posted or skipped. A mode left out keeps the rule's own.
 /// </summary>
 public sealed record EditRecurringRuleCommand(
     Guid Id, uint RowVersion, string? Type, Guid AccountId, string? Amount, Guid CategoryId, string? Payee, string? Note, string? Frequency, int? Interval,
@@ -82,7 +82,7 @@ public sealed class EditRecurringRuleHandler(
         {
             rule.Edit(
                 command.Parsed.Type!.Value, account.Id, account.Currency, command.Parsed.Amount!.Value, category, command.Payee, command.Note,
-                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode!.Value);
+                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode ?? rule.Mode);
         }
         catch (RecurringRuleViolation violation)
         {

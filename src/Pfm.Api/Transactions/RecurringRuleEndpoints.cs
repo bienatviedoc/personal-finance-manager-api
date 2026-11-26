@@ -21,7 +21,7 @@ public static class RecurringRuleEndpoints
         rules.MapGet("/", List).WithName("ListRecurringRules")
             .WithDescription("The user's recurring rules, the last set up first.");
         rules.MapGet("/upcoming", Upcoming).WithName("ListUpcomingOccurrences")
-            .WithDescription("Every occurrence of the user's recurring rules due after today, in their time zone, and within the days asked for, earliest first: the ones the worker will post and the ones that will be reminders. A paused rule has none.");
+            .WithDescription("Every occurrence of the user's recurring rules due from today, in their time zone, and within the days asked for, earliest first: the ones the worker will post and the ones that will be reminders. One due today is listed until it is posted, and not when it is a reminder already. A paused rule has none.");
         rules.MapGet("/reminders", Reminders).WithName("ListReminders")
             .WithDescription("The user's reminders, earliest due first: each occurrence of a rule that reminds, due on or before today in their time zone, not yet confirmed or dismissed. A paused rule has none.");
         rules.MapGet("/{id:guid}", Get).WithName("GetRecurringRule")
@@ -192,7 +192,7 @@ public static class RecurringRuleEndpoints
 /// <param name="Note">At most 1000 characters.</param>
 /// <param name="Interval">How many days apart, 1 to 365, for <c>everyNDays</c>; left out for any other frequency.</param>
 /// <param name="EndDate">The last date an occurrence can be due, <c>YYYY-MM-DD</c>; left out for a rule that goes on.</param>
-/// <param name="Mode"><c>autoPost</c>: the worker posts each occurrence on its due date; <c>remind</c>: each becomes a reminder the user confirms or dismisses. Left out, <c>autoPost</c>.</param>
+/// <param name="Mode"><c>autoPost</c>: the worker posts each occurrence on its due date; <c>remind</c>: each becomes a reminder the user confirms or dismisses. Left out, <c>autoPost</c> for a new rule and the mode it has for an edited one.</param>
 public sealed record RecurringRuleRequest(
     string Type, Guid AccountId, string Amount, Guid CategoryId, string Frequency, string StartDate, string? Payee = null, string? Note = null,
     int? Interval = null, string? EndDate = null, string? Mode = null);

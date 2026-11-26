@@ -247,13 +247,25 @@ public class RecurringRuleTests
     }
 
     [Fact]
-    public void Upcoming_occurrences_are_those_due_after_today_and_within_the_days_asked_for()
+    public void Upcoming_occurrences_are_those_due_from_today_and_within_the_days_asked_for()
     {
         var rule = PayRent(WeeklyFromThe2nd);
 
         Assert.Equal(
             [Date("2026-11-16"), Date("2026-11-23"), Date("2026-11-30"), Date("2026-12-07")],
             rule.Upcoming(today: Date("2026-11-10"), days: 27));
+    }
+
+    [Fact]
+    public void An_occurrence_due_today_is_upcoming_until_it_is_posted_unless_it_is_a_reminder()
+    {
+        var posts = PayRent(WeeklyFromThe2nd);
+        posts.Posted(Date("2026-11-02"), Now);
+
+        Assert.Equal([Date("2026-11-09"), Date("2026-11-16")], posts.Upcoming(today: Date("2026-11-09"), days: 7));
+        Assert.Equal([Date("2026-11-16")], PayRent(WeeklyFromThe2nd, RecurringMode.Remind).Upcoming(today: Date("2026-11-09"), days: 7));
+        posts.Posted(Date("2026-11-09"), Now);
+        Assert.Equal([Date("2026-11-16")], posts.Upcoming(today: Date("2026-11-09"), days: 7));
     }
 
     [Fact]

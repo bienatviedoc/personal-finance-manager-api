@@ -1,7 +1,5 @@
-using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
@@ -162,13 +160,8 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out TransactionCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor))
-        {
-            return false;
-        }
-
-        var text = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor));
-        if (text.Length <= AmountAt
+        if (!CursorText.TryDecode(cursor, out var text)
+            || text.Length <= AmountAt
             || !DateOnly.TryParseExact(text[..DateFormat.Length], DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
             || !Guid.TryParseExact(text[DateFormat.Length..AmountAt], "N", out var id)
             || !AmountText.TryParse(text[AmountAt..], out var amount))
@@ -181,6 +174,5 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     }
 
     public override string ToString() =>
-        Base64Url.EncodeToString(Encoding.UTF8.GetBytes(
-            $"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}"));
+        CursorText.Encode($"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}");
 }

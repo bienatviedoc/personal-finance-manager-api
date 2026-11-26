@@ -1,3 +1,4 @@
+using System.Globalization;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Identity;
@@ -34,7 +35,7 @@ public sealed class GetMonthlySummaryHandler(
         var budgets = await budgetVsActual.HandleAsync(new GetBudgetVsActual(filter), cancellationToken);
 
         var document = new MonthlySummaryDocument(MonthlySummaryText.In(locale), locale, income.Currency);
-        var month = DateText.Of(query.Month.From)[..7];
+        var month = query.Month.From.ToString("yyyy-MM", CultureInfo.InvariantCulture);
         return new MonthlySummaryFile($"monthly-summary-{month}.pdf", pdf.Write(document.Of(query.Month, income, spending, budgets)));
     }
 }

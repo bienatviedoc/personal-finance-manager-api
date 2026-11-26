@@ -49,7 +49,7 @@ public sealed class CreateRecurringRuleHandler(
         {
             rule = RecurringRule.Create(
                 command.Parsed.Type!.Value, account.Id, account.Currency, command.Parsed.Amount!.Value, category, command.Payee, command.Note,
-                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode!.Value);
+                command.Schedule(), clock.GetUtcNow(), command.Parsed.Mode ?? RecurringMode.AutoPost);
         }
         catch (RecurringRuleViolation violation)
         {

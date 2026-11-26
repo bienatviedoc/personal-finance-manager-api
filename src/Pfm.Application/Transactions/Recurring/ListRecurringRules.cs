@@ -1,6 +1,4 @@
-using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
-using System.Text;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions.Recurring;
@@ -31,7 +29,7 @@ public sealed record RecurringRuleCursor(Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out RecurringRuleCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor) || !Guid.TryParseExact(Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor)), "N", out var id))
+        if (!CursorText.TryDecode(cursor, out var text) || !Guid.TryParseExact(text, "N", out var id))
         {
             return false;
         }
@@ -40,5 +38,5 @@ public sealed record RecurringRuleCursor(Guid Id)
         return true;
     }
 
-    public override string ToString() => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(Id.ToString("N")));
+    public override string ToString() => CursorText.Encode(Id.ToString("N"));
 }

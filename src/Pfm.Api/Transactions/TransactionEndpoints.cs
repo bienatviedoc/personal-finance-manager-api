@@ -308,12 +308,12 @@ public sealed record DeletedTransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
     Guid? TransferId, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, DateTimeOffset DeletedAt, DateTimeOffset RestorableUntil)
 {
+    /// <summary>Written the way a transaction is, less what only a live one has.</summary>
     public static DeletedTransactionResponse From(DeletedTransactionDetails deleted)
     {
-        var transaction = deleted.Transaction;
-        return new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
-            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.IsRefund,
-            [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
+        var transaction = TransactionResponse.From(deleted.Transaction);
+        return new(transaction.Id, transaction.Type, transaction.AccountId, transaction.Amount, transaction.Currency, transaction.Date,
+            transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.IsRefund, transaction.Lines,
             deleted.DeletedAt, deleted.RestorableUntil);
     }
 }

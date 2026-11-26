@@ -45,13 +45,7 @@ public sealed record NameCursor(string Name, Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out NameCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor))
-        {
-            return false;
-        }
-
-        var text = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor));
-        if (text.Length < 32 || !Guid.TryParseExact(text[..32], "N", out var id))
+        if (!CursorText.TryDecode(cursor, out var text) || text.Length < 32 || !Guid.TryParseExact(text[..32], "N", out var id))
         {
             return false;
         }
@@ -60,5 +54,18 @@ public sealed record NameCursor(string Name, Guid Id)
         return true;
     }
 
-    public override string ToString() => Base64Url.EncodeToString(Encoding.UTF8.GetBytes($"{Id:N}{Name}"));
+    public override string ToString() => CursorText.Encode($"{Id:N}{Name}");
+}
+
+/// <summary>What a cursor says, which clients only ever see as opaque Base64Url text.</summary>
+public static class CursorText
+{
+    public static string Encode(string text) => Base64Url.EncodeToString(Encoding.UTF8.GetBytes(text));
+
+    /// <summary>What a cursor says; false when it is not Base64Url at all.</summary>
+    public static bool TryDecode(string? cursor, [NotNullWhen(true)] out string? text)
+    {
+        text = cursor is not null && Base64Url.IsValid(cursor) ? Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor)) : null;
+        return text is not null;
+    }
 }
