@@ -620,6 +620,64 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(("1250000.00", 0), (converted.Spent, converted.NotConverted));
     }
 
+    // Drilling down (BUD-8).
+
+    [Fact]
+    public async Task The_transactions_behind_a_budget_are_those_of_its_category_and_subcategories_in_its_month_and_their_spent_is_the_budgets()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var food = await CategoryAsync(browser, "Food & drink");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SpendAsync(browser, everyday, "Food & drink", "100000", FirstOfThisMonth);
+        await SpendAsync(browser, everyday, "Groceries", "250000", Today);
+        await RefundAsync(browser, everyday, "Coffee", "30000", Today);
+        await SplitAsync(browser, dollars, "10", FirstOfThisMonth, ("Groceries", "3.33"), ("Coffee", "3.33"), ("Transport", "3.34"));
+        await SpendAsync(browser, everyday, "Groceries", "999", FirstOfThisMonth.AddDays(-1));
+        await SpendAsync(browser, everyday, "Transport", "70000", Today);
+        await RatesAreAsync((FirstOfThisMonth.AddDays(-1), 25001m));
+
+        var budget = await BudgetAsync(browser, ThisMonth, food);
+        var behind = await TransactionsBehindAsync(browser, food);
+
+        // 100,000 + 250,000 - 30,000, and the split's two lines on food: 166,506 of the 250,010 its 10 USD came to.
+        Assert.Equal(("486506.00", 0), (budget.Spent, budget.NotConverted));
+        Assert.Equal(new[] { "10.00", "30000.00", "100000.00", "250000.00" }.Order(), behind.Items.Select(transaction => transaction.Amount).Order());
+        Assert.Equal(new SpentBody("VND", budget.Spent, budget.NotConverted), behind.Total.Spent);
+    }
+
+    [Fact]
+    public async Task An_expense_behind_a_budget_that_is_not_converted_is_listed_and_counted_as_the_budget_counts_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var dollars = await AddAccountAsync(browser, "In USD", "USD");
+        var food = await CategoryAsync(browser, "Food & drink");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SpendAsync(browser, everyday, "Groceries", "250000", Today);
+        await SpendAsync(browser, dollars, "Groceries", "40", FirstOfThisMonth);
+
+        var budget = await BudgetAsync(browser, ThisMonth, food);
+        var behind = await TransactionsBehindAsync(browser, food);
+
+        Assert.Equal(("250000.00", 1), (budget.Spent, budget.NotConverted));
+        Assert.Equal(2, behind.Items.Length);
+        Assert.Equal(new SpentBody("VND", "250000.00", 1), behind.Total.Spent);
+    }
+
+    [Fact]
+    public async Task A_list_not_narrowed_to_a_category_says_nothing_of_spent()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await SpendAsync(browser, everyday, "Groceries", "250000", Today);
+
+        var list = (await browser.Http.GetFromJsonAsync<DrillDownBody>("/api/v1/transactions"))!;
+
+        Assert.Null(list.Total.Spent);
+    }
+
     // States and totals (BUD-2, BUD-3).
 
     [Fact]
@@ -877,6 +935,22 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         return (await response.Content.ReadFromJsonAsync<Identified>())!.Id;
     }
+
+    /// <summary>The transaction list as a budget row opens it: its category, with its subcategories, in the month.</summary>
+    private static async Task<DrillDownBody> TransactionsBehindAsync(Browser browser, Guid categoryId)
+    {
+        var lastOfThisMonth = FirstOfThisMonth.AddMonths(1).AddDays(-1);
+        return (await browser.Http.GetFromJsonAsync<DrillDownBody>(
+            $"/api/v1/transactions?categoryId={categoryId}&from={FirstOfThisMonth:yyyy-MM-dd}&to={lastOfThisMonth:yyyy-MM-dd}"))!;
+    }
+
+    private sealed record DrillDownBody(ListedBody[] Items, DrillDownTotalBody Total);
+
+    private sealed record ListedBody(Guid Id, string Amount);
+
+    private sealed record DrillDownTotalBody(int Count, SpentBody? Spent);
+
+    private sealed record SpentBody(string Currency, string Amount, int NotConverted);
 
     private sealed record Identified(Guid Id);
 

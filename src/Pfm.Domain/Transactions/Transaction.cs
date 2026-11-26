@@ -132,21 +132,36 @@ public sealed class Transaction : IUserOwned
     /// A split's lines share its converted amount as they share its amount, each share rounded to the base
     /// currency's decimals and the last line taking what is left, so the shares sum exactly to it.
     /// </summary>
-    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds)
+    public decimal SpentAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(SpentAmount, categoryIds);
+
+    /// <summary>
+    /// What the transaction brings in, in the base currency: income adds its converted amount (spec RPT-3).
+    /// Nothing for an expense or a leg of a transfer, which is not income (spec section 3, rule 3), once deleted,
+    /// or while not converted (rule 7).
+    /// </summary>
+    public decimal IncomeAmount => !IsDeleted && Type == TransactionType.Income && Conversion is { Amount: { } converted } ? converted : 0;
+
+    /// <summary>The part of <see cref="IncomeAmount"/> in these categories, shared among a split's lines as <see cref="SpentAmountIn"/> shares spent.</summary>
+    public decimal IncomeAmountIn(IReadOnlyCollection<Guid> categoryIds) => ShareIn(IncomeAmount, categoryIds);
+
+    /// <summary>
+    /// The part of an amount in the base currency that the lines on these categories take: each line's share
+    /// rounded to the base currency's decimals, and the last line taking what is left, so the shares sum exactly to it.
+    /// </summary>
+    private decimal ShareIn(decimal whole, IReadOnlyCollection<Guid> categoryIds)
     {
         ArgumentNullException.ThrowIfNull(categoryIds);
-        var spent = SpentAmount;
-        if (spent == 0)
+        if (whole == 0)
         {
             return 0;
         }
 
         var decimals = Conversion!.BaseCurrency.DecimalPlaces();
         var lines = Lines;
-        var (left, inThese) = (spent, 0m);
+        var (left, inThese) = (whole, 0m);
         for (var position = 0; position < lines.Count; position++)
         {
-            var share = position == lines.Count - 1 ? left : decimal.Round(spent * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
+            var share = position == lines.Count - 1 ? left : decimal.Round(whole * lines[position].Amount / Amount, decimals, MidpointRounding.AwayFromZero);
             left -= share;
             if (categoryIds.Contains(lines[position].CategoryId))
             {
@@ -198,6 +213,38 @@ public sealed class Transaction : IUserOwned
     /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
     internal void EditLeg(LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
         Set(Type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+
+    /// <summary>
+    /// Makes income or an expense a leg of a transfer, for <see cref="Transfer.Mark"/> alone, which makes the
+    /// other leg with it. It keeps its account, amount, date, note and conversion, and drops what a leg has none
+    /// of: its lines, category and payee. It is no longer an occurrence of the recurring rule that posted it,
+    /// which posts income and expenses only.
+    /// </summary>
+    internal void BecomeLeg(Guid transferId, TransactionType type, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        Type = type;
+        TransferId = transferId;
+        CategoryId = null;
+        Payee = null;
+        RecurringRuleId = null;
+        UpdatedAt = now;
+        _lines.Clear();
+    }
+
+    /// <summary>
+    /// Makes a leg of a transfer income or an expense again, on one line with its whole amount, for
+    /// <see cref="Transfer.Unmark"/> alone, which does the same to the other leg.
+    /// </summary>
+    internal void BecomeOrdinary(TransactionType type, Category category, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        Type = type;
+        TransferId = null;
+        CategoryId = category.Id;
+        UpdatedAt = now;
+        Replace([new SplitLine(category, Amount)], now);
+    }
 
     /// <summary>Records a transaction split across several categories.</summary>
     /// <param name="currency">The currency of the account, which the transaction takes.</param>

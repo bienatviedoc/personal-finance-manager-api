@@ -39,6 +39,7 @@ public static class ApplicationServices
         // Contracts other modules call.
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
+        services.AddScoped<IAccountBalances, AccountBalances>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();
@@ -53,6 +54,7 @@ public static class ApplicationServices
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();
         services.AddScoped<IUserBudgets, UserBudgets>();
+        services.AddScoped<IBudgetComparison, BudgetComparer>();
         services.AddScoped<BudgetMonthReader>();
 
         // Every module converts between currencies through this.
