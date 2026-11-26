@@ -209,6 +209,20 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_lower_warning_threshold_that_spent_is_now_past_raises_a_warning_for_this_month()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        await BudgetAsync(browser, "Transport", "1000000");
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "700000", FirstOfThisMonth);
+        Assert.Empty((await ListAsync(browser)).Items);
+
+        (await browser.PatchAsync("/api/v1/me", new { budgetWarningPercent = 60 })).EnsureSuccessStatusCode();
+
+        Assert.Equal([(ThisMonth, "warning")], (await ListAsync(browser)).Items.Select(item => (item.Month, item.State)));
+        Assert.Single(BudgetEmails(email));
+    }
+
+    [Fact]
     public async Task An_expense_converted_once_its_rate_arrives_raises_the_notification_then()
     {
         var (browser, _) = await api.SignedInAsync();

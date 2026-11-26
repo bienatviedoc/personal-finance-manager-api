@@ -564,7 +564,8 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   switched off) is false; an email that cannot be sent is logged and the notification stays in the app.
   `GET /budget-notifications` lists them the newest first, a page at a time, with how many are `unread`;
   `POST /budget-notifications/{id}/read` and `POST /budget-notifications/read` mark one or all read.
-  Lowering the warning threshold changes no spent, so it raises nothing until the next change does.
+  Lowering the warning threshold (`PATCH /me`) moves no spent but can move a budget into warning, so it checks the
+  current budget month too.
 - Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
   Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
