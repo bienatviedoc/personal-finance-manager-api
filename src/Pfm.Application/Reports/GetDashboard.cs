@@ -36,9 +36,9 @@ public sealed record GetDashboard
 /// <param name="Budgets">This month's budgets against what was spent; null when no budget is set this month.</param>
 /// <param name="TopCategories">The top-level categories that spent most this month, at most five, most first, as spending by category ranks them.</param>
 public sealed record DashboardDetails(
-    ReportPeriod Month, Currency Currency, bool HasAccounts, BaseCurrencyBalance Balance, IncomeAndExpenses ThisMonth, DashboardBudgets? Budgets,
-    IReadOnlyList<CategorySpendingDetails> TopCategories, IReadOnlyList<DashboardTransaction> RecentTransactions,
-    IReadOnlyList<DashboardOccurrence> Upcoming);
+    ReportPeriod Month, Currency Currency, bool HasAccounts, BaseCurrencyBalance Balance, IncomeAndExpenses ThisMonth, DashboardBudgetsDetails? Budgets,
+    IReadOnlyList<CategorySpendingDetails> TopCategories, IReadOnlyList<DashboardTransactionDetails> RecentTransactions,
+    IReadOnlyList<DashboardOccurrenceDetails> Upcoming);
 
 /// <summary>This month's budgets, added up, with the categories that need attention.</summary>
 /// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when nothing is budgeted.</param>
@@ -47,24 +47,24 @@ public sealed record DashboardDetails(
 /// <param name="Over">How many are over budget.</param>
 /// <param name="NotConverted">How many expenses are left out of spent because they are not converted, each counted once.</param>
 /// <param name="NeedingAttention">The budgets over, then those at warning, each by percentage spent, most first.</param>
-public sealed record DashboardBudgets(
+public sealed record DashboardBudgetsDetails(
     decimal Budgeted, decimal Spent, decimal Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted,
     IReadOnlyList<BudgetedCategoryDetails> NeedingAttention);
 
 /// <summary>An account as the dashboard names it.</summary>
-public sealed record DashboardAccount(Guid Id, string Name);
+public sealed record DashboardAccountDetails(Guid Id, string Name);
 
 /// <summary>One of the latest transactions, with its account and category named.</summary>
 /// <param name="Amount">Greater than zero, in <paramref name="Currency"/>, its account's currency; the type gives the sign, except that a refund raises the balance.</param>
 /// <param name="Category">The category of its first line; null for a leg of a transfer.</param>
-public sealed record DashboardTransaction(
-    Guid Id, DateOnly Date, TransactionKind Type, DashboardAccount Account, decimal Amount, Currency Currency, ReportCategoryDetails? Category,
+public sealed record DashboardTransactionDetails(
+    Guid Id, DateOnly Date, TransactionKind Type, DashboardAccountDetails Account, decimal Amount, Currency Currency, ReportCategoryDetails? Category,
     string? Payee, bool IsRefund, bool IsSplit, Guid? TransferId);
 
 /// <summary>One occurrence of a recurring rule still to come, with its account and category named.</summary>
 /// <param name="Amount">Greater than zero, in <paramref name="Currency"/>, the rule's account's currency.</param>
-public sealed record DashboardOccurrence(
-    Guid RecurringRuleId, DateOnly DueDate, TransactionKind Type, DashboardAccount Account, decimal Amount, Currency Currency,
+public sealed record DashboardOccurrenceDetails(
+    Guid RecurringRuleId, DateOnly DueDate, TransactionKind Type, DashboardAccountDetails Account, decimal Amount, Currency Currency,
     ReportCategoryDetails Category, string? Payee, bool IsReminder);
 
 public sealed class GetDashboardHandler(
@@ -80,7 +80,7 @@ public sealed class GetDashboardHandler(
 
         var allAccounts = (await accounts.ListAsync(cancellationToken)).ToDictionary(account => account.Id);
         var allCategories = (await categories.ListAsync(cancellationToken)).ToDictionary(category => category.Id);
-        DashboardAccount AccountOf(Guid id) => new(id, allAccounts.TryGetValue(id, out var account) ? account.Name : "");
+        DashboardAccountDetails AccountOf(Guid id) => new(id, allAccounts.TryGetValue(id, out var account) ? account.Name : "");
         ReportCategoryDetails? CategoryOf(Guid? id) => id is { } categoryId && allCategories.TryGetValue(categoryId, out var category) ? ReportCategoryDetails.Of(category) : null;
 
         var income = await incomeVsExpenses.HandleAsync(new GetIncomeVsExpenses(filter), cancellationToken);
@@ -89,13 +89,13 @@ public sealed class GetDashboardHandler(
         var budgets = await budgetVsActual.HandleAsync(new GetBudgetVsActual(filter), cancellationToken);
 
         var recent = (await activity.LatestAsync(GetDashboard.RecentTransactionCount, cancellationToken))
-            .Select(transaction => new DashboardTransaction(
+            .Select(transaction => new DashboardTransactionDetails(
                 transaction.Id, transaction.Date, transaction.Type, AccountOf(transaction.AccountId), transaction.Amount, transaction.Currency,
                 CategoryOf(transaction.CategoryId), transaction.Payee, transaction.IsRefund, transaction.IsSplit, transaction.TransferId))
             .ToList();
         var upcoming = (await activity.UpcomingAsync(GetDashboard.UpcomingDays, cancellationToken))
             .Take(GetDashboard.UpcomingCount)
-            .Select(occurrence => new DashboardOccurrence(
+            .Select(occurrence => new DashboardOccurrenceDetails(
                 occurrence.RecurringRuleId, occurrence.DueDate, occurrence.Type, AccountOf(occurrence.AccountId), occurrence.Amount, occurrence.Currency,
                 CategoryOf(occurrence.CategoryId)!, occurrence.Payee, occurrence.IsReminder))
             .ToList();
@@ -106,7 +106,7 @@ public sealed class GetDashboardHandler(
             [.. spending.Items.Take(GetDashboard.TopCategoryCount)], recent, upcoming);
     }
 
-    private static DashboardBudgets? BudgetsOf(BudgetVsActualDetails report)
+    private static DashboardBudgetsDetails? BudgetsOf(BudgetVsActualDetails report)
     {
         if (report.Items.Count == 0)
         {
@@ -123,7 +123,7 @@ public sealed class GetDashboardHandler(
             .ThenBy(item => item.Category.Id)
             .ToList();
         int? percentSpent = totals.Budgeted > 0 ? (int)decimal.Floor(totals.Spent * 100 / totals.Budgeted) : null;
-        return new DashboardBudgets(
+        return new DashboardBudgetsDetails(
             totals.Budgeted, totals.Spent, totals.Remaining, percentSpent, Counted(ComparedBudgetState.OnTrack), Counted(ComparedBudgetState.Warning),
             Counted(ComparedBudgetState.Over), totals.NotConverted, needingAttention);
     }
