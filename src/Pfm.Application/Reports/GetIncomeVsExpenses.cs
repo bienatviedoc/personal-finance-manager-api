@@ -32,16 +32,19 @@ public sealed class GetIncomeVsExpensesHandler(ICategoryLookup categories, IInco
                 .Select(category => category.Id)];
         }
 
-        var report = await ReportAsync(filter.Period, filter.AccountId, categoryIds, cancellationToken);
+        var report = IncomeVsExpenses.Of(filter.Period, await FlowsAsync(filter.Period, filter.AccountId, categoryIds, cancellationToken));
+
+        // The months of the period before pair with the report's by place, also when the period is not whole months.
         var previous = filter.ComparedWith is { } comparedWith
-            ? new PreviousIncomeVsExpensesDetails(comparedWith, await ReportAsync(comparedWith, filter.AccountId, categoryIds, cancellationToken))
+            ? new PreviousIncomeVsExpensesDetails(
+                comparedWith, IncomeVsExpenses.Before(filter.Period, await FlowsAsync(comparedWith, filter.AccountId, categoryIds, cancellationToken)))
             : null;
         return new IncomeVsExpensesDetails(filter.Period, await baseCurrency.OfCurrentUserAsync(cancellationToken), report, previous);
     }
 
-    private async Task<IncomeVsExpenses> ReportAsync(ReportPeriod period, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
+    private async Task<TransactionFlow[]> FlowsAsync(ReportPeriod period, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
     {
         var flows = await money.IncomeAndExpensesAsync(period.From, period.To, accountId, categoryIds, cancellationToken);
-        return IncomeVsExpenses.Of(period, [.. flows.Select(of => new TransactionFlow(of.TransactionId, of.Date, of.Income, of.Expenses, of.IsConverted))]);
+        return [.. flows.Select(of => new TransactionFlow(of.TransactionId, of.Date, of.Income, of.Expenses, of.IsConverted))];
     }
 }

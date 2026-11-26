@@ -29,10 +29,14 @@ public sealed record IncomeAndExpenses(decimal Income, decimal Expenses, IReadOn
     }
 }
 
-/// <summary>One calendar month of the report.</summary>
-/// <param name="Month">Its first day.</param>
-/// <param name="Period">The days of it the report covers: the whole month, unless the report period starts or ends inside it.</param>
-public sealed record MonthOfIncomeAndExpenses(DateOnly Month, ReportPeriod Period, IncomeAndExpenses Flow);
+/// <summary>One month of the report.</summary>
+/// <param name="Month">The first day of the calendar month its period starts in.</param>
+/// <param name="Period">
+/// The days of it the report covers: the whole month, unless the report period starts or ends inside it; in the
+/// report before a period that is not whole months, the month at the same place moved back by the period's days
+/// (<see cref="ReportPeriod.PreviousMonths"/>).
+/// </param>
+public sealed record MonthOfIncomeAndExpenses(DateOnly Month, ReportPeriod Period, IncomeAndExpenses Totals);
 
 /// <summary>
 /// Am I saving (spec RPT-3): income, expenses and net in each calendar month of a report period, with the
@@ -45,11 +49,28 @@ public sealed record IncomeVsExpenses(IReadOnlyList<MonthOfIncomeAndExpenses> Mo
     public static IncomeVsExpenses Of(ReportPeriod period, IReadOnlyCollection<TransactionFlow> flows)
     {
         ArgumentNullException.ThrowIfNull(period);
+        return Over(period, period.Months, flows);
+    }
+
+    /// <summary>
+    /// Works out the report over the period before <paramref name="period"/> (<see cref="ReportPeriod.Previous"/>), to
+    /// compare with: one month for each of the period's, at the same place (<see cref="ReportPeriod.PreviousMonths"/>),
+    /// so the two always pair up month by month.
+    /// </summary>
+    /// <param name="flows">What each transaction brings; those dated outside the period before are left out.</param>
+    public static IncomeVsExpenses Before(ReportPeriod period, IReadOnlyCollection<TransactionFlow> flows)
+    {
+        ArgumentNullException.ThrowIfNull(period);
+        return Over(period.Previous, period.PreviousMonths, flows);
+    }
+
+    private static IncomeVsExpenses Over(ReportPeriod period, IReadOnlyList<ReportPeriod> buckets, IReadOnlyCollection<TransactionFlow> flows)
+    {
         ArgumentNullException.ThrowIfNull(flows);
         var inPeriod = flows.Where(flow => period.Contains(flow.Date)).ToList();
         MonthOfIncomeAndExpenses[] months =
         [
-            .. period.Months.Select(days => new MonthOfIncomeAndExpenses(
+            .. buckets.Select(days => new MonthOfIncomeAndExpenses(
                 new DateOnly(days.From.Year, days.From.Month, 1), days, IncomeAndExpenses.Of(inPeriod.Where(flow => days.Contains(flow.Date))))),
         ];
         return new IncomeVsExpenses(months, IncomeAndExpenses.Of(inPeriod));

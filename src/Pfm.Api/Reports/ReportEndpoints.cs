@@ -38,7 +38,7 @@ public static class ReportEndpoints
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>; the report starts on the 1st of its month.</param>
     /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>, on or after <paramref name="from"/>; the report ends on the last day of its month.</param>
     /// <param name="accountId">One of the user's accounts: only its expenses count as spent.</param>
-    /// <param name="categoryId">One of the user's categories: only it and its subcategories are shown.</param>
+    /// <param name="categoryId">One of the user's categories: only it and its subcategories are shown, and for a subcategory also the budget of the category it sits under, which counts what it spends.</param>
     private static async Task<Results<Ok<BudgetVsActualResponse>, ValidationProblem>> BudgetVsActual(
         GetBudgetVsActualHandler handler, CancellationToken cancellationToken,
         string? from = null, string? to = null, string? accountId = null, string? categoryId = null)
@@ -391,12 +391,15 @@ public sealed record MonthIncomeAndExpensesResponse(
     DateOnly Month, DateOnly From, DateOnly To, string Income, string Expenses, string Net, decimal? SavingsRate, int NotConverted)
 {
     public static MonthIncomeAndExpensesResponse Of(MonthOfIncomeAndExpenses month) =>
-        new(month.Month, month.Period.From, month.Period.To, AmountJson.Text(month.Flow.Income), AmountJson.Text(month.Flow.Expenses),
-            AmountJson.Text(month.Flow.Net), month.Flow.SavingsRate, month.Flow.NotConverted.Count);
+        new(month.Month, month.Period.From, month.Period.To, AmountJson.Text(month.Totals.Income), AmountJson.Text(month.Totals.Expenses),
+            AmountJson.Text(month.Totals.Net), month.Totals.SavingsRate, month.Totals.NotConverted.Count);
 }
 
 /// <summary>Income vs expenses over the period compared with.</summary>
-/// <param name="Months">Every month it touches, in order.</param>
+/// <param name="Months">
+/// One for each of the report's months, in the same order: before whole calendar months, as many whole months; before
+/// any other period, each of the report's months moved back by the period's days, so they need not start on a 1st.
+/// </param>
 public sealed record PreviousIncomeVsExpensesResponse(DateOnly From, DateOnly To, IncomeAndExpensesResponse Total, IReadOnlyList<MonthIncomeAndExpensesResponse> Months)
 {
     public static PreviousIncomeVsExpensesResponse Of(PreviousIncomeVsExpensesDetails previous) =>

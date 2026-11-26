@@ -25,7 +25,7 @@ public class IncomeVsExpensesTests
                 (new DateOnly(2026, 2, 1), 0m, 0m, 0m, null),
                 (new DateOnly(2026, 3, 1), 10_000_000m, 12_500_000m, -2_500_000m, -25.0m),
             ],
-            report.Months.Select(month => (month.Month, month.Flow.Income, month.Flow.Expenses, month.Flow.Net, month.Flow.SavingsRate)));
+            report.Months.Select(month => (month.Month, month.Totals.Income, month.Totals.Expenses, month.Totals.Net, month.Totals.SavingsRate)));
         Assert.Equal((30_000_000m, 27_500_000m, 2_500_000m, (decimal?)8.3m), (report.Total.Income, report.Total.Expenses, report.Total.Net, report.Total.SavingsRate));
     }
 
@@ -63,7 +63,7 @@ public class IncomeVsExpensesTests
             Flow(new DateOnly(2026, 2, 3), income: 100m),
         ]);
 
-        Assert.Equal([0, 1], report.Months.Select(month => month.Flow.NotConverted.Count));
+        Assert.Equal([0, 1], report.Months.Select(month => month.Totals.NotConverted.Count));
         Assert.Equal([Waiting], report.Total.NotConverted);
         Assert.Equal(100m, report.Total.Income);
     }
@@ -76,6 +76,30 @@ public class IncomeVsExpensesTests
         var report = IncomeVsExpenses.Of(period, [Flow(new DateOnly(2026, 2, 1), income: 100m)]);
 
         Assert.Equal(0m, report.Total.Income);
+    }
+
+    [Fact]
+    public void The_period_before_one_that_is_not_whole_months_has_one_month_for_each_of_the_periods_at_the_same_place()
+    {
+        // 10 March to 20 April is 42 days: the period before is 27 January to 9 March.
+        var period = new ReportPeriod(new DateOnly(2026, 3, 10), new DateOnly(2026, 4, 20));
+
+        var before = IncomeVsExpenses.Before(period,
+        [
+            Flow(new DateOnly(2026, 1, 27), income: 100m),
+            Flow(new DateOnly(2026, 2, 17), expenses: 40m),
+            Flow(new DateOnly(2026, 2, 18), income: 30m),
+            Flow(new DateOnly(2026, 3, 9), expenses: 5m),
+            Flow(new DateOnly(2026, 3, 10), income: 1_000m),
+        ]);
+
+        Assert.Equal(
+            [
+                (new DateOnly(2026, 1, 27), new DateOnly(2026, 2, 17), 100m, 40m),
+                (new DateOnly(2026, 2, 18), new DateOnly(2026, 3, 9), 30m, 5m),
+            ],
+            before.Months.Select(month => (month.Period.From, month.Period.To, month.Totals.Income, month.Totals.Expenses)));
+        Assert.Equal(130m, before.Total.Income);
     }
 
     private static TransactionFlow Flow(DateOnly date, decimal income = 0, decimal expenses = 0) => new(Guid.NewGuid(), date, income, expenses, IsConverted: true);
