@@ -132,6 +132,7 @@ public sealed class Transfer
     /// changes when a rule is broken; once unmarked, this transfer is no more.
     /// </summary>
     /// <exception cref="InvalidOperationException">The transfer is deleted.</exception>
+    /// <exception cref="TransferRuleViolation">Either leg is reconciled, or a category is not one a leg can take.</exception>
     public (Transaction Expense, Transaction Income) Unmark(Category expenseCategory, Category incomeCategory, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(expenseCategory);
@@ -139,6 +140,11 @@ public sealed class Transfer
         if (IsDeleted)
         {
             throw new InvalidOperationException("A deleted transfer cannot be unmarked.");
+        }
+
+        if (IsReconciled)
+        {
+            throw new TransferRuleViolation(nameof(Id), "This transfer is reconciled. Reopen its reconciliation to unmark it.");
         }
 
         if (Transaction.CategoryRuleBroken(expenseCategory, TransactionType.Expense, keeps: false) is { } expenseRule)
@@ -229,6 +235,11 @@ public sealed class Transfer
         if (transaction.IsTransferLeg)
         {
             throw new TransferRuleViolation(property, "This is a leg of a transfer already.");
+        }
+
+        if (transaction.IsReconciled)
+        {
+            throw new TransferRuleViolation(property, "This transaction is reconciled. Reopen its reconciliation to mark it as a transfer.");
         }
 
         if (transaction.Type != type || transaction.IsRefund)

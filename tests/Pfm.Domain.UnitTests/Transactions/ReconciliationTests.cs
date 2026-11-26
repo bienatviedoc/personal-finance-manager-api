@@ -266,6 +266,40 @@ public class ReconciliationTests
         Assert.Equal("rent pot", transfer.Note);
     }
 
+    [Fact]
+    public void A_reconciled_transaction_cannot_be_marked_as_a_leg_of_a_transfer()
+    {
+        var reconciledExpense = ReconciledExpense(500_000m);
+        var income = Transaction.Record(TransactionType.Income, Savings, Currency.VND, 500_000m, StatementDate, Salary, null, null, Today, Monday);
+
+        var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(reconciledExpense, income, Tuesday));
+
+        Assert.Equal(Transfer.ExpenseId, violation.Property);
+        Assert.Equal((TransactionType.Expense, TransactionType.Income), (reconciledExpense.Type, income.Type));
+
+        var expense = Transaction.Record(TransactionType.Expense, Savings, Currency.VND, 500_000m, StatementDate, Groceries, null, null, Today, Monday);
+        var reconciledIncome = Income(500_000m);
+        var reconciliation = Reconciliation.Start(Everyday, Currency.VND, StatementDate, 500_000m, Today, Monday);
+        reconciliation.Tick(reconciledIncome, Monday);
+        reconciliation.Complete(0m, [reconciledIncome], Monday);
+
+        Assert.Equal(Transfer.IncomeId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(expense, reconciledIncome, Tuesday)).Property);
+        Assert.Null(expense.TransferId);
+    }
+
+    [Fact]
+    public void A_reconciled_transfer_cannot_be_unmarked()
+    {
+        var transfer = Transfer.Record(
+            new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, Today, Monday);
+        var reconciliation = Reconciliation.Start(Everyday, Currency.VND, StatementDate, -1_000_000m, Today, Monday);
+        reconciliation.Tick(transfer.OutLeg, Tuesday);
+        reconciliation.Complete(0m, [transfer.OutLeg], Tuesday);
+
+        Assert.Throws<TransferRuleViolation>(() => transfer.Unmark(Groceries, Salary, Tuesday));
+        Assert.Equal((TransactionType.TransferOut, TransactionType.TransferIn), (transfer.OutLeg.Type, transfer.InLeg.Type));
+    }
+
     private static Transaction Income(decimal amount) =>
         Transaction.Record(TransactionType.Income, Everyday, Currency.VND, amount, StatementDate, Salary, null, null, Today, Monday);
 
