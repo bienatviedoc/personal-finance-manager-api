@@ -12,6 +12,13 @@ public interface IExchangeRateRepository
     /// </summary>
     Task<ExchangeRate?> FindOnOrBeforeAsync(Currency from, Currency to, DateOnly date, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The rates from one currency to the other that apply to any day from <paramref name="since"/> to
+    /// <paramref name="until"/>, earliest first: those dated in between, and the latest one on or before
+    /// <paramref name="since"/>.
+    /// </summary>
+    Task<IReadOnlyList<ExchangeRate>> ListApplyingAsync(Currency from, Currency to, DateOnly since, DateOnly until, CancellationToken cancellationToken);
+
     /// <summary>The latest day any rate is stored for; null while there are none.</summary>
     Task<DateOnly?> LatestDateAsync(CancellationToken cancellationToken);
 
