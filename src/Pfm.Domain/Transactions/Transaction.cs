@@ -362,6 +362,97 @@ public sealed class Transaction : IUserOwned
         }
     }
 
+    /// <summary>
+    /// Puts one more tag on the transaction, as a bulk action does (spec TXN-7); one it has already changes nothing.
+    /// </summary>
+    /// <exception cref="TransactionRuleViolation">It has <see cref="MaxTags"/> tags already.</exception>
+    public void AddTag(Tag tag, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tag);
+        GuardNotDeleted();
+        if (_tags.Any(has => has.TagId == tag.Id))
+        {
+            return;
+        }
+
+        if (_tags.Count >= MaxTags)
+        {
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.");
+        }
+
+        _tags.Add(new TransactionTag(tag));
+        UpdatedAt = now;
+    }
+
+    /// <summary>Takes one tag off the transaction; one it does not have changes nothing.</summary>
+    public void RemoveTag(Guid tagId, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        if (_tags.RemoveAll(tag => tag.TagId == tagId) > 0)
+        {
+            UpdatedAt = now;
+        }
+    }
+
+    /// <summary>
+    /// Puts the whole of income or an expense on one category, as a bulk action does (spec TXN-7). It keeps its
+    /// line's note. A split keeps its lines: their categories are changed by editing it. A reconciled transaction
+    /// can change its category.
+    /// </summary>
+    /// <param name="category">One of the user's categories of the kind the type takes, not archived unless it is the one the transaction is on.</param>
+    /// <exception cref="TransactionRuleViolation">The transaction is split, or the category is of the other kind or archived.</exception>
+    public void Recategorise(Category category, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        GuardNotDeleted();
+        GuardNotALeg();
+        if (IsSplit)
+        {
+            throw new TransactionRuleViolation(nameof(Lines), "A split transaction keeps its lines: edit it to change their categories.");
+        }
+
+        if (CategoryRuleBroken(category, Type, keeps: category.Id == CategoryId) is { } categoryRule)
+        {
+            throw new TransactionRuleViolation(nameof(CategoryId), categoryRule);
+        }
+
+        CategoryId = category.Id;
+        UpdatedAt = now;
+        Replace([new SplitLine(category, Amount, Lines[0].Note)], now);
+    }
+
+    /// <summary>
+    /// Moves income or an expense to another account in its currency, as a bulk action does (spec TXN-7). Its
+    /// amount, date and currency stay, and so does what it was converted into the base currency. It leaves the
+    /// reconciliation it was ticked in, and a reconciled one cannot move.
+    /// </summary>
+    /// <param name="currency">The currency of the account it moves to.</param>
+    /// <exception cref="TransactionRuleViolation">The account is in another currency, or the transaction is reconciled.</exception>
+    public void MoveTo(Guid accountId, Currency currency, DateTimeOffset now)
+    {
+        GuardNotDeleted();
+        GuardNotALeg();
+        if (accountId == Guid.Empty)
+        {
+            throw new ArgumentException("A transaction is on an account.", nameof(accountId));
+        }
+
+        if (accountId == AccountId)
+        {
+            return;
+        }
+
+        if (currency != Currency)
+        {
+            throw new TransactionRuleViolation(nameof(AccountId), "A transaction moves only to an account in its own currency.");
+        }
+
+        GuardUnlocked(Type, accountId, Amount, Date, IsRefund);
+        ReconciliationId = null;
+        AccountId = accountId;
+        UpdatedAt = now;
+    }
+
     private void GuardNotDeleted()
     {
         if (IsDeleted)
