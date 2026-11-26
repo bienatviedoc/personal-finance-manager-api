@@ -43,7 +43,7 @@ dotnet run --project src/Pfm.Api
 credit card), the default categories, a budget on the main expense categories in every month, and transactions
 with pay, bills, transfers, splits and refunds among everyday spending (`SampleDataSeeder`). The user signs in as
 `sample@example.com` with the password `sample data password`, their email already confirmed. For a local
-environment only.
+environment only: outside the `Development` environment it refuses and exits with code 2.
 
 ```bash
 docker compose run --rm api seed
@@ -84,7 +84,8 @@ docker run --rm --network host -v "$PWD/tests/load:/load:ro" grafana/k6:2.4.0 ru
 ```
 
 It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (the seeded user), `VUS`, the
-users browsing at once with no pause between requests (10), and `DURATION` (`2m`); pass each with `-e`.
+users browsing at once with no pause between requests (10), `DURATION` (`2m`), and `MIN_TRANSACTIONS`
+(50000), below which the run refuses to start, as the targets are for a user that size; pass each with `-e`.
 
 Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
 in Docker:
@@ -746,7 +747,9 @@ Registration uses it to create the new user's default categories.
   `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
-  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts. Reports
+  (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
+  its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
   recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
