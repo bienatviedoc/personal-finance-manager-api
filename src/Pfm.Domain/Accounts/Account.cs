@@ -102,6 +102,12 @@ public sealed class Account : IUserOwned
     public decimal BalanceWith(decimal netTransactions) => OpeningBalance + netTransactions;
 
     /// <summary>
+    /// The account's balance at the end of a day, given what its transactions dated on or before that day come to;
+    /// none before its opening date, when it held nothing yet (spec RPT-5).
+    /// </summary>
+    public decimal? BalanceOn(DateOnly date, decimal netTransactionsUpTo) => date < OpeningDate ? null : BalanceWith(netTransactionsUpTo);
+
+    /// <summary>
     /// What is left of a credit card's limit, given what its transactions come to: the credit limit minus
     /// the amount owed now, which is the balance below zero (spec ACC-9). Negative when the card is over its
     /// limit. Null for an account with no credit limit.

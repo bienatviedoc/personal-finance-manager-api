@@ -482,6 +482,31 @@ public class TransferTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_retry_of_a_transfer_unmarked_since_answers_409_transfer_unmarked_and_records_nothing()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday", "VND", "5000");
+        var savings = await AddAccountAsync(browser, "Savings");
+        var key = Guid.NewGuid().ToString();
+        var body = new { fromAccountId = everyday, toAccountId = savings, amount = "2000", date = "2026-11-02" };
+        var first = (await (await browser.PostAsync(Transfers, body, key)).Content.ReadFromJsonAsync<TransferBody>())!;
+        (await browser.PostAsync(
+            $"{Transfers}/{first.Id}/unmark", new { expenseCategoryId = await CategoryAsync(browser, "Bank fees"), incomeCategoryId = await CategoryAsync(browser, "Other income") }))
+            .EnsureSuccessStatusCode();
+
+        var retry = await browser.PostAsync(Transfers, body, key);
+        var corrected = await browser.PostAsync(Transfers, body with { amount = "200" }, key);
+
+        Assert.Equal(HttpStatusCode.Conflict, retry.StatusCode);
+        Assert.Equal("urn:pfm:problem:transfer-unmarked", await retry.ProblemTypeAsync());
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, corrected.StatusCode);
+        Assert.Equal("urn:pfm:problem:idempotency-key-reused", await corrected.ProblemTypeAsync());
+        Assert.Equal(["expense", "income"], (await LegsAsync(browser)).Select(transaction => transaction.Type).Order());
+        Assert.Equal("3000.00", await BalanceAsync(browser, everyday));
+        Assert.Equal("2000.00", await BalanceAsync(browser, savings));
+    }
+
+    [Fact]
     public async Task A_request_sent_several_times_at_once_with_the_same_idempotency_key_records_one_transfer()
     {
         var (browser, _) = await api.SignedInAsync();
