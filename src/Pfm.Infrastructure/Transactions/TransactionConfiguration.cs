@@ -63,6 +63,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
 
             // A recurring rule posts income and expenses only (spec section 3): never a leg of a transfer.
             table.HasCheckConstraint("CK_Transactions_Transfer_Leg_Has_No_RecurringRule", "\"TransferId\" IS NULL OR \"RecurringRuleId\" IS NULL");
+
+            // A transaction is reconciled only in the reconciliation it is ticked in (spec section 3, rule 11).
+            table.HasCheckConstraint("CK_Transactions_Reconciled_Is_Ticked", "NOT \"IsReconciled\" OR \"ReconciliationId\" IS NOT NULL");
         });
         transaction.HasKey(row => row.Id);
         transaction.Property(row => row.Id).ValueGeneratedNever();
@@ -127,6 +130,21 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
         });
         transaction.Navigation(row => row.Lines).HasField("_lines").UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        // Tags are the transaction's own too, each carrying its tag's name, which never changes: a transaction
+        // is read with its tags and no join to the tags themselves.
+        transaction.OwnsMany(row => row.Tags, tag =>
+        {
+            tag.ToTable("TransactionTags");
+            tag.WithOwner().HasForeignKey(TransactionId);
+            tag.HasKey(TransactionId, nameof(TransactionTag.TagId));
+            tag.Property(row => row.Name).HasMaxLength(Tag.MaxNameLength);
+
+            // A tag stays while a transaction has it; the list filters by tag through this index.
+            tag.HasOne<Tag>().WithMany().HasForeignKey(row => row.TagId).OnDelete(DeleteBehavior.Restrict);
+            tag.HasIndex(nameof(TransactionTag.TagId), TransactionId);
+        });
+        transaction.Navigation(row => row.Tags).HasField("_tags").UsePropertyAccessMode(PropertyAccessMode.Field);
+
         // A category with transactions is archived, never deleted.
         transaction.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
 
@@ -145,6 +163,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
 
         // Finds the other leg, and a transfer has one leg of each type, never two (spec section 10).
         transaction.HasIndex(row => new { row.TransferId, row.Type }).IsUnique();
+
+        // Recently deleted, and the purge of what was deleted more than 30 days ago, read only deleted transactions.
+        transaction.HasIndex(row => new { row.UserId, row.DeletedAt }).HasFilter("\"DeletedAt\" IS NOT NULL").HasDatabaseName("IX_Transactions_UserId_Deleted");
 
         // A retried request cannot record its transaction twice. Rows without a key never collide.
         transaction.HasIndex(nameof(Transaction.UserId), IdempotencyKey).IsUnique();

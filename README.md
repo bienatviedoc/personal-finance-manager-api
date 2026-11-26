@@ -297,10 +297,13 @@ already uses it can still show it. An account can be archived at any balance.
   and income sent as the expense (or the other way round) are refused on the id at fault. Nothing is matched
   automatically. `POST /transfers/{id}/unmark` turns any transfer back (`Transfer.Unmark`): the `transferOut` leg
   becomes an expense on `expenseCategoryId` and the `transferIn` leg income on `incomeCategoryId`, as a leg has no
-  category to go back to. Reconciliation does not exist yet; once it does, a reconciled transaction is refused too.
+  category to go back to. A reconciled transaction cannot be marked, and a transfer with a reconciled leg cannot be
+  unmarked, until its reconciliation is reopened (see [Reconciliations](#reconciliations)).
 - **Deleting is soft** (rule 10): `DELETE /transactions/{id}` stamps `DeletedAt`. The transaction leaves lists,
   balances and `GET` by id at once. It still counts as a transaction of its account and category, so their
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
+  `GET /transactions/deleted` lists those still held, the last deleted first, and `POST /transactions/{id}/restore`
+  brings one back, both legs of a transfer together, until 30 days after it was deleted.
 - **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
@@ -348,9 +351,10 @@ already uses it can still show it. An account can be archived at any balance.
   `DELETE /attachments/{id}` removes one, row and file both: an attachment is not kept the way a deleted
   transaction is. A deleted transaction keeps its attachments, out of reach until it is recovered.
   The foreign key from an attachment to its transaction restricts deletes (`AttachmentConfiguration`), so the
-  job that will purge deleted transactions after 30 days (spec rule 10) must delete their attachments first:
-  the files from storage, then the rows. Deleting the transaction alone fails, and cascading would leave the
-  files behind with nothing pointing at them.
+  worker's `DeletedTransactionPurgeJob`, which removes transactions deleted more than 30 days ago for good (spec
+  rule 10) every hour (`DeletedTransactionPurge__RunEvery`), deletes their attachments first: the files from
+  storage, then the rows (`DeletedTransactionPurge`). Deleting the transaction alone fails, and cascading would
+  leave the files behind with nothing pointing at them.
 - **JPEG, PNG or PDF, at most 5 MB** (spec TXN-6). What a file is, is read from its first bytes
   (`AttachmentFormat`), never from its name or the content type the browser sent, and that is the content type
   it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
@@ -402,8 +406,18 @@ already uses it can still show it. An account can be archived at any balance.
   any of them is stale: posted transactions stay as they are, and the new schedule carries on after the
   last occurrence posted or skipped (`SettledThrough`), so nothing is posted twice. `DELETE` removes the rule (it
   is not archived: nothing shows it afterwards); its transactions stay, with no `recurringRuleId`.
-- Reminders in place of auto-post (REC-2's other mode), the upcoming list (REC-3) and skipping one occurrence
-  (REC-4) are still to come.
+- **A rule posts or reminds** (`mode`, REC-2): `autoPost`, when left out of a new rule, has the worker post each
+  occurrence (left out of an edit, the rule keeps its mode);
+  `remind` has it post nothing, and each occurrence due on or before today is a reminder instead
+  (`GET /recurring-rules/reminders`, earliest due first). `POST /recurring-rules/{id}/reminders/{dueDate}/confirm`
+  records its transaction through `CreateTransaction`, under the same idempotency key the worker would use, for
+  the `amount` sent or else the rule's own; `.../dismiss` records nothing. Either moves the rule on, so a
+  rule's reminders are answered earliest first: a later one is refused on `dueDate`. A paused rule has none.
+- **The upcoming list** (`GET /recurring-rules/upcoming?days=30`, REC-3, 1 to 90 days) is every occurrence of
+  every rule that is not paused, due from today and within the days asked for, earliest first, with its `mode`.
+  One due today is listed until the worker posts it, and not at all when it is a reminder already.
+  The domain works the dates out (`RecurringRule.Upcoming`); nothing is stored for an occurrence before it is settled.
+- Skipping or editing one occurrence (REC-4) is still to come.
 
 ### Integrity check
 
@@ -426,6 +440,33 @@ already uses it can still show it. An account can be archived at any balance.
   A stale `last_run` for `consistent` and `drift` both means the check has stopped running.
 - The domain's rules and the database's constraints keep all of this from happening; tests break the rows in
   the database to see each drift found (`IntegrityCheckTests`).
+
+### Reconciliations
+
+An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11), under
+`Pfm.Application.Transactions.Reconciliations`:
+
+- `POST /accounts/{id}/reconciliations` starts one with the statement's closing date and balance. An account has
+  one in progress at a time (a unique index on the account where `CompletedAt` is null; another answers 409
+  `urn:pfm:problem:reconciliation-in-progress`), and a statement is not dated before the account's last one.
+- `GET /reconciliations/{id}/transactions` lists what can be ticked: the account's transactions dated on or before
+  the statement date that no reconciliation holds, and those ticked in this one (`Transaction.ReconciliationId`).
+  `PUT` and `DELETE /reconciliations/{id}/transactions/{transactionId}` tick and untick (`TickTransaction`,
+  `UntickTransaction`, which differ only in what they ask of the domain: `TickHandler`), answering the new
+  difference.
+- The difference is measured from the account's **reconciled balance**: its opening balance plus every
+  transaction reconciled in its other reconciliations (`ReconciliationContext`). So the next statement, which
+  carries everything before it, is matched by ticking only what came since.
+- `POST /reconciliations/{id}/complete` locks the ticked transactions (`Transaction.IsReconciled`) only at a
+  difference of exactly zero; otherwise 409 `urn:pfm:problem:reconciliation-difference-not-zero`. Nothing is
+  ever added to make it zero.
+- A reconciled transaction refuses a change to its amount, date, account, type or refund flag, each named as the
+  field at fault; its payee, note and category still change. Deleting it answers 409
+  `urn:pfm:problem:transaction-reconciled`. A transfer is locked as soon as either leg is reconciled, and can
+  then be neither marked from a reconciled transaction nor unmarked.
+- `POST /reconciliations/{id}/reopen` unlocks its transactions, which stay ticked. Only the account's latest can
+  be (409 `urn:pfm:problem:reconciliation-not-latest`), as each later one is measured from it.
+  `DELETE /reconciliations/{id}` cancels one in progress, unticking what it held.
 
 ### Budgets
 
@@ -543,6 +584,13 @@ already uses it can still show it. An account can be archived at any balance.
   with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
   belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
   `compare`.
+- **The monthly summary** (spec section 7, export). `GET /reports/monthly-summary.pdf?month=2026-11` answers one
+  calendar month as a PDF file to download (`monthly-summary-2026-11.pdf`): income, expenses, net and savings rate,
+  spending by top-level category with shares, and budget vs actual with what was spent unbudgeted. `GetMonthlySummary`
+  asks the three reports' handlers for that month, so every figure is the one the reports show, and writes what they
+  answer in `locale` (`en` or `vi`), or the user's own (`IUserLocale`), or English, with amounts as the SPA writes
+  them (`Locales.WriteAmount`, `WritePercent`). `IPdfWriter` lays it out with MigraDoc, in Noto Sans carried in the
+  assembly ([decision record 0005](docs/adr/0005-pdf-documents-with-migradoc.md)).
 
 ## Signing in
 
@@ -744,7 +792,7 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Three answers are not paged, and answer all of their `items` in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts. Reports

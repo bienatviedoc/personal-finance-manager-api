@@ -56,6 +56,10 @@ _Avoid_: Document, upload, file (for the thing attached)
 What a transaction was for, at most two levels deep (Food > Groceries). Its kind is either income or expense, shared with its parent and fixed once it has transactions.
 _Avoid_: Type (for the kind), group, label
 
+**Tag**:
+A free-form label a user puts on transactions across categories, such as `tet-2027` or `japan-trip`. A tag is the user's own, kept in lower case, and created the first time they give a transaction it.
+_Avoid_: Label, keyword, category (for a tag)
+
 **Budget**:
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
 _Avoid_: Limit, allowance, envelope
@@ -71,6 +75,10 @@ _Avoid_: Debt, negative balance (in the interface)
 **Recurring rule**:
 A template that produces income or expense transactions on a schedule, each dated on its due date.
 _Avoid_: Subscription, schedule, repeating transaction
+
+**Reminder**:
+An occurrence of a recurring rule set to remind, due on or before today, waiting for the user to confirm it (recording its transaction, optionally for another amount) or dismiss it (recording nothing).
+_Avoid_: Notification, alert, pending transaction
 
 **Import batch**:
 One uploaded statement file together with the transactions created from it.

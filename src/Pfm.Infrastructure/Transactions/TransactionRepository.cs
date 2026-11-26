@@ -80,6 +80,12 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             transactions = transactions.Where(transaction => transaction.Amount <= max);
         }
 
+        if (filter.Tag is { } name)
+        {
+            var tagged = db.Set<Tag>().Where(tag => tag.Name == name).Select(tag => tag.Id);
+            transactions = transactions.Where(transaction => transaction.Tags.Any(tag => tagged.Contains(tag.TagId)));
+        }
+
         if (filter.Search is { } search)
         {
             // ILIKE with the text between wildcards is what the trigram indexes on the payee and the notes answer.
@@ -138,6 +144,65 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .Select(transaction => new RecordedRequest(transaction, EF.Property<string?>(transaction, TransactionConfiguration.IdempotencyFingerprint)))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> ListTickedAsync(Guid reconciliationId, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>()
+            .Where(transaction => transaction.ReconciliationId == reconciliationId && transaction.DeletedAt == null)
+            .ToListAsync(cancellationToken);
+
+    public async Task<IReadOnlyList<Transaction>> ListUnreconciledAsync(Guid accountId, DateOnly through, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>()
+            .Where(transaction =>
+                transaction.AccountId == accountId && transaction.Date <= through && transaction.ReconciliationId == null && transaction.DeletedAt == null)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// The database adds up the amounts of each type, refunds apart; the sign of a type has one definition,
+    /// <see cref="TransactionTypes.Signed"/>, applied to those sums here, as for an account's balance.
+    /// </summary>
+    public async Task<decimal> ReconciledNetAsync(Guid accountId, Guid except, CancellationToken cancellationToken)
+    {
+        var sums = await db.Set<Transaction>()
+            .Where(transaction =>
+                transaction.AccountId == accountId && transaction.IsReconciled && transaction.ReconciliationId != except && transaction.DeletedAt == null)
+            .GroupBy(transaction => new { transaction.Type, transaction.IsRefund })
+            .Select(ofType => new { ofType.Key.Type, ofType.Key.IsRefund, Amount = ofType.Sum(transaction => transaction.Amount) })
+            .ToListAsync(cancellationToken);
+        return sums.Sum(sum => sum.Type.Signed(sum.Amount, sum.IsRefund));
+    }
+
+    public Task<Transaction?> FindDeletedAsync(Guid id, CancellationToken cancellationToken) =>
+        db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt != null, cancellationToken);
+
+    public async Task<IReadOnlyList<Transaction>> ListDeletedAsync(
+        DateTimeOffset deletedSince, int take, DeletedTransactionCursor? after, CancellationToken cancellationToken)
+    {
+        var deleted = db.Set<Transaction>().Where(transaction => transaction.DeletedAt >= deletedSince);
+        if (after is not null)
+        {
+            deleted = deleted.Where(transaction =>
+                transaction.DeletedAt < after.DeletedAt || (transaction.DeletedAt == after.DeletedAt && transaction.Id < after.Id));
+        }
+
+        return await deleted
+            .OrderByDescending(transaction => transaction.DeletedAt).ThenByDescending(transaction => transaction.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Transaction>> ListDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => transaction.DeletedAt < deletedBefore).ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Another query that looks past the user filter, for the purge of deleted transactions, which runs for no
+    /// user: it answers who has transactions to remove for good and none of them.
+    /// </summary>
+    public async Task<IReadOnlyList<Guid>> UsersWithDeletedBeforeAsync(DateTimeOffset deletedBefore, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().IgnoreQueryFilters()
+            .Where(transaction => transaction.DeletedAt < deletedBefore)
+            .Select(transaction => transaction.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().ToListAsync(cancellationToken);
 
@@ -172,6 +237,8 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         added.Property(TransactionConfiguration.IdempotencyKey).CurrentValue = request?.Key;
         added.Property(TransactionConfiguration.IdempotencyFingerprint).CurrentValue = request?.Fingerprint;
     }
+
+    public void Remove(Transaction transaction) => db.Set<Transaction>().Remove(transaction);
 
     public void Add(Transfer transfer, IdempotentRequest? request)
     {

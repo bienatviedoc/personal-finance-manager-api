@@ -1,7 +1,5 @@
-using System.Buffers.Text;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.Text;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.UseCases;
@@ -27,9 +25,10 @@ public sealed record ListTransactions(
 /// <param name="Min">The smallest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Max">The largest amount listed, in whatever currency the transaction is in.</param>
 /// <param name="Search">Text the payee, the note or the note of any line contains, in upper or lower case.</param>
+/// <param name="Tag">The name of a tag, as <see cref="Domain.Transactions.Tag.Normalised"/> keeps it: only transactions with it are listed.</param>
 public sealed record TransactionFilter(
     DateOnly? From = null, DateOnly? To = null, Guid? AccountId = null, Guid? CategoryId = null, TransactionType? Type = null,
-    decimal? Min = null, decimal? Max = null, string? Search = null)
+    decimal? Min = null, decimal? Max = null, string? Search = null, string? Tag = null)
 {
     public const int MaxSearchLength = 200;
 
@@ -161,13 +160,8 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     public static bool TryParse(string? cursor, [NotNullWhen(true)] out TransactionCursor? parsed)
     {
         parsed = null;
-        if (cursor is null || !Base64Url.IsValid(cursor))
-        {
-            return false;
-        }
-
-        var text = Encoding.UTF8.GetString(Base64Url.DecodeFromChars(cursor));
-        if (text.Length <= AmountAt
+        if (!CursorText.TryDecode(cursor, out var text)
+            || text.Length <= AmountAt
             || !DateOnly.TryParseExact(text[..DateFormat.Length], DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)
             || !Guid.TryParseExact(text[DateFormat.Length..AmountAt], "N", out var id)
             || !AmountText.TryParse(text[AmountAt..], out var amount))
@@ -180,6 +174,5 @@ public sealed record TransactionCursor(DateOnly Date, decimal Amount, Guid Id)
     }
 
     public override string ToString() =>
-        Base64Url.EncodeToString(Encoding.UTF8.GetBytes(
-            $"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}"));
+        CursorText.Encode($"{Date.ToString(DateFormat, CultureInfo.InvariantCulture)}{Id:N}{Amount.ToString(CultureInfo.InvariantCulture)}");
 }

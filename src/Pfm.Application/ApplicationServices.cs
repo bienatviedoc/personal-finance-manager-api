@@ -12,7 +12,9 @@ using Pfm.Application.Identity;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Application.Transactions.Reconciliations;
 using Pfm.Application.Transactions.Recurring;
+using Pfm.Application.Transactions.Tags;
 using Pfm.Application.Transactions.Transfers;
 using Pfm.Application.UseCases;
 
@@ -43,13 +45,17 @@ public static class ApplicationServices
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();
+        services.AddScoped<TransactionTags>();
         services.AddScoped<TransferContext>();
         services.AddScoped<RecurringRuleContext>();
+        services.AddScoped<ReconciliationContext>();
         services.AddScoped<RecurringPosting>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
+        services.AddScoped<DeletedTransactionPurge>();
         services.AddScoped<ITransactionConversion>(provider => provider.GetRequiredService<TransactionConversion>());
         services.AddScoped<IBaseCurrency, CurrentUserBaseCurrency>();
+        services.AddScoped<IUserLocale, CurrentUserLocale>();
         services.AddScoped<IAttachmentFiles, AttachmentFiles>();
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();

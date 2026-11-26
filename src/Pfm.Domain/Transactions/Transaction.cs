@@ -27,7 +27,15 @@ public sealed class Transaction : IUserOwned
 
     public const int MaxLines = 50;
 
+    /// <summary>How long a deleted transaction can be restored (spec section 3, rule 10). After that it is removed for good.</summary>
+    public static readonly TimeSpan RecoveryPeriod = TimeSpan.FromDays(30);
+
+    /// <summary>The most tags one transaction takes.</summary>
+    public const int MaxTags = 20;
+
     private readonly List<TransactionLine> _lines = [];
+
+    private readonly List<TransactionTag> _tags = [];
 
     /// <summary>For persistence, which sets every property itself.</summary>
     private Transaction()
@@ -84,6 +92,9 @@ public sealed class Transaction : IUserOwned
     /// <summary>Whether the transaction is split across several lines, each with its own category.</summary>
     public bool IsSplit => _lines.Count > 1;
 
+    /// <summary>The tags on the transaction (spec TXN-5), by name.</summary>
+    public IReadOnlyList<TransactionTag> Tags => [.. _tags.OrderBy(tag => tag.Name, StringComparer.Ordinal)];
+
     /// <summary>Who was paid, or who paid; null when not entered.</summary>
     public string? Payee { get; private set; }
 
@@ -94,6 +105,19 @@ public sealed class Transaction : IUserOwned
     /// deleted.
     /// </summary>
     public Guid? RecurringRuleId { get; private set; }
+
+    /// <summary>
+    /// The reconciliation the transaction is ticked in; null while it is in none. It stays ticked when the
+    /// reconciliation completes, which locks it (&lt;see cref="IsReconciled"/&gt;).
+    /// </summary>
+    public Guid? ReconciliationId { get; private set; }
+
+    /// <summary>
+    /// Whether the transaction is in a completed reconciliation, which locks it: its amount, date and account,
+    /// and whatever else moves its account's balance (its type and whether it is a refund), cannot change, and it
+    /// cannot be deleted, until the reconciliation is reopened (spec section 3, rule 11).
+    /// </summary>
+    public bool IsReconciled { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -303,6 +327,41 @@ public sealed class Transaction : IUserOwned
         Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
     }
 
+    /// <summary>
+    /// Puts exactly these tags on the transaction: the ones it had and are not among them come off. Tags are
+    /// labels across categories (spec TXN-5), so they change nothing the transaction adds up to.
+    /// </summary>
+    /// <param name="tags">At most <see cref="MaxTags"/> of the user's tags, each once.</param>
+    /// <exception cref="TransactionRuleViolation">More than <see cref="MaxTags"/> tags.</exception>
+    public void TagWith(IReadOnlyCollection<Tag> tags, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(tags);
+        GuardNotDeleted();
+        if (tags.Any(tag => tag is null))
+        {
+            throw new ArgumentException("A tag is never null.", nameof(tags));
+        }
+
+        var ids = tags.Select(tag => tag.Id).ToHashSet();
+        if (ids.Count != tags.Count)
+        {
+            throw new ArgumentException("A transaction has a tag once.", nameof(tags));
+        }
+
+        if (ids.Count > MaxTags)
+        {
+            throw new TransactionRuleViolation(nameof(Tags), $"A transaction has at most {MaxTags} tags.");
+        }
+
+        var removed = _tags.RemoveAll(tag => !ids.Contains(tag.TagId));
+        var added = tags.Where(tag => !_tags.Any(has => has.TagId == tag.Id)).Select(tag => new TransactionTag(tag)).ToList();
+        _tags.AddRange(added);
+        if (removed > 0 || added.Count > 0)
+        {
+            UpdatedAt = now;
+        }
+    }
+
     private void GuardNotDeleted()
     {
         if (IsDeleted)
@@ -395,7 +454,9 @@ public sealed class Transaction : IUserOwned
     private void DropConversion() => Conversion = Conversion is { } conversion ? BaseCurrencyConversion.NotConverted(conversion.BaseCurrency) : null;
 
     /// <summary>Takes the transaction out of lists and balances. Deleting it again changes nothing.</summary>
-    /// <exception cref="InvalidOperationException">The transaction is a leg of a transfer, which is deleted as a transfer.</exception>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction is a leg of a transfer, which is deleted as a transfer, or it is reconciled.
+    /// </exception>
     public void Delete(DateTimeOffset now)
     {
         GuardNotALeg();
@@ -405,12 +466,56 @@ public sealed class Transaction : IUserOwned
     /// <summary>Deletes a leg, for <see cref="Transfer"/> alone, which deletes the other leg with it.</summary>
     internal void DeleteLeg(DateTimeOffset now) => DeleteWhateverItIs(now);
 
+    /// <summary>Whether the transaction is deleted, and was deleted no longer than <see cref="RecoveryPeriod"/> before <paramref name="now"/>.</summary>
+    public bool IsRecoverableAt(DateTimeOffset now) => DeletedAt is { } deletedAt && now - deletedAt <= RecoveryPeriod;
+
+    /// <summary>
+    /// Brings a deleted transaction back into lists and balances, as it was when it was deleted. Restoring one that is
+    /// not deleted changes nothing.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">
+    /// The transaction is a leg of a transfer, which is restored as a transfer; or it was deleted longer than
+    /// <see cref="RecoveryPeriod"/> ago.
+    /// </exception>
+    public void Restore(DateTimeOffset now)
+    {
+        GuardNotALeg();
+        RestoreWhateverItIs(now);
+    }
+
+    /// <summary>Restores a leg, for <see cref="Transfer"/> alone, which restores the other leg with it.</summary>
+    internal void RestoreLeg(DateTimeOffset now) => RestoreWhateverItIs(now);
+
+    private void RestoreWhateverItIs(DateTimeOffset now)
+    {
+        if (!IsDeleted)
+        {
+            return;
+        }
+
+        if (!IsRecoverableAt(now))
+        {
+            throw new InvalidOperationException($"A transaction deleted more than {RecoveryPeriod.TotalDays} days ago cannot be restored.");
+        }
+
+        DeletedAt = null;
+        UpdatedAt = now;
+    }
+
     private void DeleteWhateverItIs(DateTimeOffset now)
     {
         if (IsDeleted)
         {
             return;
         }
+
+        if (IsReconciled)
+        {
+            throw new InvalidOperationException("A reconciled transaction cannot be deleted until its reconciliation is reopened.");
+        }
+
+        // A deleted transaction is on no statement: it leaves the reconciliation it was ticked in.
+        ReconciliationId = null;
 
         DeletedAt = now;
         UpdatedAt = now;
@@ -428,6 +533,8 @@ public sealed class Transaction : IUserOwned
         {
             throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type.");
         }
+
+        GuardUnlocked(type, accountId, amount, date, isRefund);
 
         if (!Enum.IsDefined(currency))
         {
@@ -477,6 +584,12 @@ public sealed class Transaction : IUserOwned
             DropConversion();
         }
 
+        // Moved to another account, it is on that account's statements, not on the one it was ticked against.
+        if (accountId != AccountId)
+        {
+            ReconciliationId = null;
+        }
+
         Type = type;
         AccountId = accountId;
         Currency = currency;
@@ -489,6 +602,46 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
         Replace(lines, now);
     }
+
+    /// <summary>
+    /// Refuses, while the transaction is reconciled, a change to what its account's balance depends on: the
+    /// amount, the date and the account (spec section 3, rule 11), and the type and refund flag, which give the
+    /// amount its sign.
+    /// </summary>
+    private void GuardUnlocked(TransactionType type, Guid accountId, decimal amount, DateOnly date, bool isRefund)
+    {
+        if (!IsReconciled)
+        {
+            return;
+        }
+
+        var changed =
+            amount != Amount ? nameof(Amount)
+            : date != Date ? nameof(Date)
+            : accountId != AccountId ? nameof(AccountId)
+            : type != Type ? nameof(Type)
+            : isRefund != IsRefund ? nameof(IsRefund)
+            : null;
+        if (changed is not null)
+        {
+            throw new TransactionRuleViolation(changed, Locked);
+        }
+    }
+
+    /// <summary>What a change refused on a reconciled transaction says.</summary>
+    internal const string Locked = "This transaction is reconciled, so its amount, date, account and type cannot change until its reconciliation is reopened.";
+
+    /// <summary>Ticks the transaction in a reconciliation, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void TickIn(Guid reconciliationId) => ReconciliationId = reconciliationId;
+
+    /// <summary>Unticks the transaction, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Untick() => ReconciliationId = null;
+
+    /// <summary>Locks the transaction as its reconciliation completes, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Reconcile() => IsReconciled = true;
+
+    /// <summary>Unlocks the transaction as its reconciliation is reopened, for &lt;see cref="Reconciliation"/&gt; alone.</summary>
+    internal void Unreconcile() => IsReconciled = false;
 
     /// <summary>What rule an amount in this currency breaks, for a transaction, one of its lines or a recurring rule; null when it breaks none.</summary>
     internal static string? AmountRuleBroken(decimal amount, Currency currency) =>

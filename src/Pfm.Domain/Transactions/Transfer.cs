@@ -47,6 +47,12 @@ public sealed class Transfer
     public bool IsDeleted => OutLeg.IsDeleted;
 
     /// <summary>
+    /// Whether either leg is reconciled, which locks the whole transfer (spec section 3, rule 3): moving one leg
+    /// would move the other, and the reconciled one cannot move.
+    /// </summary>
+    public bool IsReconciled => OutLeg.IsReconciled || InLeg.IsReconciled;
+
+    /// <summary>
     /// The version an edit of the transfer names: the Transfer out leg's. It stands for both legs because the user
     /// changes a leg only through this type, which changes both together (a leg alone is refused), so an edit
     /// moves both versions at once. What changes one leg alone, converting it into the base currency once a rate
@@ -126,6 +132,7 @@ public sealed class Transfer
     /// changes when a rule is broken; once unmarked, this transfer is no more.
     /// </summary>
     /// <exception cref="InvalidOperationException">The transfer is deleted.</exception>
+    /// <exception cref="TransferRuleViolation">Either leg is reconciled, or a category is not one a leg can take.</exception>
     public (Transaction Expense, Transaction Income) Unmark(Category expenseCategory, Category incomeCategory, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(expenseCategory);
@@ -133,6 +140,11 @@ public sealed class Transfer
         if (IsDeleted)
         {
             throw new InvalidOperationException("A deleted transfer cannot be unmarked.");
+        }
+
+        if (IsReconciled)
+        {
+            throw new TransferRuleViolation(nameof(Id), "This transfer is reconciled. Reopen its reconciliation to unmark it.");
         }
 
         if (Transaction.CategoryRuleBroken(expenseCategory, TransactionType.Expense, keeps: false) is { } expenseRule)
@@ -175,6 +187,7 @@ public sealed class Transfer
         }
 
         GuardCanMove(from, to);
+        GuardUnlocked(from, to, date);
 
         // Checked on a leg nobody keeps first, so the out leg is not left changed when the in leg is refused.
         OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to, date, note, today, now));
@@ -183,10 +196,52 @@ public sealed class Transfer
     }
 
     /// <summary>Deletes both legs together, so both accounts' balances are as before the transfer. Deleting it again changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">Either leg is reconciled.</exception>
     public void Delete(DateTimeOffset now)
     {
+        if (IsReconciled && !IsDeleted)
+        {
+            throw new InvalidOperationException("A reconciled transfer cannot be deleted until its reconciliation is reopened.");
+        }
+
         OutLeg.DeleteLeg(now);
         InLeg.DeleteLeg(now);
+    }
+
+    /// <summary>Refuses, while either leg is reconciled, a change to the accounts, the amounts or the date.</summary>
+    private void GuardUnlocked(LegAmount from, LegAmount to, DateOnly date)
+    {
+        if (!IsReconciled)
+        {
+            return;
+        }
+
+        var changed =
+            from.AccountId != FromAccountId ? nameof(FromAccountId)
+            : to.AccountId != ToAccountId ? nameof(ToAccountId)
+            : from.Amount != Amount ? nameof(Amount)
+            : to.Amount != ToAmount ? nameof(ToAmount)
+            : date != Date ? nameof(Date)
+            : null;
+        if (changed is not null)
+        {
+            throw new TransferRuleViolation(
+                changed, "This transfer is reconciled, so its accounts, amounts and date cannot change until its reconciliation is reopened.");
+        }
+    }
+
+    /// <summary>Restores both legs together, so both accounts' balances move again. Restoring one that is not deleted changes nothing.</summary>
+    /// <exception cref="InvalidOperationException">The transfer was deleted longer than <see cref="Transaction.RecoveryPeriod"/> ago.</exception>
+    public void Restore(DateTimeOffset now)
+    {
+        // Checked on both before either changes, so one leg is never restored alone.
+        if (IsDeleted && (!OutLeg.IsRecoverableAt(now) || !InLeg.IsRecoverableAt(now)))
+        {
+            throw new InvalidOperationException($"A transfer deleted more than {Transaction.RecoveryPeriod.TotalDays} days ago cannot be restored.");
+        }
+
+        OutLeg.RestoreLeg(now);
+        InLeg.RestoreLeg(now);
     }
 
     private static void GuardCanBecomeLeg(Transaction transaction, string property, TransactionType type, string notThatType)
@@ -194,6 +249,11 @@ public sealed class Transfer
         if (transaction.IsTransferLeg)
         {
             throw new TransferRuleViolation(property, "This is a leg of a transfer already.");
+        }
+
+        if (transaction.IsReconciled)
+        {
+            throw new TransferRuleViolation(property, "This transaction is reconciled. Reopen its reconciliation to mark it as a transfer.");
         }
 
         if (transaction.Type != type || transaction.IsRefund)
