@@ -10,9 +10,10 @@ public class DashboardTests(PfmApi api) : IAsyncLifetime
 {
     private const string Dashboard = "/api/v1/reports/dashboard";
 
-    private static readonly DateOnly Today = DateOnly.FromDateTime(DateTime.UtcNow);
+    /// <summary>Today where a new user is, in the time zone they start with (Asia/Ho_Chi_Minh), not in UTC.</summary>
+    private static DateOnly Today => TodayIn("Asia/Ho_Chi_Minh");
 
-    private static readonly DateOnly ThisMonth = new(Today.Year, Today.Month, 1);
+    private static DateOnly ThisMonth => new(Today.Year, Today.Month, 1);
 
     public Task InitializeAsync() => api.ForgetExchangeRatesAsync();
 
@@ -32,6 +33,19 @@ public class DashboardTests(PfmApi api) : IAsyncLifetime
         Assert.Empty(dashboard.TopCategories);
         Assert.Empty(dashboard.RecentTransactions);
         Assert.Empty(dashboard.Upcoming);
+    }
+
+    [Fact]
+    public async Task This_month_is_the_month_it_is_in_the_users_time_zone()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Pacific/Kiritimati" })).EnsureSuccessStatusCode();
+        var today = TodayIn("Pacific/Kiritimati");
+        var first = new DateOnly(today.Year, today.Month, 1);
+
+        var dashboard = await DashboardAsync(browser);
+
+        Assert.Equal((first, first.AddMonths(1).AddDays(-1)), (dashboard.From, dashboard.To));
     }
 
     [Fact]
@@ -203,6 +217,9 @@ public class DashboardTests(PfmApi api) : IAsyncLifetime
         });
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
     }
+
+    private static DateOnly TodayIn(string timeZone) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(timeZone)).DateTime);
 
     private static async Task<DashboardBody> DashboardAsync(Browser browser)
     {

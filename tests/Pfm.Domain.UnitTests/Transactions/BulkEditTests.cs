@@ -28,6 +28,16 @@ public class BulkEditTests
     }
 
     [Fact]
+    public void Recategorising_onto_the_category_it_is_on_already_changes_nothing()
+    {
+        var transaction = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+
+        transaction.Recategorise(Groceries, Tuesday);
+
+        Assert.Equal(Monday, transaction.UpdatedAt);
+    }
+
+    [Fact]
     public void A_category_of_the_wrong_kind_or_a_split_transaction_is_refused_a_new_category()
     {
         var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);

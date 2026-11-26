@@ -315,7 +315,8 @@ already uses it can still show it. An account can be archived at any balance.
   cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
   transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
   moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and
-  tagged but not moved or deleted, and deleting a leg deletes its transfer, as `DELETE` does. Like a delete it names
+  tagged but not moved or deleted, and deleting a leg deletes its transfer, as `DELETE` does. Done, it answers the `count`
+  of transactions changed, the other leg of each transfer deleted included. Like a delete it names
   no row version.
 - **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of

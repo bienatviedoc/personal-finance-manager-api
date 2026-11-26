@@ -53,7 +53,7 @@ public sealed record DashboardBudgetsResponse(
                 budgets.OnTrack, budgets.Warning, budgets.Over, budgets.NotConverted, [.. budgets.NeedingAttention.Select(DashboardBudgetResponse.Of)]);
 }
 
-/// <summary>What kind of movement a transaction on the dashboard is: the type gives its amount its sign.</summary>
+/// <summary>The type of a transaction on the dashboard: it gives its amount its sign.</summary>
 public enum DashboardTransactionType
 {
     Income = 1,
@@ -81,13 +81,13 @@ public sealed record DashboardTransactionResponse(
             transaction.Currency, transaction.Category is { } category ? ReportCategoryResponse.From(category) : null, transaction.Payee,
             transaction.IsRefund, transaction.IsSplit, transaction.TransferId);
 
-    internal static DashboardTransactionType TypeOf(TransactionKind kind) => kind switch
+    internal static DashboardTransactionType TypeOf(ActivityType type) => type switch
     {
-        TransactionKind.Income => DashboardTransactionType.Income,
-        TransactionKind.Expense => DashboardTransactionType.Expense,
-        TransactionKind.TransferOut => DashboardTransactionType.TransferOut,
-        TransactionKind.TransferIn => DashboardTransactionType.TransferIn,
-        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+        ActivityType.Income => DashboardTransactionType.Income,
+        ActivityType.Expense => DashboardTransactionType.Expense,
+        ActivityType.TransferOut => DashboardTransactionType.TransferOut,
+        ActivityType.TransferIn => DashboardTransactionType.TransferIn,
+        _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
     };
 }
 

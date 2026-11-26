@@ -397,7 +397,7 @@ public sealed class Transaction : IUserOwned
     /// <summary>
     /// Puts the whole of income or an expense on one category, as a bulk action does (spec TXN-7). It keeps its
     /// line's note. A split keeps its lines: their categories are changed by editing it. A reconciled transaction
-    /// can change its category.
+    /// can change its category. Put on the category it is on already, it does not change.
     /// </summary>
     /// <param name="category">One of the user's categories of the kind the type takes, not archived unless it is the one the transaction is on.</param>
     /// <exception cref="TransactionRuleViolation">It is a leg of a transfer or split, or the category is of the other kind or archived.</exception>
@@ -415,6 +415,11 @@ public sealed class Transaction : IUserOwned
         {
             throw new TransactionRuleViolation(
                 nameof(CategoryId), categoryRule, category.Kind != Type.CategoryKind() ? BulkRefusal.CategoryKind : null);
+        }
+
+        if (category.Id == CategoryId)
+        {
+            return;
         }
 
         CategoryId = category.Id;

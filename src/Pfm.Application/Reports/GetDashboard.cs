@@ -58,13 +58,13 @@ public sealed record DashboardAccountDetails(Guid Id, string Name);
 /// <param name="Amount">Greater than zero, in <paramref name="Currency"/>, its account's currency; the type gives the sign, except that a refund raises the balance.</param>
 /// <param name="Category">The category of its first line; null for a leg of a transfer.</param>
 public sealed record DashboardTransactionDetails(
-    Guid Id, DateOnly Date, TransactionKind Type, DashboardAccountDetails Account, decimal Amount, Currency Currency, ReportCategoryDetails? Category,
+    Guid Id, DateOnly Date, ActivityType Type, DashboardAccountDetails Account, decimal Amount, Currency Currency, ReportCategoryDetails? Category,
     string? Payee, bool IsRefund, bool IsSplit, Guid? TransferId);
 
 /// <summary>One occurrence of a recurring rule still to come, with its account and category named.</summary>
 /// <param name="Amount">Greater than zero, in <paramref name="Currency"/>, the rule's account's currency.</param>
 public sealed record DashboardOccurrenceDetails(
-    Guid RecurringRuleId, DateOnly DueDate, TransactionKind Type, DashboardAccountDetails Account, decimal Amount, Currency Currency,
+    Guid RecurringRuleId, DateOnly DueDate, ActivityType Type, DashboardAccountDetails Account, decimal Amount, Currency Currency,
     ReportCategoryDetails Category, string? Payee, bool IsReminder);
 
 public sealed class GetDashboardHandler(
@@ -80,8 +80,12 @@ public sealed class GetDashboardHandler(
 
         var allAccounts = (await accounts.ListAsync(cancellationToken)).ToDictionary(account => account.Id);
         var allCategories = (await categories.ListAsync(cancellationToken)).ToDictionary(category => category.Id);
-        DashboardAccountDetails AccountOf(Guid id) => new(id, allAccounts.TryGetValue(id, out var account) ? account.Name : "");
-        ReportCategoryDetails? CategoryOf(Guid? id) => id is { } categoryId && allCategories.TryGetValue(categoryId, out var category) ? ReportCategoryDetails.Of(category) : null;
+        // Both lists hold archived ones too, so every account and category a transaction or rule is on is in them.
+        DashboardAccountDetails AccountOf(Guid id) => new(
+            id, allAccounts.TryGetValue(id, out var account) ? account.Name : throw new InvalidOperationException($"No account {id} of the user's."));
+        ReportCategoryDetails CategoryOf(Guid id) => allCategories.TryGetValue(id, out var category)
+            ? ReportCategoryDetails.Of(category)
+            : throw new InvalidOperationException($"No category {id} of the user's.");
 
         var income = await incomeVsExpenses.HandleAsync(new GetIncomeVsExpenses(filter), cancellationToken);
         var spending = await spendingByCategory.HandleAsync(new GetSpendingByCategory(filter), cancellationToken)
@@ -91,13 +95,13 @@ public sealed class GetDashboardHandler(
         var recent = (await activity.LatestAsync(GetDashboard.RecentTransactionCount, cancellationToken))
             .Select(transaction => new DashboardTransactionDetails(
                 transaction.Id, transaction.Date, transaction.Type, AccountOf(transaction.AccountId), transaction.Amount, transaction.Currency,
-                CategoryOf(transaction.CategoryId), transaction.Payee, transaction.IsRefund, transaction.IsSplit, transaction.TransferId))
+                transaction.CategoryId is { } categoryId ? CategoryOf(categoryId) : null, transaction.Payee, transaction.IsRefund, transaction.IsSplit, transaction.TransferId))
             .ToList();
         var upcoming = (await activity.UpcomingAsync(GetDashboard.UpcomingDays, cancellationToken))
             .Take(GetDashboard.UpcomingCount)
             .Select(occurrence => new DashboardOccurrenceDetails(
                 occurrence.RecurringRuleId, occurrence.DueDate, occurrence.Type, AccountOf(occurrence.AccountId), occurrence.Amount, occurrence.Currency,
-                CategoryOf(occurrence.CategoryId)!, occurrence.Payee, occurrence.IsReminder))
+                CategoryOf(occurrence.CategoryId), occurrence.Payee, occurrence.IsReminder))
             .ToList();
 
         return new DashboardDetails(

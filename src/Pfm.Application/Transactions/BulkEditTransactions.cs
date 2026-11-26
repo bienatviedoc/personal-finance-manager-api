@@ -42,6 +42,9 @@ public sealed record BulkEditTransactionsCommand(
     public const int MaxSelected = 1000;
 
     public BulkAction? ParsedAction { get; } = EnumText<BulkAction>.Read(Action);
+
+    /// <summary>The tag's name as a tag keeps it: trimmed and in lower case.</summary>
+    public string? NormalisedTag { get; } = Domain.Transactions.Tag.Normalised(Tag);
 }
 
 public sealed class BulkEditTransactionsValidator : AbstractValidator<BulkEditTransactionsCommand>
@@ -73,7 +76,7 @@ public abstract record BulkEditOutcome
     {
     }
 
-    /// <param name="Count">How many transactions it selected, each of which took it.</param>
+    /// <param name="Count">How many transactions took it: every one it selected, and the other leg of each transfer it deleted.</param>
     public sealed record Done(int Count) : BulkEditOutcome;
 
     /// <summary>More transactions pass the filter than one bulk action takes, so none took it: narrow the filter.</summary>
@@ -97,7 +100,7 @@ public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, 
 
 /// <summary>
 /// Acts on every selected transaction in one save, or on none. Each transaction takes the change through its own
-/// method, which refuses it with the reason a bulk action names (&lt;see cref="TransactionRuleViolation.Refusal"/&gt;); one
+/// method, which refuses it with the reason a bulk action names (<see cref="TransactionRuleViolation.Refusal"/>); one
 /// refused, nothing is saved. A delete of a leg of a transfer deletes the transfer, as deleting one alone does.
 /// Like a delete, it names no row version: one that meets a change made at the same moment is made again on what
 /// was saved.
@@ -144,14 +147,15 @@ public sealed class BulkEditTransactionsHandler(
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return new BulkEditOutcome.Done(selected.Count);
+        return new BulkEditOutcome.Done(acted.Outcome);
     }
 
     /// <summary>
-    /// Makes the action's change to each selected transaction, adding to &lt;paramref name="refused"/&gt; each that refuses
-    /// it. Invalid when what the action names (a category, an account) cannot be used at all.
+    /// Makes the action's change to each selected transaction, adding to <paramref name="refused"/> each that refuses
+    /// it, and says how many transactions took it: a delete of a leg of a transfer deletes the other leg too.
+    /// Invalid when what the action names (a category, an account) cannot be used at all.
     /// </summary>
-    private async Task<Result<Done>> ActOnEachAsync(
+    private async Task<Result<int>> ActOnEachAsync(
         BulkEditTransactionsCommand command, IReadOnlyList<Transaction> selected, List<RefusedTransaction> refused, DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -175,19 +179,19 @@ public sealed class BulkEditTransactionsHandler(
             case BulkAction.SetCategory:
                 if (await categories.FindAsync(command.CategoryId!.Value, cancellationToken) is not { IsArchived: false } category)
                 {
-                    return Result<Done>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
+                    return Result<int>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
                 }
 
                 Change(selected, transaction => transaction.Recategorise(category, now));
                 break;
 
             case BulkAction.AddTag:
-                var tag = (await tags.FindOrCreateAsync([Domain.Transactions.Tag.Normalised(command.Tag)!], cancellationToken))[0];
+                var tag = (await tags.FindOrCreateAsync([command.NormalisedTag!], cancellationToken))[0];
                 Change(selected, transaction => transaction.AddTag(tag, now));
                 break;
 
             case BulkAction.RemoveTag:
-                var named = await tagRepository.FindByNamesAsync([Domain.Transactions.Tag.Normalised(command.Tag)!], cancellationToken);
+                var named = await tagRepository.FindByNamesAsync([command.NormalisedTag!], cancellationToken);
                 Change(selected, transaction =>
                 {
                     foreach (var had in named)
@@ -200,27 +204,30 @@ public sealed class BulkEditTransactionsHandler(
             case BulkAction.MoveToAccount:
                 if (await accounts.FindChoosableAsync(command.AccountId!.Value, keeps: null, cancellationToken) is not { } account)
                 {
-                    return Result<Done>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
+                    return Result<int>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
                 }
 
                 Change(selected, transaction => transaction.MoveTo(account.Id, account.Currency, now));
                 break;
 
             case BulkAction.Delete:
-                Change(selected.Where(transaction => !transaction.IsTransferLeg), transaction => transaction.Delete(now));
-                foreach (var legs in selected.Where(transaction => transaction.IsTransferLeg).GroupBy(transaction => transaction.TransferId!.Value))
+                var alone = selected.Where(transaction => !transaction.IsTransferLeg).ToList();
+                Change(alone, transaction => transaction.Delete(now));
+                var transfers = selected.Where(transaction => transaction.IsTransferLeg).GroupBy(transaction => transaction.TransferId!.Value).ToList();
+                foreach (var legs in transfers)
                 {
                     // The other leg deleted by another request in between fails the save, and the action is made again.
                     var transfer = (await transactions.FindTransferAsync(legs.Key, deletedToo: true, cancellationToken))!;
                     Change(legs, _ => transfer.Delete(now));
                 }
 
-                break;
+                // Both legs of each transfer go, whether one or both were selected.
+                return alone.Count + (2 * transfers.Count);
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(command), command.ParsedAction, "Not a bulk action.");
         }
 
-        return new Done();
+        return selected.Count;
     }
 }

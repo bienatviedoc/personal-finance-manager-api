@@ -23,7 +23,7 @@ public sealed class AccountTotals(
     {
         var total = (await OfAsync(includeArchived: false, cancellationToken)).BaseCurrencyTotal;
         return new BaseCurrencyBalance(
-            total.Currency, total.Balance, [.. total.NotConverted.Select(amount => new UnconvertedBalance(amount.Currency, amount.Balance))]);
+            total.Currency, total.Balance, [.. total.NotConverted.Select(amount => new NotConvertedBalance(amount.Currency, amount.Balance))]);
     }
 
     /// <summary>Every one of the user's accounts with its balance, archived ones only when asked for, and what they add up to.</summary>
@@ -39,14 +39,14 @@ public sealed class AccountTotals(
             .ThenBy(total => total.Currency)
             .ToList();
 
-        return new AccountsWithTotals(all, totals, await InBaseCurrencyAsync(totals, cancellationToken));
+        return new AccountsWithTotals(all, totals, await AddUpInBaseCurrencyAsync(totals, cancellationToken));
     }
 
     /// <summary>
     /// Each institution's total in each currency is converted once, so the institutions' balances add up to
     /// the overall balance exactly.
     /// </summary>
-    private async Task<BaseCurrencyTotal> InBaseCurrencyAsync(IReadOnlyList<InstitutionTotal> totals, CancellationToken cancellationToken)
+    private async Task<BaseCurrencyTotal> AddUpInBaseCurrencyAsync(IReadOnlyList<InstitutionTotal> totals, CancellationToken cancellationToken)
     {
         var baseCurrency = await baseCurrencies.OfCurrentUserAsync(cancellationToken);
 

@@ -15,7 +15,7 @@ public interface IAccountTotals
 /// <summary>Balances added up in the base currency.</summary>
 /// <param name="Currency">The user's base currency.</param>
 /// <param name="NotConverted">What the balance leaves out for want of an exchange rate, added up by currency; empty when it is complete.</param>
-public sealed record BaseCurrencyBalance(Currency Currency, decimal Balance, IReadOnlyList<UnconvertedBalance> NotConverted);
+public sealed record BaseCurrencyBalance(Currency Currency, decimal Balance, IReadOnlyList<NotConvertedBalance> NotConverted);
 
 /// <summary>Balances left in their own currency because no exchange rate exists to convert them.</summary>
-public sealed record UnconvertedBalance(Currency Currency, decimal Balance);
+public sealed record NotConvertedBalance(Currency Currency, decimal Balance);

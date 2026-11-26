@@ -148,6 +148,7 @@ public class BulkEditTests(PfmApi api)
         var response = await browser.PostAsync(Bulk, new { action = "delete", transactionIds = new[] { groceries, leg } });
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(3, (await response.Content.ReadFromJsonAsync<BulkBody>())!.Count);
         Assert.Equal([kept], (await ListAsync(browser)).Select(transaction => transaction.Id));
         Assert.Equal("8000.00", await BalanceAsync(browser, everyday));
         Assert.Equal("0.00", await BalanceAsync(browser, savings));

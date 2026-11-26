@@ -65,13 +65,13 @@ public static class TransactionEndpoints
 
     /// <summary>
     /// Problem type returned when some of the transactions a bulk action selects cannot take it: nothing changed.
-    /// Its &lt;c&gt;refused&lt;/c&gt; lists each of them and why.
+    /// Its <c>refused</c> lists each of them and why.
     /// </summary>
     public const string BulkActionRefused = "urn:pfm:problem:bulk-action-refused";
 
     /// <summary>
     /// Problem type returned when more transactions pass a bulk action's filter than one bulk action takes: nothing
-    /// changed. Its &lt;c&gt;max&lt;/c&gt; says how many it takes; narrow the filter.
+    /// changed. Its <c>max</c> says how many it takes; narrow the filter.
     /// </summary>
     public const string BulkSelectionTooLarge = "urn:pfm:problem:bulk-selection-too-large";
 
@@ -231,12 +231,13 @@ public static class TransactionEndpoints
             BulkEditOutcome.Done done => TypedResults.Ok(new BulkEditResponse(done.Count)),
             BulkEditOutcome.TooMany tooMany => TypedResults.Json(
                 new BulkSelectionTooLargeProblem(
-                    BulkSelectionTooLarge, $"More than {tooMany.Max} transactions pass this filter: narrow it, or act on them in parts.",
-                    StatusCodes.Status422UnprocessableEntity, tooMany.Max),
+                    BulkSelectionTooLarge, $"More than {tooMany.Max} transactions pass this filter.", StatusCodes.Status422UnprocessableEntity,
+                    "Narrow the filter, or act on the transactions in parts. Nothing changed.", tooMany.Max),
                 statusCode: StatusCodes.Status422UnprocessableEntity, contentType: "application/problem+json"),
             BulkEditOutcome.Refused refused => TypedResults.Json(
                 new BulkActionRefusedProblem(
                     BulkActionRefused, "Some of the transactions cannot take this action, so none did.", StatusCodes.Status409Conflict,
+                    "Leave out the transactions refused, or change them first, and act again.",
                     [.. refused.Rows.Select(RefusedTransactionResponse.From)]),
                 statusCode: StatusCodes.Status409Conflict, contentType: "application/problem+json"),
             _ => throw new ArgumentOutOfRangeException(nameof(result), result.Outcome, "Not an outcome of a bulk action."),
@@ -418,33 +419,33 @@ public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCatego
 
 /// <summary>One action on many transactions (spec TXN-7).</summary>
 /// <param name="Action"><c>setCategory</c>, <c>addTag</c>, <c>removeTag</c>, <c>moveToAccount</c> or <c>delete</c>.</param>
-/// <param name="TransactionIds">The transactions selected one by one: 1 to 1000. Leave out when sending &lt;paramref name="Filter"/&gt;.</param>
-/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000, or the action is refused as too many. Leave out when sending &lt;paramref name="TransactionIds"/&gt;.</param>
+/// <param name="TransactionIds">The transactions selected one by one: 1 to 1000. Leave out when sending <c>filter</c>.</param>
+/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000, or the action is refused as too many. Leave out when sending <c>transactionIds</c>.</param>
 /// <param name="CategoryId">For setCategory: one of the user's categories that is not archived.</param>
 /// <param name="Tag">For addTag and removeTag: the tag's name, 1 to 50 characters, kept trimmed and in lower case. Adding one the user has no tag with yet creates it.</param>
 /// <param name="AccountId">For moveToAccount: one of the user's accounts that is not archived.</param>
 public sealed record BulkEditRequest(
-    string Action, IReadOnlyList<Guid>? TransactionIds = null, BulkFilterRequest? Filter = null, Guid? CategoryId = null, string? Tag = null,
+    string Action, IReadOnlyList<Guid>? TransactionIds = null, TransactionFilterRequest? Filter = null, Guid? CategoryId = null, string? Tag = null,
     Guid? AccountId = null);
 
 /// <summary>The filters of the transaction list, each as its query parameter of the same name takes it; one left out filters nothing.</summary>
-public sealed record BulkFilterRequest(
+public sealed record TransactionFilterRequest(
     string? From = null, string? To = null, string? AccountId = null, string? CategoryId = null, string? Type = null, string? Min = null, string? Max = null,
     string? Q = null, string? Tag = null);
 
 /// <summary>A bulk action done.</summary>
-/// <param name="Count">How many transactions it was done to: every one selected.</param>
+/// <param name="Count">How many transactions it was done to: every one selected, and the other leg of each transfer it deleted.</param>
 public sealed record BulkEditResponse(int Count);
 
 /// <summary>A bulk action refused because some of the transactions it selects cannot take it. Nothing changed.</summary>
-/// <param name="Type">&lt;c&gt;urn:pfm:problem:bulk-action-refused&lt;/c&gt;.</param>
+/// <param name="Type"><c>urn:pfm:problem:bulk-action-refused</c>.</param>
 /// <param name="Refused">Each transaction refused, in the order they were selected.</param>
-public sealed record BulkActionRefusedProblem(string Type, string Title, int Status, IReadOnlyList<RefusedTransactionResponse> Refused);
+public sealed record BulkActionRefusedProblem(string Type, string Title, int Status, string Detail, IReadOnlyList<RefusedTransactionResponse> Refused);
 
 /// <summary>A bulk action refused because more transactions pass its filter than one bulk action takes. Nothing changed.</summary>
 /// <param name="Type"><c>urn:pfm:problem:bulk-selection-too-large</c>.</param>
 /// <param name="Max">The most transactions one bulk action takes: narrow the filter to that many.</param>
-public sealed record BulkSelectionTooLargeProblem(string Type, string Title, int Status, int Max);
+public sealed record BulkSelectionTooLargeProblem(string Type, string Title, int Status, string Detail, int Max);
 
 /// <summary>A transaction that cannot take a bulk action.</summary>
 /// <param name="Reason">Why: notFound, transferLeg, split, categoryKind, reconciled, otherCurrency or tooManyTags.</param>
@@ -507,12 +508,12 @@ internal sealed class TransactionListParameters
     /// <summary>The filters and the sort order, the API's own order (newest date first) for what is left out.</summary>
     public (TransactionFilter Filter, TransactionSort Sort) Read(
         string? from, string? to, string? accountId, string? categoryId, string? type, string? min, string? max, string? q, string? tag, string? sort, string? order) =>
-        (Filter(new BulkFilterRequest(from, to, accountId, categoryId, type, min, max, q, tag)),
+        (Filter(new TransactionFilterRequest(from, to, accountId, categoryId, type, min, max, q, tag)),
             new TransactionSort(
                 OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc));
 
-    /// <summary>The filters, each refused under its query name after &lt;paramref name="prefix"/&gt; (&lt;c&gt;filter.min&lt;/c&gt;).</summary>
-    public TransactionFilter Filter(BulkFilterRequest sent, string prefix = "") =>
+    /// <summary>The filters, each refused under its query name after <paramref name="prefix"/> (<c>filter.min</c>).</summary>
+    public TransactionFilter Filter(TransactionFilterRequest sent, string prefix = "") =>
         new(Date(prefix + "from", sent.From), Date(prefix + "to", sent.To), Id(prefix + "accountId", sent.AccountId), Id(prefix + "categoryId", sent.CategoryId),
             OneOf<TransactionType>(prefix + "type", sent.Type), Amount(prefix + "min", sent.Min), Amount(prefix + "max", sent.Max), Search(prefix + "q", sent.Q),
             Tag(prefix + "tag", sent.Tag));
