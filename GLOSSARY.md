@@ -144,6 +144,10 @@ _Avoid_: Saving ratio, margin
 Spent in a budget month where no budget covered its category: none on the category, nor on its parent.
 _Avoid_: Over budget (which a budgeted category is), uncategorized
 
+**Export**:
+A file a user downloads to take their numbers elsewhere. A CSV export holds what one transaction list or one report shows: every transaction that passes the list's filters, not only the page loaded, or the numbers of the report's table view, with amounts as plain decimals beside their currency and dates as `YYYY-MM-DD`. The full export is everything the user owns, in one ZIP file.
+_Avoid_: Download (for the file itself), backup, report (for the file)
+
 **Integrity check**:
 The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.
 _Avoid_: Reconciliation (which the user does against a statement), audit, validation
