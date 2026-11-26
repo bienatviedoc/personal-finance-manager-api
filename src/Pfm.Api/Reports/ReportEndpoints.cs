@@ -14,6 +14,9 @@ public static class ReportEndpoints
     {
         var reports = api.MapGroup("/reports").WithTags("Reports").ProducesProblem(StatusCodes.Status401Unauthorized);
 
+        reports.MapGet("/dashboard", Dashboard).WithName("GetDashboard")
+            .WithDescription("The state of the user's money on one screen: the balance of every account that is not archived, in the base currency as the accounts list adds it up; this calendar month's income, expenses and net, its budgets against what was spent, and the five top-level categories that spent most, as the income vs expenses, budget vs actual and spending by category reports work them out for this month in the user's time zone; the ten latest transactions, as the transaction list starts; and the occurrences of recurring rules due in the next 30 days, at most ten, earliest first. Takes no filters.");
+
         reports.MapGet("/spending-by-category", SpendingByCategory).WithName("GetSpendingByCategory")
             .WithDescription("Where the money went over a period: what the expenses in each category came to, minus refunds, with each one's share of the total, in the user's base currency and ranked, most first. Each expense counts as converted at the exchange rate of its own date; one that is not converted is left out and counted in notConverted. Transfers and income never count, and each line of a split counts in its own category. Without parentId each top-level category stands for itself and its subcategories; with it, each of that category's subcategories stands for itself, and the category for what was spent on it directly.");
 
@@ -38,6 +41,9 @@ public static class ReportEndpoints
 
         return api;
     }
+
+    private static async Task<Ok<DashboardResponse>> Dashboard(GetDashboardHandler handler, CancellationToken cancellationToken) =>
+        TypedResults.Ok(DashboardResponse.Of(await handler.HandleAsync(new GetDashboard(), cancellationToken)));
 
     /// <param name="month">The calendar month summed up, as <c>2026-11</c>.</param>
     /// <param name="locale">The language tag it is written in, <c>en</c> or <c>vi</c>; left out for the user's own locale.</param>
