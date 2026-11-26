@@ -26,6 +26,9 @@ public static class TransactionEndpoints
             .WithDescription("The user's recently deleted transactions: those deleted in the last 30 days, which can still be restored, the last deleted first, a page at a time. Each leg of a deleted transfer is listed. After 30 days a deleted transaction is no longer listed or restorable, and the worker removes it for good.");
         transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
             .WithDescription("Restores a transaction deleted in the last 30 days: it is back in lists and its account's balance at once, as it was when it was deleted. Restoring a leg of a transfer restores the whole transfer, the other leg with it. One that is not deleted, or was deleted longer ago, is not found. The ETag header carries its row version.");
+        transactions.MapPost("/bulk", BulkEdit).WithName("BulkEditTransactions")
+            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters; never both, and at most 1000. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
+            .Produces<BulkActionRefusedProblem>(StatusCodes.Status409Conflict, "application/problem+json");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
@@ -53,6 +56,12 @@ public static class TransactionEndpoints
     /// it is locked until its reconciliation is reopened, and nothing changes.
     /// </summary>
     public const string TransactionReconciled = "urn:pfm:problem:transaction-reconciled";
+
+    /// <summary>
+    /// Problem type returned when some of the transactions a bulk action selects cannot take it: nothing changed.
+    /// Its &lt;c&gt;refused&lt;/c&gt; lists each of them and why.
+    /// </summary>
+    public const string BulkActionRefused = "urn:pfm:problem:bulk-action-refused";
 
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
@@ -151,6 +160,43 @@ public static class TransactionEndpoints
         }
 
         return result.Outcome is { } restored ? TypedResults.Ok(Versioned(http, TransactionResponse.From(restored))) : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<BulkEditResponse>, ValidationProblem, JsonHttpResult<BulkActionRefusedProblem>>> BulkEdit(
+        BulkEditRequest request, BulkEditTransactionsHandler handler, CancellationToken cancellationToken)
+    {
+        TransactionFilter? filter = null;
+        if (request.Filter is { } sent)
+        {
+            var asked = new TransactionListParameters();
+            const string In = "filter.";
+            filter = new TransactionFilter(
+                asked.Date(In + "from", sent.From), asked.Date(In + "to", sent.To), asked.Id(In + "accountId", sent.AccountId),
+                asked.Id(In + "categoryId", sent.CategoryId), asked.OneOf<TransactionType>(In + "type", sent.Type), asked.Amount(In + "min", sent.Min),
+                asked.Amount(In + "max", sent.Max), asked.Search(In + "q", sent.Q), asked.Tag(In + "tag", sent.Tag));
+            if (asked.Refused.Count > 0)
+            {
+                return TypedResults.ValidationProblem(asked.Refused);
+            }
+        }
+
+        var result = await handler.HandleAsync(
+            new BulkEditTransactionsCommand(request.Action, request.TransactionIds, filter, request.CategoryId, request.Tag, request.AccountId), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            BulkEditOutcome.Done done => TypedResults.Ok(new BulkEditResponse(done.Count)),
+            BulkEditOutcome.Refused refused => TypedResults.Json(
+                new BulkActionRefusedProblem(
+                    BulkActionRefused, "Some of the transactions cannot take this action, so none did.", StatusCodes.Status409Conflict,
+                    [.. refused.Rows.Select(row => new RefusedTransactionResponse(row.TransactionId, row.Reason, row.Message))]),
+                statusCode: StatusCodes.Status409Conflict, contentType: "application/problem+json"),
+            _ => throw new ArgumentOutOfRangeException(nameof(result), result.Outcome, "Not an outcome of a bulk action."),
+        };
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
@@ -325,6 +371,36 @@ public sealed record DeletedTransactionListResponse(IReadOnlyList<DeletedTransac
 /// <param name="LastAccountId">The account, not archived, that the user recorded a transaction on last; null when they have recorded none.</param>
 /// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; null when they never used the payee.</param>
 public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId);
+
+/// <summary>One action on many transactions (spec TXN-7).</summary>
+/// <param name="Action"><c>setCategory</c>, <c>addTag</c>, <c>removeTag</c>, <c>moveToAccount</c> or <c>delete</c>.</param>
+/// <param name="TransactionIds">The transactions selected one by one: 1 to 1000. Leave out when sending &lt;paramref name="Filter"/&gt;.</param>
+/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000. Leave out when sending &lt;paramref name="TransactionIds"/&gt;.</param>
+/// <param name="CategoryId">For setCategory: one of the user's categories that is not archived.</param>
+/// <param name="Tag">For addTag and removeTag: the tag's name, 1 to 50 characters, kept trimmed and in lower case. Adding one the user has no tag with yet creates it.</param>
+/// <param name="AccountId">For moveToAccount: one of the user's accounts that is not archived.</param>
+public sealed record BulkEditRequest(
+    string Action, IReadOnlyList<Guid>? TransactionIds = null, BulkFilterRequest? Filter = null, Guid? CategoryId = null, string? Tag = null,
+    Guid? AccountId = null);
+
+/// <summary>The filters of the transaction list, each as its query parameter of the same name takes it; one left out filters nothing.</summary>
+public sealed record BulkFilterRequest(
+    string? From = null, string? To = null, string? AccountId = null, string? CategoryId = null, string? Type = null, string? Min = null, string? Max = null,
+    string? Q = null, string? Tag = null);
+
+/// <summary>A bulk action done.</summary>
+/// <param name="Count">How many transactions it was done to: every one selected.</param>
+public sealed record BulkEditResponse(int Count);
+
+/// <summary>A bulk action refused because some of the transactions it selects cannot take it. Nothing changed.</summary>
+/// <param name="Type">&lt;c&gt;urn:pfm:problem:bulk-action-refused&lt;/c&gt;.</param>
+/// <param name="Refused">Each transaction refused, in the order they were selected.</param>
+public sealed record BulkActionRefusedProblem(string Type, string Title, int Status, IReadOnlyList<RefusedTransactionResponse> Refused);
+
+/// <summary>A transaction that cannot take a bulk action.</summary>
+/// <param name="Reason">Why: notFound, transferLeg, split, categoryKind, reconciled, otherCurrency or tooManyTags.</param>
+/// <param name="Message">The reason in words, in English.</param>
+public sealed record RefusedTransactionResponse(Guid TransactionId, BulkRefusal Reason, string Message);
 
 /// <summary>A line of a transaction.</summary>
 /// <param name="Amount">A decimal string in the transaction's currency, greater than zero.</param>

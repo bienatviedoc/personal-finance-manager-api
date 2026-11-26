@@ -129,6 +129,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     public Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt == null, cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> FindManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => ids.Contains(transaction.Id) && transaction.DeletedAt == null).ToListAsync(cancellationToken);
+
     public async Task<Transfer?> FindTransferAsync(Guid transferId, bool deletedToo, CancellationToken cancellationToken)
     {
         var legs = await db.Set<Transaction>()
