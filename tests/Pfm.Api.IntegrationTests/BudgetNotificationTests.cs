@@ -103,6 +103,33 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_overall_budget_raises_no_notification_when_it_moves_into_warning_or_over()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        (await browser.PutAsync($"/api/v1/budgets/{ThisMonth}/overall", new { amount = "1000000" })).EnsureSuccessStatusCode();
+
+        await SpendAsync(browser, everyday, "Transport", "850000", FirstOfThisMonth);
+        await SpendAsync(browser, everyday, "Transport", "300000", FirstOfThisMonth);
+
+        Assert.Empty((await ListAsync(browser)).Items);
+        Assert.Empty(BudgetEmails(email));
+    }
+
+    [Fact]
+    public async Task A_category_raises_its_notification_beside_an_overall_budget_that_raises_none()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var transport = await BudgetAsync(browser, "Transport", "1000000");
+        (await browser.PutAsync($"/api/v1/budgets/{ThisMonth}/overall", new { amount = "1000000" })).EnsureSuccessStatusCode();
+
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "1200000", FirstOfThisMonth);
+
+        var notification = Assert.Single((await ListAsync(browser)).Items);
+        Assert.Equal((transport, "over"), (notification.Category.Id, notification.State));
+    }
+
+    [Fact]
     public async Task Spending_in_a_subcategory_raises_the_notification_of_the_budget_on_its_parent()
     {
         var (browser, _) = await api.SignedInAsync();

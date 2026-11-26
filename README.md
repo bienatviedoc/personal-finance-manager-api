@@ -555,7 +555,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   restored or converted once its rate arrives, a bulk action, a transfer unmarked, a category merged, an occurrence posted) or a budget
   set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
   the dates it touched. `BudgetNotifications` reads each of those budget months as the budget screen does and
-  raises a `BudgetNotification` for each budget that moved into `warning` or `over` and has not raised that
+  raises a `BudgetNotification` for each category budget (the overall budget raises none: BUD-7 is about a category) that moved into `warning` or `over` and has not raised that
   one in the month (`BudgetNotification.Due`): one warning and one over at most, and no warning after over, even
   when spent drops back and crosses again. A unique index holds that when two requests raise the same one at once.
   A notification keeps `budgeted`, `spent` and `percentSpent` as they stood. Each new one is emailed in the

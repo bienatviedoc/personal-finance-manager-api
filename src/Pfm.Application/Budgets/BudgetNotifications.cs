@@ -10,7 +10,8 @@ namespace Pfm.Application.Budgets;
 /// <summary>
 /// Raises the budget notifications a change made due (spec BUD-7). It reads each budget month a change touched
 /// as the budget screen does, and raises a notification for each category whose budget moved into warning or over
-/// and has not raised that one this month (<see cref="BudgetNotification.Due"/>). A unique index holds that when
+/// and has not raised that one this month (<see cref="BudgetNotification.Due"/>). The overall budget raises none: BUD-7
+/// is about a category, and the month read holds the overall budget apart from its category budgets. A unique index holds that when
 /// two requests raise the same one at once: the second reads again. New notifications are emailed unless the user
 /// switched that off.
 /// </summary>
