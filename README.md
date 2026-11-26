@@ -603,6 +603,18 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   them (`Locales.WriteAmount`, `WritePercent`). `IPdfWriter` lays it out with MigraDoc, in Noto Sans carried in the
   assembly ([decision record 0005](docs/adr/0005-pdf-documents-with-migradoc.md)).
 
+### Export
+
+- **The transaction list as CSV** (spec section 7, Export). `GET /export/transactions.csv` takes the filters and sort
+  order of `GET /transactions` (one `TransactionListParameters` reads both) and writes every transaction that
+  passes, however many pages the list would take, a batch at a time (`ExportTransactions`). One line each:
+  `date`, `type`, `isRefund`, `account` and `category` by name (a split's categories joined by `; `, a leg of a
+  transfer none), `payee`, `note`, `tags` (joined by `; `), `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
+- **CSV is written one way** (`Csv`, RFC 4180, UTF-8 with a byte order mark so a spreadsheet reads Vietnamese
+  as written), the same for this file and for the full export (`GET /export/all.zip`).
+- **Reports are exported by the SPA**, from the answer it already shows: a report's CSV holds the numbers of its
+  table view and nothing the API did not answer, so no report needs a second endpoint.
+
 ## Signing in
 
 Users sign in with email and password through ASP.NET Core Identity. The session is an HttpOnly cookie;

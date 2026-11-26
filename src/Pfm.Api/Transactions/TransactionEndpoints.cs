@@ -42,6 +42,11 @@ public static class TransactionEndpoints
             .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once. Deleting a leg of a transfer deletes the whole transfer, the other leg with it. A reconciled transaction, or a leg of a transfer either of whose legs is reconciled, answers 409 with the problem type urn:pfm:problem:transaction-reconciled and is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        api.MapGet("/export/transactions.csv", Export).WithName("ExportTransactions").WithTags("Export")
+            .WithDescription("Every transaction that passes the filters sent, as a CSV file to download: the whole list, however many pages GET /transactions would take, in its order. One line for each transaction under a line of column names (date, type, isRefund, account, category, payee, note, tags, amount, currency): dates are YYYY-MM-DD, amounts plain decimals above zero, as the list answers them, beside their currency's code. The account and category are named; a split names each of its categories, separated by \"; \", and a leg of a transfer none. Tags are separated the same way. UTF-8 with a byte order mark, comma-separated (RFC 4180).")
+            .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
+
         return api;
     }
 
@@ -94,12 +99,7 @@ public static class TransactionEndpoints
         }
 
         var asked = new TransactionListParameters();
-        var filter = new TransactionFilter(
-            asked.Date(nameof(from), from), asked.Date(nameof(to), to), asked.Id(nameof(accountId), accountId), asked.Id(nameof(categoryId), categoryId),
-            asked.OneOf<TransactionType>(nameof(type), type), asked.Amount(nameof(min), min), asked.Amount(nameof(max), max), asked.Search(nameof(q), q),
-            asked.Tag(nameof(tag), tag));
-        var sorted = new TransactionSort(
-            asked.OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, asked.OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc);
+        var (filter, sorted) = asked.Read(from, to, accountId, categoryId, type, min, max, q, tag, sort, order);
         if (asked.Refused.Count > 0)
         {
             return TypedResults.ValidationProblem(asked.Refused);
@@ -108,6 +108,42 @@ public static class TransactionEndpoints
         var list = await handler.HandleAsync(new ListTransactions(filter, sorted, limit, after), cancellationToken);
         return TypedResults.Ok(new TransactionListResponse(
             [.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor, FilteredTotalResponse.From(list.Total)));
+    }
+
+    /// <param name="from">The earliest date exported, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The latest date exported, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="accountId">One of the user's accounts: only its transactions are exported.</param>
+    /// <param name="categoryId">One of the user's categories: only transactions with a line on it or on one of its subcategories are exported.</param>
+    /// <param name="type"><c>income</c>, <c>expense</c>, <c>transferOut</c> or <c>transferIn</c>.</param>
+    /// <param name="min">The smallest amount exported, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="max">The largest amount exported, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="q">Text the payee, the note or the note of any line contains, in upper or lower case; at most 200 characters.</param>
+    /// <param name="tag">The name of one of the user's tags, in any case: only transactions with it are exported.</param>
+    /// <param name="sort"><c>date</c> or <c>amount</c>; <c>date</c> when left out.</param>
+    /// <param name="order"><c>asc</c> or <c>desc</c>; <c>desc</c> when left out.</param>
+    private static async Task<Results<PushStreamHttpResult, ValidationProblem>> Export(
+        ExportTransactionsHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? type = null,
+        string? min = null, string? max = null, string? q = null, string? tag = null, string? sort = null, string? order = null)
+    {
+        var asked = new TransactionListParameters();
+        var (filter, sorted) = asked.Read(from, to, accountId, categoryId, type, min, max, q, tag, sort, order);
+        if (asked.Refused.Count > 0)
+        {
+            return TypedResults.ValidationProblem(asked.Refused);
+        }
+
+        var export = await handler.HandleAsync(new ExportTransactions(filter, sorted), cancellationToken);
+        // Written to the response a part at a time, so a long list is never held whole.
+        return TypedResults.Stream(
+            async body =>
+            {
+                await using var asynchronous = new AsynchronousBody(body);
+                await export.WriteCsvAsync(asynchronous, cancellationToken);
+                await asynchronous.FlushAsync(cancellationToken);
+            },
+            "text/csv; charset=utf-8",
+            export.FileName);
     }
 
     /// <param name="type"><c>income</c> or <c>expense</c>: only a category of the kind it takes is suggested. Left out, a category of either kind is.</param>
@@ -449,6 +485,16 @@ public sealed record CurrencyTotalResponse(Currency Currency, string Income, str
 internal sealed class TransactionListParameters
 {
     public Dictionary<string, string[]> Refused { get; } = [];
+
+    /// <summary>The filters and the sort order, the API's own order (newest date first) for what is left out.</summary>
+    public (TransactionFilter Filter, TransactionSort Sort) Read(
+        string? from, string? to, string? accountId, string? categoryId, string? type, string? min, string? max, string? q, string? tag, string? sort, string? order) =>
+        (new TransactionFilter(
+                Date(nameof(from), from), Date(nameof(to), to), Id(nameof(accountId), accountId), Id(nameof(categoryId), categoryId),
+                OneOf<TransactionType>(nameof(type), type), Amount(nameof(min), min), Amount(nameof(max), max), Search(nameof(q), q),
+                Tag(nameof(tag), tag)),
+            new TransactionSort(
+                OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc));
 
     public DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
 

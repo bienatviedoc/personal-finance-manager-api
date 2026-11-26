@@ -33,12 +33,6 @@ public sealed class ExportDataHandler(
     TimeProvider clock)
     : IQueryHandler
 {
-    /// <summary>
-    /// UTF-8 with a byte order mark, which is what tells a spreadsheet that opens a CSV file that its
-    /// Vietnamese text is not in the computer's own code page.
-    /// </summary>
-    private static readonly UTF8Encoding CsvEncoding = new(encoderShouldEmitUTF8Identifier: true);
-
     private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private const string ReadMe =
@@ -84,7 +78,7 @@ public sealed class ExportDataHandler(
         {
             await AddAsync(
                 zip, $"{KebabCase(table.Name)}.csv", now, writer => Csv.Write(writer, [.. table.Columns.Select(CamelCase)], table.Rows), cancellationToken,
-                CsvEncoding);
+                Csv.Encoding);
         }
 
         foreach (var file in await attachmentFiles.ListAsync(cancellationToken))
