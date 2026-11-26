@@ -108,8 +108,11 @@ public sealed class MergeCategoryHandler(
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // What was spent in the merged category now counts toward the target's budgets, which it may move into warning or over.
-        await budgetNotifications.CheckAsync([.. moving.Where(transaction => !transaction.IsDeleted).Select(transaction => transaction.Date).Distinct()], cancellationToken);
+        // What was spent in the merged category and its subcategories now counts toward the target's budgets, and its
+        // budgets now meet what was spent in the target: either may move a budget into warning or over.
+        await budgetNotifications.CheckAsync(
+            [.. moving.Where(transaction => !transaction.IsDeleted).Select(transaction => transaction.Date).Concat(merge.BudgetedMonths).Distinct()],
+            cancellationToken);
         return new CategoryMergeDetails(moving.Count(transaction => !transaction.IsDeleted), merge.Moved);
     }
 

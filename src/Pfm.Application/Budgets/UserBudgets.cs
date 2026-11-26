@@ -31,7 +31,7 @@ public sealed class UserBudgets(IBudgetRepository budgets, TimeProvider clock) :
                 budgets.Remove(removed);
             }
 
-            return new BudgetMergeOutcome.Merged(plan.Moving);
+            return new BudgetMergeOutcome.Merged(plan.Moving, [.. plan.Months.Select(month => month.FirstDay)]);
         }
         catch (BudgetRuleViolation violation)
         {

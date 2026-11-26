@@ -41,7 +41,11 @@ public abstract record BudgetMergeOutcome
 
     /// <summary>The budgets moved.</summary>
     /// <param name="Moved">How many budgets of the merged category moved.</param>
-    public sealed record Merged(int Moved) : BudgetMergeOutcome;
+    /// <param name="BudgetedMonths">
+    /// The first day of every budget month the category merged into has a budget in once merged: what it is
+    /// budgeted, or what counts toward it, may have changed in each.
+    /// </param>
+    public sealed record Merged(int Moved, IReadOnlyCollection<DateOnly> BudgetedMonths) : BudgetMergeOutcome;
 
     /// <summary>Nothing changed: the budgets cannot be merged.</summary>
     /// <param name="Reason">Why, for the user.</param>
