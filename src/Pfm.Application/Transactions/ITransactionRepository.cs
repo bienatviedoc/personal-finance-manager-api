@@ -24,6 +24,9 @@ public interface ITransactionRepository
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 
+    /// <summary>The user's transactions with these ids, in no order; one they have none with, or deleted, is left out.</summary>
+    Task<IReadOnlyList<Transaction>> FindManyAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken);
+
     /// <summary>
     /// The user's transfer whose two legs share this transfer id; null when they have none, or deleted it
     /// and <paramref name="deletedToo"/> is not asked for.

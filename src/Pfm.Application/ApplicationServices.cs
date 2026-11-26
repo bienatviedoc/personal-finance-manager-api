@@ -42,6 +42,9 @@ public static class ApplicationServices
         services.AddScoped<IDefaultCategories, DefaultCategorySet>();
         services.AddScoped<IAccountLookup, AccountLookup>();
         services.AddScoped<IAccountBalances, AccountBalances>();
+        services.AddScoped<AccountTotals>();
+        services.AddScoped<IAccountTotals>(provider => provider.GetRequiredService<AccountTotals>());
+        services.AddScoped<IRecentActivity, RecentActivity>();
         services.AddScoped<IUserCalendar, UserCalendar>();
         services.AddScoped<IUserDeactivation, UserDeactivation>();
         services.AddScoped<TransactionContext>();

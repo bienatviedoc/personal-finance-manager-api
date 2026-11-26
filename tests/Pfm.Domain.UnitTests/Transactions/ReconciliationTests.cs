@@ -227,7 +227,7 @@ public class ReconciliationTests
     {
         var groceries = ReconciledExpense(500_000m);
 
-        Assert.Throws<InvalidOperationException>(() => groceries.Delete(Tuesday));
+        Assert.Throws<TransactionRuleViolation>(() => groceries.Delete(Tuesday));
         Assert.False(groceries.IsDeleted);
     }
 
@@ -259,7 +259,7 @@ public class ReconciliationTests
             transfer.Edit(new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), Today, null, Today, Tuesday)).Property);
         Assert.Equal("FromAccountId", Assert.Throws<TransferRuleViolation>(() =>
             transfer.Edit(new LegAmount(Guid.CreateVersion7(), Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, Today, Tuesday)).Property);
-        Assert.Throws<InvalidOperationException>(() => transfer.Delete(Tuesday));
+        Assert.Throws<TransactionRuleViolation>(() => transfer.Delete(Tuesday));
         Assert.Equal((1_000_000m, false), (transfer.Amount, transfer.IsDeleted));
 
         transfer.Edit(new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, "rent pot", Today, Tuesday);

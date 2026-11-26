@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 namespace Pfm.Application.UseCases;
 
@@ -10,9 +11,24 @@ namespace Pfm.Application.UseCases;
 /// </summary>
 public static class Csv
 {
+    /// <summary>
+    /// UTF-8 with a byte order mark, which is what tells a spreadsheet that opens a CSV file that its
+    /// Vietnamese text is not in the computer's own code page.
+    /// </summary>
+    public static readonly UTF8Encoding Encoding = new(encoderShouldEmitUTF8Identifier: true);
+
     public static void Write(TextWriter writer, IReadOnlyList<string> columns, IEnumerable<IReadOnlyList<object?>> rows)
     {
-        WriteLine(writer, columns);
+        WriteColumns(writer, columns);
+        WriteRows(writer, rows);
+    }
+
+    /// <summary>The first line: the names of the columns.</summary>
+    public static void WriteColumns(TextWriter writer, IReadOnlyList<string> columns) => WriteLine(writer, columns);
+
+    /// <summary>Lines under the column names, written as they come, so a long file can be written a part at a time.</summary>
+    public static void WriteRows(TextWriter writer, IEnumerable<IReadOnlyList<object?>> rows)
+    {
         foreach (var row in rows)
         {
             WriteLine(writer, [.. row.Select(Text)]);

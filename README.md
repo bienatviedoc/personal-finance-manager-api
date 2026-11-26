@@ -304,6 +304,20 @@ already uses it can still show it. An account can be archived at any balance.
   currency and kind stay fixed: it can be recovered, and would otherwise come back not matching them.
   `GET /transactions/deleted` lists those still held, the last deleted first, and `POST /transactions/{id}/restore`
   brings one back, both legs of a transfer together, until 30 days after it was deleted.
+- **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
+  `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
+  one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
+  1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
+  (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
+  (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,
+  `categoryKind`, `reconciled`, `otherCurrency`, `tooManyTags`), each with the transaction as it is (`transaction`, null when
+  not found), so a client can name one it has not loaded, and nothing changes. A category or account that
+  cannot be used at all (archived, not the user's) is a validation problem on its field instead. The rules are the
+  transaction's (`Transaction.Recategorise`, `MoveTo`, `AddTag`, `RemoveTag`): a split keeps its lines, a transaction
+  moves only to an account in its currency and keeps its converted amount, a reconciled one can be recategorised and
+  tagged but not moved or deleted, and deleting a leg deletes its transfer, as `DELETE` does. Done, it answers the `count`
+  of transactions changed, the other leg of each transfer deleted included. Like a delete it names
+  no row version.
 - **`GET /transactions`** finds transactions (spec TXN-2, TXN-3), paged like every list. Filters: `from` and `to`
   (dates, both included), `accountId`, `categoryId` (the category and its subcategories, through any line: a split is found by each of
   its categories), `type`, `min` and `max`
@@ -531,8 +545,20 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **Amounts are in the base currency**, as each was converted at the rate of its own date. What is not converted is
   left out of every total and counted in `notConverted` (spec section 3, rule 7), never dropped silently.
 - **Reports own no data.** Reports reads Transactions through its contracts (`ICategorySpending`, `ITransactionTrends`,
-  `IIncomeAndSpending`, `ICategoryLookup`), account balances through `IAccountBalances` (Accounts), budgets through
+  `IIncomeAndSpending`, `ICategoryLookup`, `IRecentActivity`), account balances through `IAccountBalances`,
+  `IAccountTotals` and `IAccountLookup` (Accounts), budgets through
   `IBudgetComparison` (Budgets) and the base currency through `IBaseCurrency`; nothing a report shows is stored.
+- **Dashboard** (RPT-1). `GET /reports/dashboard` answers the whole dashboard in one request, and takes no filters:
+  it is of this calendar month in the user's time zone (`from`, `to`). `balance` is what every account that is not
+  archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
+  with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
+  actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
+  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
+  ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
+  next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
+  has an account that is not archived, for the screen to show a new user where to start. `GetDashboard` holds the
+  counts.
 - **Spending by category** (RPT-2). `GET /reports/spending-by-category` answers what each category spent, by the same
   definition of spent as budgets (`Transaction.SpentAmountIn`): a refund lowers its category, each line of a split
   counts in its own, and income and transfers never count. Each item has its `share` of the total, to one
@@ -591,6 +617,18 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   answer in `locale` (`en` or `vi`), or the user's own (`IUserLocale`), or English, with amounts as the SPA writes
   them (`Locales.WriteAmount`, `WritePercent`). `IPdfWriter` lays it out with MigraDoc, in Noto Sans carried in the
   assembly ([decision record 0005](docs/adr/0005-pdf-documents-with-migradoc.md)).
+
+### Export
+
+- **The transaction list as CSV** (spec section 7, Export). `GET /export/transactions.csv` takes the filters and sort
+  order of `GET /transactions` (one `TransactionListParameters` reads both) and writes every transaction that
+  passes, however many pages the list would take, a batch at a time (`ExportTransactions`). One line each:
+  `date`, `type`, `isRefund`, `account` and `category` by name (a split's categories joined by `; `, a leg of a
+  transfer none), `payee`, `note`, `tags` (joined by `; `), `amount` (a plain decimal above zero, as JSON answers it) and `currency`.
+- **CSV is written one way** (`Csv`, RFC 4180, UTF-8 with a byte order mark so a spreadsheet reads Vietnamese
+  as written), the same for this file and for the full export (`GET /export/all.zip`).
+- **Reports are exported by the SPA**, from the answer it already shows: a report's CSV holds the numbers of its
+  table view and nothing the API did not answer, so no report needs a second endpoint.
 
 ## Signing in
 

@@ -26,6 +26,10 @@ public static class TransactionEndpoints
             .WithDescription("The user's recently deleted transactions: those deleted in the last 30 days, which can still be restored, the last deleted first, a page at a time. Each leg of a deleted transfer is listed. After 30 days a deleted transaction is no longer listed or restorable, and the worker removes it for good.");
         transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
             .WithDescription("Restores a transaction deleted in the last 30 days: it is back in lists and its account's balance at once, as it was when it was deleted. Restoring a leg of a transfer restores the whole transfer, the other leg with it. One that is not deleted, or was deleted longer ago, is not found. The ETag header carries its row version.");
+        transactions.MapPost("/bulk", BulkEdit).WithName("BulkEditTransactions")
+            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters; never both, and at most 1000: a filter that more pass answers 422 with the problem type urn:pfm:problem:bulk-selection-too-large and its max, and nothing changes. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
+            .Produces<BulkActionRefusedProblem>(StatusCodes.Status409Conflict, "application/problem+json")
+            .Produces<BulkSelectionTooLargeProblem>(StatusCodes.Status422UnprocessableEntity, "application/problem+json");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
             .WithDescription("One transaction. The ETag header carries its row version. A deleted transaction is not found.");
         transactions.MapPost("/", Create).WithName("CreateTransaction")
@@ -38,6 +42,11 @@ public static class TransactionEndpoints
         transactions.MapDelete("/{id:guid}", Delete).WithName("DeleteTransaction")
             .WithDescription("Deletes the transaction: it leaves lists and its account's balance at once. Deleting a leg of a transfer deletes the whole transfer, the other leg with it. A reconciled transaction, or a leg of a transfer either of whose legs is reconciled, answers 409 with the problem type urn:pfm:problem:transaction-reconciled and is not deleted.")
             .ProducesProblem(StatusCodes.Status409Conflict);
+
+        api.MapGet("/export/transactions.csv", Export).WithName("ExportTransactions").WithTags("Export")
+            .WithDescription("Every transaction that passes the filters sent, as a CSV file to download: the whole list, however many pages GET /transactions would take, in its order. One line for each transaction under a line of column names (date, type, isRefund, account, category, payee, note, tags, amount, currency): dates are YYYY-MM-DD, amounts plain decimals above zero, as the list answers them, beside their currency's code. The account and category are named; a split names each of its categories, separated by \"; \", and a leg of a transfer none. Tags are separated the same way. UTF-8 with a byte order mark, comma-separated (RFC 4180).")
+            .Produces(StatusCodes.Status200OK, contentType: "text/csv")
+            .ProducesProblem(StatusCodes.Status401Unauthorized);
 
         return api;
     }
@@ -53,6 +62,18 @@ public static class TransactionEndpoints
     /// it is locked until its reconciliation is reopened, and nothing changes.
     /// </summary>
     public const string TransactionReconciled = "urn:pfm:problem:transaction-reconciled";
+
+    /// <summary>
+    /// Problem type returned when some of the transactions a bulk action selects cannot take it: nothing changed.
+    /// Its <c>refused</c> lists each of them and why.
+    /// </summary>
+    public const string BulkActionRefused = "urn:pfm:problem:bulk-action-refused";
+
+    /// <summary>
+    /// Problem type returned when more transactions pass a bulk action's filter than one bulk action takes: nothing
+    /// changed. Its <c>max</c> says how many it takes; narrow the filter.
+    /// </summary>
+    public const string BulkSelectionTooLarge = "urn:pfm:problem:bulk-selection-too-large";
 
     /// <param name="from">The earliest date listed, <c>YYYY-MM-DD</c>.</param>
     /// <param name="to">The latest date listed, <c>YYYY-MM-DD</c>.</param>
@@ -85,12 +106,7 @@ public static class TransactionEndpoints
         }
 
         var asked = new TransactionListParameters();
-        var filter = new TransactionFilter(
-            asked.Date(nameof(from), from), asked.Date(nameof(to), to), asked.Id(nameof(accountId), accountId), asked.Id(nameof(categoryId), categoryId),
-            asked.OneOf<TransactionType>(nameof(type), type), asked.Amount(nameof(min), min), asked.Amount(nameof(max), max), asked.Search(nameof(q), q),
-            asked.Tag(nameof(tag), tag));
-        var sorted = new TransactionSort(
-            asked.OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, asked.OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc);
+        var (filter, sorted) = asked.Read(from, to, accountId, categoryId, type, min, max, q, tag, sort, order);
         if (asked.Refused.Count > 0)
         {
             return TypedResults.ValidationProblem(asked.Refused);
@@ -99,6 +115,42 @@ public static class TransactionEndpoints
         var list = await handler.HandleAsync(new ListTransactions(filter, sorted, limit, after), cancellationToken);
         return TypedResults.Ok(new TransactionListResponse(
             [.. list.Page.Items.Select(TransactionResponse.From)], list.Page.NextCursor, FilteredTotalResponse.From(list.Total)));
+    }
+
+    /// <param name="from">The earliest date exported, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The latest date exported, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="accountId">One of the user's accounts: only its transactions are exported.</param>
+    /// <param name="categoryId">One of the user's categories: only transactions with a line on it or on one of its subcategories are exported.</param>
+    /// <param name="type"><c>income</c>, <c>expense</c>, <c>transferOut</c> or <c>transferIn</c>.</param>
+    /// <param name="min">The smallest amount exported, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="max">The largest amount exported, a decimal string, in whatever currency a transaction is in.</param>
+    /// <param name="q">Text the payee, the note or the note of any line contains, in upper or lower case; at most 200 characters.</param>
+    /// <param name="tag">The name of one of the user's tags, in any case: only transactions with it are exported.</param>
+    /// <param name="sort"><c>date</c> or <c>amount</c>; <c>date</c> when left out.</param>
+    /// <param name="order"><c>asc</c> or <c>desc</c>; <c>desc</c> when left out.</param>
+    private static async Task<Results<PushStreamHttpResult, ValidationProblem>> Export(
+        ExportTransactionsHandler handler, CancellationToken cancellationToken,
+        string? from = null, string? to = null, string? accountId = null, string? categoryId = null, string? type = null,
+        string? min = null, string? max = null, string? q = null, string? tag = null, string? sort = null, string? order = null)
+    {
+        var asked = new TransactionListParameters();
+        var (filter, sorted) = asked.Read(from, to, accountId, categoryId, type, min, max, q, tag, sort, order);
+        if (asked.Refused.Count > 0)
+        {
+            return TypedResults.ValidationProblem(asked.Refused);
+        }
+
+        var export = await handler.HandleAsync(new ExportTransactions(filter, sorted), cancellationToken);
+        // Written to the response a part at a time, so a long list is never held whole.
+        return TypedResults.Stream(
+            async body =>
+            {
+                await using var asynchronous = new AsynchronousBody(body);
+                await export.WriteCsvAsync(asynchronous, cancellationToken);
+                await asynchronous.FlushAsync(cancellationToken);
+            },
+            "text/csv; charset=utf-8",
+            export.FileName);
     }
 
     /// <param name="type"><c>income</c> or <c>expense</c>: only a category of the kind it takes is suggested. Left out, a category of either kind is.</param>
@@ -151,6 +203,45 @@ public static class TransactionEndpoints
         }
 
         return result.Outcome is { } restored ? TypedResults.Ok(Versioned(http, TransactionResponse.From(restored))) : TypedResults.NotFound();
+    }
+
+    private static async Task<Results<Ok<BulkEditResponse>, ValidationProblem, JsonHttpResult<BulkActionRefusedProblem>, JsonHttpResult<BulkSelectionTooLargeProblem>>> BulkEdit(
+        BulkEditRequest request, BulkEditTransactionsHandler handler, CancellationToken cancellationToken)
+    {
+        TransactionFilter? filter = null;
+        if (request.Filter is { } sent)
+        {
+            var asked = new TransactionListParameters();
+            filter = asked.Filter(sent, "filter.");
+            if (asked.Refused.Count > 0)
+            {
+                return TypedResults.ValidationProblem(asked.Refused);
+            }
+        }
+
+        var result = await handler.HandleAsync(
+            new BulkEditTransactionsCommand(request.Action, request.TransactionIds, filter, request.CategoryId, request.Tag, request.AccountId), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            BulkEditOutcome.Done done => TypedResults.Ok(new BulkEditResponse(done.Count)),
+            BulkEditOutcome.TooMany tooMany => TypedResults.Json(
+                new BulkSelectionTooLargeProblem(
+                    BulkSelectionTooLarge, $"More than {tooMany.Max} transactions pass this filter.", StatusCodes.Status422UnprocessableEntity,
+                    "Narrow the filter, or act on the transactions in parts. Nothing changed.", tooMany.Max),
+                statusCode: StatusCodes.Status422UnprocessableEntity, contentType: "application/problem+json"),
+            BulkEditOutcome.Refused refused => TypedResults.Json(
+                new BulkActionRefusedProblem(
+                    BulkActionRefused, "Some of the transactions cannot take this action, so none did.", StatusCodes.Status409Conflict,
+                    "Leave out the transactions refused, or change them first, and act again.",
+                    [.. refused.Rows.Select(RefusedTransactionResponse.From)]),
+                statusCode: StatusCodes.Status409Conflict, contentType: "application/problem+json"),
+            _ => throw new ArgumentOutOfRangeException(nameof(result), result.Outcome, "Not an outcome of a bulk action."),
+        };
     }
 
     private static async Task<Results<Ok<TransactionResponse>, NotFound>> Get(
@@ -326,6 +417,46 @@ public sealed record DeletedTransactionListResponse(IReadOnlyList<DeletedTransac
 /// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; null when they never used the payee.</param>
 public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId);
 
+/// <summary>One action on many transactions (spec TXN-7).</summary>
+/// <param name="Action"><c>setCategory</c>, <c>addTag</c>, <c>removeTag</c>, <c>moveToAccount</c> or <c>delete</c>.</param>
+/// <param name="TransactionIds">The transactions selected one by one: 1 to 1000. Leave out when sending <c>filter</c>.</param>
+/// <param name="Filter">Selects every transaction that passes it, as the list would show them: at most 1000, or the action is refused as too many. Leave out when sending <c>transactionIds</c>.</param>
+/// <param name="CategoryId">For setCategory: one of the user's categories that is not archived.</param>
+/// <param name="Tag">For addTag and removeTag: the tag's name, 1 to 50 characters, kept trimmed and in lower case. Adding one the user has no tag with yet creates it.</param>
+/// <param name="AccountId">For moveToAccount: one of the user's accounts that is not archived.</param>
+public sealed record BulkEditRequest(
+    string Action, IReadOnlyList<Guid>? TransactionIds = null, TransactionFilterRequest? Filter = null, Guid? CategoryId = null, string? Tag = null,
+    Guid? AccountId = null);
+
+/// <summary>The filters of the transaction list, each as its query parameter of the same name takes it; one left out filters nothing.</summary>
+public sealed record TransactionFilterRequest(
+    string? From = null, string? To = null, string? AccountId = null, string? CategoryId = null, string? Type = null, string? Min = null, string? Max = null,
+    string? Q = null, string? Tag = null);
+
+/// <summary>A bulk action done.</summary>
+/// <param name="Count">How many transactions it was done to: every one selected, and the other leg of each transfer it deleted.</param>
+public sealed record BulkEditResponse(int Count);
+
+/// <summary>A bulk action refused because some of the transactions it selects cannot take it. Nothing changed.</summary>
+/// <param name="Type"><c>urn:pfm:problem:bulk-action-refused</c>.</param>
+/// <param name="Refused">Each transaction refused, in the order they were selected.</param>
+public sealed record BulkActionRefusedProblem(string Type, string Title, int Status, string Detail, IReadOnlyList<RefusedTransactionResponse> Refused);
+
+/// <summary>A bulk action refused because more transactions pass its filter than one bulk action takes. Nothing changed.</summary>
+/// <param name="Type"><c>urn:pfm:problem:bulk-selection-too-large</c>.</param>
+/// <param name="Max">The most transactions one bulk action takes: narrow the filter to that many.</param>
+public sealed record BulkSelectionTooLargeProblem(string Type, string Title, int Status, string Detail, int Max);
+
+/// <summary>A transaction that cannot take a bulk action.</summary>
+/// <param name="Reason">Why: notFound, transferLeg, split, categoryKind, reconciled, otherCurrency or tooManyTags.</param>
+/// <param name="Message">The reason in words, in English.</param>
+/// <param name="Transaction">The transaction as it is, unchanged, to name it by (its date, payee, category, amount) where it is not on screen; null when not found.</param>
+public sealed record RefusedTransactionResponse(Guid TransactionId, BulkRefusal Reason, string Message, TransactionResponse? Transaction)
+{
+    public static RefusedTransactionResponse From(RefusedTransaction refused) =>
+        new(refused.TransactionId, refused.Reason, refused.Message, refused.Transaction is { } transaction ? TransactionResponse.From(transaction) : null);
+}
+
 /// <summary>A line of a transaction.</summary>
 /// <param name="Amount">A decimal string in the transaction's currency, greater than zero.</param>
 public sealed record TransactionLineResponse(Guid CategoryId, string Amount, string? Note);
@@ -374,20 +505,33 @@ internal sealed class TransactionListParameters
 {
     public Dictionary<string, string[]> Refused { get; } = [];
 
-    public DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
+    /// <summary>The filters and the sort order, the API's own order (newest date first) for what is left out.</summary>
+    public (TransactionFilter Filter, TransactionSort Sort) Read(
+        string? from, string? to, string? accountId, string? categoryId, string? type, string? min, string? max, string? q, string? tag, string? sort, string? order) =>
+        (Filter(new TransactionFilterRequest(from, to, accountId, categoryId, type, min, max, q, tag)),
+            new TransactionSort(
+                OneOf<TransactionSortBy>(nameof(sort), sort) ?? TransactionSortBy.Date, OneOf<SortOrder>(nameof(order), order) ?? SortOrder.Desc));
 
-    public Guid? Id(string name, string? text) => Read(name, text, Guid.TryParse(text, out var id) ? id : (Guid?)null, "Send an id.");
+    /// <summary>The filters, each refused under its query name after <paramref name="prefix"/> (<c>filter.min</c>).</summary>
+    public TransactionFilter Filter(TransactionFilterRequest sent, string prefix = "") =>
+        new(Date(prefix + "from", sent.From), Date(prefix + "to", sent.To), Id(prefix + "accountId", sent.AccountId), Id(prefix + "categoryId", sent.CategoryId),
+            OneOf<TransactionType>(prefix + "type", sent.Type), Amount(prefix + "min", sent.Min), Amount(prefix + "max", sent.Max), Search(prefix + "q", sent.Q),
+            Tag(prefix + "tag", sent.Tag));
 
-    public TEnum? OneOf<TEnum>(string name, string? text)
+    private DateOnly? Date(string name, string? text) => Read(name, text, DateText.Read(text), DateText.Message);
+
+    private Guid? Id(string name, string? text) => Read(name, text, Guid.TryParse(text, out var id) ? id : (Guid?)null, "Send an id.");
+
+    private TEnum? OneOf<TEnum>(string name, string? text)
         where TEnum : struct, Enum =>
         Read(name, text, EnumText<TEnum>.Read(text), $"Choose one of: {string.Join(", ", EnumText<TEnum>.Names)}.");
 
     /// <summary>A transaction's amount is above zero, so a negative one bounds nothing.</summary>
-    public decimal? Amount(string name, string? text) =>
+    private decimal? Amount(string name, string? text) =>
         Read(name, text, AmountText.TryParse(text, out var amount) && amount >= 0 ? amount : (decimal?)null, "Enter an amount that is not negative, such as 125000.00.");
 
     /// <summary>The text to search for, trimmed; nothing but spaces searches for nothing.</summary>
-    public string? Search(string name, string? text)
+    private string? Search(string name, string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -399,7 +543,7 @@ internal sealed class TransactionListParameters
     }
 
     /// <summary>A tag's name as tags keep it; nothing but spaces filters by no tag.</summary>
-    public string? Tag(string name, string? text) =>
+    private string? Tag(string name, string? text) =>
         string.IsNullOrWhiteSpace(text) ? null : Read(name, text, Domain.Transactions.Tag.IsValidName(text) ? Domain.Transactions.Tag.Normalised(text) : null, $"Send a tag of at most {Domain.Transactions.Tag.MaxNameLength} characters.");
 
     private T? Read<T>(string name, string? text, T? read, string message)
