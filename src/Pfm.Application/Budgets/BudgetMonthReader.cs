@@ -19,7 +19,7 @@ public sealed class BudgetMonthReader(
     public async Task<BudgetMonthDetails> ReadAsync(BudgetMonth month, CancellationToken cancellationToken)
     {
         var all = await budgets.ListForMonthAsync(month, cancellationToken);
-        var overall = all.SingleOrDefault(budget => budget.IsOverall);
+        var overall = all.Overall();
         var ofMonth = all.Where(budget => !budget.IsOverall).ToList();
         var today = await calendar.TodayAsync(cancellationToken);
         var tree = new CategoryTree(await categories.ListAsync(cancellationToken));

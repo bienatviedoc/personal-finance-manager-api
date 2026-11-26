@@ -82,7 +82,7 @@ public sealed class SetOverallBudgetHandler(
     private async Task<Result<SetOverallBudgetOutcome>> SetAsync(SetOverallBudgetCommand command, CancellationToken cancellationToken)
     {
         var (month, amount) = (command.ParsedMonth!.Value, command.ParsedAmount!.Value);
-        var existing = (await budgets.ListForMonthAsync(month, cancellationToken)).SingleOrDefault(budget => budget.IsOverall);
+        var existing = (await budgets.ListForMonthAsync(month, cancellationToken)).Overall();
         try
         {
             if (existing is not null)

@@ -466,7 +466,7 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public void MoveLines(Category from, Category into, DateTimeOffset now)
     {
-        GuardMerge(from, into);
+        Category.GuardMerge(from, into);
         var moving = _lines.Where(line => line.CategoryId == from.Id).ToList();
         if (moving.Count == 0)
         {
@@ -480,17 +480,6 @@ public sealed class Transaction : IUserOwned
 
         CategoryId = Lines[0].CategoryId;
         UpdatedAt = now;
-    }
-
-    /// <summary>Two categories one of which is merged into the other, which <see cref="Category.MergeInto"/> has checked.</summary>
-    internal static void GuardMerge(Category from, Category into)
-    {
-        ArgumentNullException.ThrowIfNull(from);
-        ArgumentNullException.ThrowIfNull(into);
-        if (from.Kind != into.Kind || into.IsArchived || from.Id == into.Id)
-        {
-            throw new ArgumentException("Only a category of the same kind that is not archived can be merged into.", nameof(into));
-        }
     }
 
     private void GuardNotDeleted()

@@ -7,7 +7,8 @@ namespace Pfm.Application.Budgets;
 
 /// <summary>Compares the user's budgets with what was spent over some budget months (<see cref="BudgetComparison"/>), for Reports.</summary>
 public sealed class BudgetComparer(
-    IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBudgetWarningThreshold warningThreshold) : IBudgetComparison
+    IBudgetRepository budgets, ICategoryLookup categories, ICategorySpending spending, IBudgetWarningThreshold warningThreshold, BudgetMonthReader reader)
+    : IBudgetComparison
 {
     public async Task<BudgetsComparedWithSpent> CompareAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
@@ -32,6 +33,20 @@ public sealed class BudgetComparer(
             ],
             [.. comparison.Unbudgeted.Select(of => new CategorySpentUnbudgeted(of.CategoryId, of.Spent, of.NotConvertedExpenses))]);
     }
+
+    public async Task<OverallBudgetedAndSpent?> OverallAsync(DateOnly day, CancellationToken cancellationToken) =>
+        (await reader.ReadAsync(BudgetMonth.Of(day), cancellationToken)).Overall is { } overall
+            ? new OverallBudgetedAndSpent(
+                overall.Budgeted, overall.Spent, overall.Remaining, overall.PercentSpent, StateOf(overall.State), PaceOf(overall.Pace), overall.NotConverted)
+            : null;
+
+    private static ComparedBudgetPace? PaceOf(BudgetPace? pace) => pace switch
+    {
+        null => null,
+        BudgetPace.OnPace => ComparedBudgetPace.OnPace,
+        BudgetPace.AheadOfPace => ComparedBudgetPace.AheadOfPace,
+        _ => throw new ArgumentOutOfRangeException(nameof(pace), pace, "Not a pace."),
+    };
 
     private static ComparedBudgetState StateOf(BudgetState state) => state switch
     {

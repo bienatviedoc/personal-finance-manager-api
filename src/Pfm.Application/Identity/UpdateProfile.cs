@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
@@ -59,12 +60,14 @@ public sealed class UpdateProfileValidator : AbstractValidator<UpdateProfileComm
 /// own date: the amounts were kept in the old one, and totals are only ever in the base currency. Once the
 /// user has a budget the base currency is locked (spec section 3, rule 12; decision record 0002): a budget is
 /// an amount they entered in it, and is never converted. Another base currency is then refused, naming the field.
+/// A lower warning threshold can move a budget of this month into warning without any spending, so its budget
+/// notifications are checked once it is saved.
 /// The change names no row version, so when the user or one of those transactions is changed by another
 /// request before it is saved, or the user's first budget is set, it is made again on what was saved.
 /// </remarks>
 public sealed class UpdateProfileHandler(
     IValidator<UpdateProfileCommand> validator, ICurrentUser currentUser, IUserProfiles profiles, ITransactionConversion transactions,
-    IUserBudgets budgets, IUnitOfWork unitOfWork)
+    IUserBudgets budgets, IBudgetNotifications budgetNotifications, IUserCalendar calendar, IUnitOfWork unitOfWork)
     : CommandHandler<UpdateProfileCommand, ProfileDetails?>(validator)
 {
     private static readonly ProfileDetails? NoUser = null;
@@ -102,6 +105,11 @@ public sealed class UpdateProfileHandler(
             }
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
+            if (settings.BudgetWarningPercent < profile.BudgetWarningPercent)
+            {
+                await budgetNotifications.CheckAsync([await calendar.TodayAsync(cancellationToken)], cancellationToken);
+            }
+
             return profile with
             {
                 BaseCurrency = settings.BaseCurrency, TimeZone = settings.TimeZone, Locale = settings.Locale,

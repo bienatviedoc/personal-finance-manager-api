@@ -209,6 +209,20 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_lower_warning_threshold_that_spent_is_now_past_raises_a_warning_for_this_month()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        await BudgetAsync(browser, "Transport", "1000000");
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "700000", FirstOfThisMonth);
+        Assert.Empty((await ListAsync(browser)).Items);
+
+        (await browser.PatchAsync("/api/v1/me", new { budgetWarningPercent = 60 })).EnsureSuccessStatusCode();
+
+        Assert.Equal([(ThisMonth, "warning")], (await ListAsync(browser)).Items.Select(item => (item.Month, item.State)));
+        Assert.Single(BudgetEmails(email));
+    }
+
+    [Fact]
     public async Task An_expense_converted_once_its_rate_arrives_raises_the_notification_then()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -298,6 +312,30 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
         await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Shopping", "1200000", FirstOfThisMonth);
 
         (await browser.PostAsync($"/api/v1/categories/{await CategoryAsync(browser, "Shopping")}/merge", new { targetId = transport })).EnsureSuccessStatusCode();
+
+        Assert.Equal(["over"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
+    public async Task Merging_a_budgeted_category_into_one_with_spending_raises_the_notification_the_budget_now_meets()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var shopping = await BudgetAsync(browser, "Shopping", "1000000");
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Transport", "900000", FirstOfThisMonth);
+
+        (await browser.PostAsync($"/api/v1/categories/{shopping}/merge", new { targetId = await CategoryAsync(browser, "Transport") })).EnsureSuccessStatusCode();
+
+        Assert.Equal(["warning"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
+    public async Task Merging_a_category_raises_the_notification_its_subcategories_spending_brings_to_the_budget_merged_into()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var shopping = await BudgetAsync(browser, "Shopping", "1000000");
+        await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Groceries", "1200000", FirstOfThisMonth);
+
+        (await browser.PostAsync($"/api/v1/categories/{await CategoryAsync(browser, "Food & drink")}/merge", new { targetId = shopping })).EnsureSuccessStatusCode();
 
         Assert.Equal(["over"], (await ListAsync(browser)).Items.Select(item => item.State));
     }

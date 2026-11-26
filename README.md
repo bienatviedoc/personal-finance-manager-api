@@ -520,7 +520,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   `DELETE` on the same address removes it, leaving the category budgets. `GET /budgets` answers it as `overall`
   (null when the month has none), against every expense of the month whether or not its category has a budget
   (`BudgetProgress.OfOverall`), with the same states and `notConverted`. It is not one of the `items` nor in
-  their `totals`, nor in budget vs actual or the dashboard, which compare category budgets; it locks the base
+  their `totals`, nor in budget vs actual, which compares category budgets; the dashboard shows it apart (below). It locks the base
   currency like any budget, and copying a month copies it too when the month has none.
 - **Pace** (BUD-6): in the current month each budget and the overall budget have a `pace`, `aheadOfPace` when the
   share spent is larger than the share of the month elapsed, today included, in the user's time zone, otherwise
@@ -554,7 +554,8 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **Budget notifications** (BUD-7): after any change that affects spent (a transaction recorded, edited, deleted,
   restored or converted once its rate arrives, a bulk action, a transfer unmarked, a category merged, an occurrence posted) or a budget
   set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
-  the dates it touched. `BudgetNotifications` reads each of those budget months as the budget screen does and
+  the dates it touched (a merge, every month the category merged into is budgeted in once merged, as its budget may now
+  meet spending it did not, and its subcategories' spending now counts toward it). `BudgetNotifications` reads each of those budget months as the budget screen does and
   raises a `BudgetNotification` for each category budget (the overall budget raises none: BUD-7 is about a category) that moved into `warning` or `over` and has not raised that
   one in the month (`BudgetNotification.Due`): one warning and one over at most, and no warning after over, even
   when spent drops back and crosses again. A unique index holds that when two requests raise the same one at once.
@@ -563,7 +564,8 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   switched off) is false; an email that cannot be sent is logged and the notification stays in the app.
   `GET /budget-notifications` lists them the newest first, a page at a time, with how many are `unread`;
   `POST /budget-notifications/{id}/read` and `POST /budget-notifications/read` mark one or all read.
-  Lowering the warning threshold changes no spent, so it raises nothing until the next change does.
+  Lowering the warning threshold (`PATCH /me`) moves no spent but can move a budget into warning, so it checks the
+  current budget month too.
 - Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
   Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
@@ -588,7 +590,9 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
   with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
   actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
-  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  `needingAttention`, with this month's `overall` budget and its `pace` beside them (`IBudgetComparison.OverallAsync`;
+  null when it has none). `budgets` is null only when neither a category budget nor an overall budget is set this
+  month; `topCategories` is the first five top-level items of
   spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
   ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
   next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
@@ -648,7 +652,7 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
 - **Cash flow** (RPT-4). `GET /reports/cash-flow` answers the running balance at the end of every day of the period,
   or with `interval=week` at the end of every week (Monday to Sunday) and of the period's last day
   (`ReportPeriod.ClosingDays`). With `accountId`, it is that account's balance in its own currency, as the account
-  detail page charts it; without, it is every account's, archived ones included, in the base currency. The balances
+  detail page charts it, and 404 when the user has no such account, as on every route about one account; without, it is every account's, archived ones included, in the base currency. The balances
   come from `IAccountBalances`, as net worth's do (none before an account opened), and across accounts the balances in
   one currency are added up and converted at the rate of the day shown, or the nearest earlier one, all of a period's
   rates read at once (`ICurrencyConversion` with dated amounts); a balance with no rate is left out and counted in

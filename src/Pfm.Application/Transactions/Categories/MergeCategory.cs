@@ -87,11 +87,13 @@ public sealed class MergeCategoryHandler(
         var budgetsMerged = await budgets.MergeAsync(
             new CategoryMerge(merged.Id, target.Id, target.ParentId, [.. targetSubcategories.Where(sub => sub.Id != merged.Id).Concat(subcategories).Select(sub => sub.Id)]),
             cancellationToken);
-        if (budgetsMerged.Refused is { } refused)
+        if (budgetsMerged is BudgetMergeOutcome.Refused refused)
         {
             unitOfWork.DiscardChanges();
-            return Refused(command, refused);
+            return Refused(command, refused.Reason);
         }
+
+        var merge = (BudgetMergeOutcome.Merged)budgetsMerged;
 
         var moving = await transactions.ListOnCategoryAsync(merged.Id, cancellationToken);
         foreach (var transaction in moving)
@@ -106,9 +108,12 @@ public sealed class MergeCategoryHandler(
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        // What was spent in the merged category now counts toward the target's budgets, which it may move into warning or over.
-        await budgetNotifications.CheckAsync([.. moving.Where(transaction => !transaction.IsDeleted).Select(transaction => transaction.Date).Distinct()], cancellationToken);
-        return new CategoryMergeDetails(moving.Count(transaction => !transaction.IsDeleted), budgetsMerged.Moved);
+        // What was spent in the merged category and its subcategories now counts toward the target's budgets, and its
+        // budgets now meet what was spent in the target: either may move a budget into warning or over.
+        await budgetNotifications.CheckAsync(
+            [.. moving.Where(transaction => !transaction.IsDeleted).Select(transaction => transaction.Date).Concat(merge.BudgetedMonths).Distinct()],
+            cancellationToken);
+        return new CategoryMergeDetails(moving.Count(transaction => !transaction.IsDeleted), merge.Moved);
     }
 
     private static Result<CategoryMergeDetails?> Refused(MergeCategoryCommand command, string message) =>

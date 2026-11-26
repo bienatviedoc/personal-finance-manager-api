@@ -11,14 +11,21 @@ public sealed class BudgetMerge
     private readonly Guid _intoId;
     private readonly IReadOnlyList<(Budget Merged, Budget? Into)> _moves;
 
-    private BudgetMerge(Guid intoId, IReadOnlyList<(Budget Merged, Budget? Into)> moves)
+    private BudgetMerge(Guid intoId, IReadOnlyList<(Budget Merged, Budget? Into)> moves, IReadOnlyList<BudgetMonth> months)
     {
         _intoId = intoId;
         _moves = moves;
+        Months = months;
     }
 
     /// <summary>How many budgets of the merged category move.</summary>
     public int Moving => _moves.Count;
+
+    /// <summary>
+    /// Every budget month the category merged into has a budget in once merged. In each, what it is budgeted or
+    /// what counts toward it may change, so its budget may move into warning or over.
+    /// </summary>
+    public IReadOnlyList<BudgetMonth> Months { get; }
 
     /// <summary>Checks that the budgets can be merged, changing nothing yet.</summary>
     /// <param name="intoId">The category merged into.</param>
@@ -62,7 +69,7 @@ public sealed class BudgetMerge
             moves.Add((budget, already));
         }
 
-        return new BudgetMerge(intoId, moves);
+        return new BudgetMerge(intoId, moves, [.. merged.Concat(into).Select(budget => budget.Month).Distinct().OrderBy(month => month.FirstDay)]);
     }
 
     /// <summary>Moves the budgets, adding amounts where both are budgeted in the month.</summary>
