@@ -28,7 +28,7 @@ public readonly record struct BudgetMonth
     public static BudgetMonth Of(DateOnly date) => new(date.Year, date.Month);
 
     /// <summary>
-    /// The budget months from the one &lt;paramref name="from"/&gt; is in to the one &lt;paramref name="to"/&gt; is in, in order.
+    /// The budget months from the one <paramref name="from"/> is in to the one <paramref name="to"/> is in, in order.
     /// </summary>
     public static IReadOnlyList<BudgetMonth> Spanning(DateOnly from, DateOnly to)
     {

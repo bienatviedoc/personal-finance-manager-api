@@ -42,9 +42,17 @@ if (args is ["migrate"])
     return;
 }
 
-// `dotnet Pfm.Api.dll seed` gives a new user a year of sample data and exits: for a local environment only.
+// `dotnet Pfm.Api.dll seed` gives a new user a year of sample data and exits: for a local environment only, as it
+// makes a user with their email confirmed and, unless told otherwise, a password anyone can read in the README.
 if (args is [SampleDataCommand.Name, .. var seedArguments])
 {
+    if (!app.Environment.IsDevelopment())
+    {
+        await Console.Error.WriteLineAsync($"seed is for a local environment only, and this one is {app.Environment.EnvironmentName}.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
     if (SampleDataCommand.Read(seedArguments, out var problem) is not { } sample)
     {
         await Console.Error.WriteLineAsync(problem);

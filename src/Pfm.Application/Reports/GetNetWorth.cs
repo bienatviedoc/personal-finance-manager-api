@@ -10,8 +10,8 @@ namespace Pfm.Application.Reports;
 /// <summary>
 /// What the user is worth over a period (spec RPT-5): assets minus liabilities at each month end, in the base
 /// currency. The category filter and comparing with the period before do not apply: net worth is made of
-/// balances, which belong to no category, so &lt;see cref="ReportFilter.CategoryId"/&gt; and &lt;see cref="ReportFilter.Compare"/&gt;
-/// are not read; with &lt;see cref="ReportFilter.AccountId"/&gt;, only that account counts.
+/// balances, which belong to no category, so <see cref="ReportFilter.CategoryId"/> and <see cref="ReportFilter.Compare"/>
+/// are not read; with <see cref="ReportFilter.AccountId"/>, only that account counts.
 /// </summary>
 public sealed record GetNetWorth(ReportFilter Filter);
 

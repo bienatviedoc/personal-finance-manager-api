@@ -30,11 +30,11 @@ internal sealed class SampleYear
         _categories = categories.ToDictionary(category => category.Name);
         From = today.AddYears(-1).AddDays(1);
 
-        var bank = Institution.Create("Vietcombank", Color.Parse("#16a34a"), logoKey: null, now);
+        var institution = Institution.Create("Vietcombank", Color.Parse("#16a34a"), logoKey: null, now);
         var cardIssuer = Institution.Create("Techcombank", Color.Parse("#dc2626"), logoKey: null, now);
-        Institutions = [bank, cardIssuer];
-        _everyday = Account.Create("Everyday", AccountType.Current, bank.Id, currency, 20_000_000, From, now);
-        _savings = Account.Create("Savings", AccountType.Savings, bank.Id, currency, 100_000_000, From, now);
+        Institutions = [institution, cardIssuer];
+        _everyday = Account.Create("Everyday", AccountType.Current, institution.Id, currency, 20_000_000, From, now);
+        _savings = Account.Create("Savings", AccountType.Savings, institution.Id, currency, 100_000_000, From, now);
         _creditCard = Account.Create(
             "Credit card", AccountType.CreditCard, cardIssuer.Id, currency, 0, From, now, Last4Digits.Parse("4242"), new CreditCardTerms(50_000_000, 25, 10));
         _cash = Account.Create("Cash", AccountType.Cash, institutionId: null, currency, 2_000_000, From, now);
@@ -90,7 +90,7 @@ internal sealed class SampleYear
 
     private IEnumerable<Budget> MakeBudgets()
     {
-        for (var month = BudgetMonth.Of(From); month.FirstDay <= _today; month = BudgetMonth.Of(month.FirstDay.AddMonths(1)))
+        foreach (var month in BudgetMonth.Spanning(From, _today))
         {
             var budgeted = new List<Guid>();
             foreach (var (name, amount) in MonthlyBudgets)

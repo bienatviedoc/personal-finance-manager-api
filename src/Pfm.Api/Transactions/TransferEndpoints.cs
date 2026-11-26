@@ -60,9 +60,10 @@ public static class TransferEndpoints
                 statusCode: StatusCodes.Status409Conflict, type: TransferUnmarked,
                 title: "This Idempotency-Key recorded a transfer that is no longer one.",
                 detail: "The transfer this request recorded was unmarked since into an expense and income, so it is not recorded again. Send a new transfer with a new key."),
-            _ => TypedResults.Problem(
+            CreateTransferOutcome.KeyReused => TypedResults.Problem(
                 statusCode: StatusCodes.Status422UnprocessableEntity, type: TransactionEndpoints.IdempotencyKeyReused,
                 title: "This Idempotency-Key already recorded something else. Send a new transfer with a new key."),
+            _ => throw new ArgumentOutOfRangeException(nameof(result), result.Outcome, "Not an outcome of recording a transfer."),
         };
     }
 

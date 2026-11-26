@@ -13,6 +13,8 @@ const base = __ENV.PFM_URL || 'http://localhost:8080';
 const api = `${base}/api/v1`;
 const email = __ENV.PFM_EMAIL || 'sample@example.com';
 const password = __ENV.PFM_PASSWORD || 'sample data password';
+/** The size the speed targets are for (spec section 8); a smaller user would make every target easy to meet. */
+const fullSize = Number(__ENV.MIN_TRANSACTIONS || 50000);
 
 // Every list and report the app reads, each named so its own 95th percentile shows in the summary.
 const lists = [
@@ -76,6 +78,9 @@ export function setup() {
   const read = (path) => http.get(`${api}${path}`).json();
   const total = read('/transactions?limit=1').total.count;
   console.log(`Signed in as ${email}, who has ${total} transactions.`);
+  if (total < fullSize) {
+    fail(`${email} has ${total} transactions, fewer than the ${fullSize} the targets are for: seed with --transactions ${fullSize}, or set MIN_TRANSACTIONS.`);
+  }
   const categories = read('/categories').items.flatMap((category) => [category, ...category.subcategories]);
   const food = categories.find((category) => category.name === 'Food & drink');
   const groceries = categories.find((category) => category.name === 'Groceries');
