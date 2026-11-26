@@ -249,7 +249,8 @@ public sealed record BudgetVsActualItemResponse(
         new(ReportCategoryResponse.From(item.Category), item.Budget.Months, AmountJson.Text(item.Budget.Budgeted), AmountJson.Text(item.Budget.Spent),
             AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, StateOf(item.Budget.State), item.Budget.NotConverted.Count);
 
-    private static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
+    /// <summary>A budget's state as every report and the dashboard name it.</summary>
+    internal static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
     {
         ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
         ComparedBudgetState.Warning => BudgetVsActualState.Warning,

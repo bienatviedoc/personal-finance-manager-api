@@ -35,15 +35,7 @@ public sealed record DashboardBudgetResponse(ReportCategoryResponse Category, st
 {
     public static DashboardBudgetResponse Of(BudgetedCategoryDetails item) =>
         new(ReportCategoryResponse.From(item.Category), AmountJson.Text(item.Budget.Budgeted), AmountJson.Text(item.Budget.Spent),
-            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, StateOf(item.Budget.State));
-
-    private static BudgetVsActualState StateOf(ComparedBudgetState state) => state switch
-    {
-        ComparedBudgetState.OnTrack => BudgetVsActualState.OnTrack,
-        ComparedBudgetState.Warning => BudgetVsActualState.Warning,
-        ComparedBudgetState.Over => BudgetVsActualState.Over,
-        _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
-    };
+            AmountJson.Text(item.Budget.Remaining), item.Budget.PercentSpent, BudgetVsActualItemResponse.StateOf(item.Budget.State));
 }
 
 /// <summary>This month's budgets added up, as budget vs actual adds them up, with how many are in each state.</summary>
