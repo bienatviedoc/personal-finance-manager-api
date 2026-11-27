@@ -14,7 +14,7 @@ public static class AuditLogEndpoints
     public static IEndpointRouteBuilder MapAuditLogEndpoints(this IEndpointRouteBuilder api)
     {
         api.MapGet("/me/audit-log", List).WithName("ListAuditEntries").WithTags("Identity")
-            .WithDescription("The signed-in user's audit log, the newest entry first, a page at a time: each sign-in, statement committed or import undone, bulk edit, bulk delete and delete of a transaction or transfer, with what it affected, when, and a short summary in the user's locale when it was written. Entries cannot be changed or deleted.")
+            .WithDescription("The signed-in user's audit log, the newest entry first, a page at a time: each sign-in, statement committed or import undone, bulk edit, bulk delete, delete of a transaction, a transfer, an attachment, a budget, a recurring rule or a categorisation rule, and the user asking to be deleted, with what it affected, when, and a short summary in the user's locale when it was written. Entries cannot be changed or deleted.")
             .ProducesProblem(StatusCodes.Status401Unauthorized);
         return api;
     }
