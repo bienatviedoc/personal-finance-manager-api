@@ -85,6 +85,10 @@ public static class UserErasureFixtures
         (await browser.PostFileAsync("/api/v1/imports", "statement.csv", "Date,Details,Amount\n02/11/2026,Highlands,-55000\n"u8.ToArray(), new Dictionary<string, string> { ["accountId"] = accountId.ToString() }))
             .EnsureSuccessStatusCode();
 
+        // A categorisation rule, on one of the user's categories.
+        (await browser.PostAsync("/api/v1/category-rules", new { matchText = "Highlands", matchType = "contains", categoryId = await BrowserFixtures.CategoryAsync(browser, "Coffee") }))
+            .EnsureSuccessStatusCode();
+
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
@@ -92,6 +96,7 @@ public static class UserErasureFixtures
             ["Attachments"] = 1,
             ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
+            ["CategorisationRules"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
             ["ImportBatches"] = 1,
             ["Institutions"] = 1,

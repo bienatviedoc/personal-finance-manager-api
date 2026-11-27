@@ -101,7 +101,7 @@ public class CategorisationRuleTests
 
         rule.Edit(" grab bike ", CategorisationMatch.StartsWith, taxi, 4, Now.AddHours(1));
 
-        Assert.Equal(("grab bike", CategorisationMatch.StartsWith, taxi.Id, 4), (rule.MatchText, rule.Match, rule.CategoryId, rule.Priority));
+        Assert.Equal(("grab bike", CategorisationMatch.StartsWith, taxi.Id, 4), (rule.MatchText, rule.MatchType, rule.CategoryId, rule.Priority));
         var other = Category.Create("Cabs", CategoryKind.Expense, "car", Color.Parse("#3b82f6"), Now);
         other.Archive([], Now);
         Assert.Throws<CategorisationRuleViolation>(() => rule.Edit("grab", CategorisationMatch.Contains, other, 4, Now));

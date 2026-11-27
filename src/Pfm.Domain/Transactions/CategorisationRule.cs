@@ -46,7 +46,7 @@ public sealed class CategorisationRule : IUserOwned
     /// <summary>What is looked for, trimmed.</summary>
     public string MatchText { get; private set; }
 
-    public CategorisationMatch Match { get; private set; }
+    public CategorisationMatch MatchType { get; private set; }
 
     /// <summary>The category a matching transaction takes.</summary>
     public Guid CategoryId { get; private set; }
@@ -72,7 +72,7 @@ public sealed class CategorisationRule : IUserOwned
         {
             Id = Guid.CreateVersion7(now),
             MatchText = matchText.Trim(),
-            Match = match,
+            MatchType = match,
             CategoryId = category.Id,
             Priority = priority,
             CreatedAt = now,
@@ -91,7 +91,7 @@ public sealed class CategorisationRule : IUserOwned
         }
 
         MatchText = matchText.Trim();
-        Match = match;
+        MatchType = match;
         CategoryId = category.Id;
         Priority = priority;
         UpdatedAt = now;
@@ -138,7 +138,7 @@ public sealed class CategorisationRule : IUserOwned
         }
 
         var looked = ComparableText.Of(MatchText);
-        return Match switch
+        return MatchType switch
         {
             CategorisationMatch.Contains => comparable.Contains(looked, StringComparison.Ordinal),
             CategorisationMatch.StartsWith => comparable.StartsWith(looked, StringComparison.Ordinal),

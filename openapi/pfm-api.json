@@ -4309,6 +4309,248 @@
         }
       }
     },
+    "/api/v1/category-rules": {
+      "get": {
+        "tags": [
+          "Categorisation rules"
+        ],
+        "description": "Every one of the user's categorisation rules, unpaged (a user has a few dozen), in the order they are tried: highest priority first, and of equal ones the one set up first. A rule whose category has been archived stays listed, and categorises nothing until it is moved to another.",
+        "operationId": "ListCategorisationRules",
+        "responses": {
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleListResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Categorisation rules"
+        ],
+        "description": "Sets up a rule: a payee, or a statement row's description, that contains, starts with or is exactly the match text (compared without case, accents or extra spaces) takes the category. It categorises only transactions of its category's kind. Of several rules that match, the one of highest priority wins. Left out, the priority is one above the user's highest.",
+        "operationId": "CreateCategorisationRule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategorisationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/category-rules/order": {
+      "put": {
+        "tags": [
+          "Categorisation rules"
+        ],
+        "description": "Puts the rules in a new order: ids lists every one of the user's rules once, the one to try first first, and each takes its priority from its place (the last 0, the one before it 1, and so on). Any other list is refused on ids and changes nothing. Answers the rules in their new order.",
+        "operationId": "ReorderCategorisationRules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategorisationRuleOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleListResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/category-rules/{id}": {
+      "put": {
+        "tags": [
+          "Categorisation rules"
+        ],
+        "description": "Changes a rule's match text, match type, category and priority (left out, it keeps its own). It may keep a category that has been archived since, but not move to one.",
+        "operationId": "EditCategorisationRule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CategorisationRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategorisationRuleResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Categorisation rules"
+        ],
+        "description": "Deletes the rule: it categorises nothing more. What it categorised keeps its category.",
+        "operationId": "DeleteCategorisationRule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "No Content"
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/budgets": {
       "get": {
         "tags": [
@@ -6855,6 +7097,111 @@
             "items": {
               "$ref": "#/components/schemas/CashFlowPointResponse"
             }
+          }
+        }
+      },
+      "CategorisationMatch": {
+        "enum": [
+          "contains",
+          "startsWith",
+          "exactly"
+        ]
+      },
+      "CategorisationRuleListResponse": {
+        "required": [
+          "items"
+        ],
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CategorisationRuleResponse"
+            }
+          }
+        }
+      },
+      "CategorisationRuleOrderRequest": {
+        "required": [
+          "ids"
+        ],
+        "type": "object",
+        "properties": {
+          "ids": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "CategorisationRuleRequest": {
+        "required": [
+          "matchText",
+          "matchType",
+          "categoryId"
+        ],
+        "type": "object",
+        "properties": {
+          "matchText": {
+            "type": "string"
+          },
+          "matchType": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CategorisationRuleResponse": {
+        "required": [
+          "id",
+          "matchText",
+          "matchType",
+          "categoryId",
+          "priority"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "matchText": {
+            "type": "string"
+          },
+          "matchType": {
+            "$ref": "#/components/schemas/CategorisationMatch"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "priority": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -10670,6 +11017,9 @@
     },
     {
       "name": "Recurring rules"
+    },
+    {
+      "name": "Categorisation rules"
     },
     {
       "name": "Budgets"
