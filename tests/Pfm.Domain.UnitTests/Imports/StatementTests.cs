@@ -69,13 +69,53 @@ public class StatementTests
     [InlineData(DecimalSeparator.Dot, "1 500 000", "1500000")]
     [InlineData(DecimalSeparator.Dot, "(2,000)", "2000")]
     [InlineData(DecimalSeparator.Dot, "2,000-", "2000")]
-    [InlineData(DecimalSeparator.Dot, "2,000 VND", "2000")]
     [InlineData(DecimalSeparator.Dot, "+2,000", "2000")]
+    [InlineData(DecimalSeparator.Dot, "1500000.5", "1500000.5")]
+    [InlineData(DecimalSeparator.Comma, "1500000,5", "1500000.5")]
     public void Amounts_are_read_with_the_decimal_separator_the_user_chose_the_other_one_grouping_thousands(DecimalSeparator separator, string written, string amount)
     {
         var statement = Read($"Date;Details;Amount\n02/08/2026;X;{written}\n", Signed with { Separator = Separator.Semicolon, DecimalSeparator = separator }, Currency.USD);
 
         Assert.Equal(decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture), Assert.Single(statement.Entries).Entry!.Amount);
+    }
+
+    [Theory]
+    [InlineData("-2,000", StatementEntryType.Expense)]
+    [InlineData("- 2,000", StatementEntryType.Expense)]
+    [InlineData("2,000-", StatementEntryType.Expense)]
+    [InlineData("(2,000)", StatementEntryType.Expense)]
+    [InlineData("+2,000", StatementEntryType.Income)]
+    [InlineData("2,000", StatementEntryType.Income)]
+    public void One_sign_before_or_after_the_amount_or_brackets_round_it_say_which_way_money_moved(string written, StatementEntryType type)
+    {
+        var statement = Read($"Date;Details;Amount\n02/08/2026;X;{written}\n", Signed with { Separator = Separator.Semicolon }, Currency.USD);
+
+        Assert.Equal((type, 2000m), (Assert.Single(statement.Entries).Entry!.Type, statement.Entries.Single().Entry!.Amount));
+    }
+
+    [Theory]
+    [InlineData("1.5E+6")]
+    [InlineData("1e6")]
+    [InlineData("--2000")]
+    [InlineData("-2000-")]
+    [InlineData("+-2000")]
+    [InlineData("20-00")]
+    [InlineData("(-2000)")]
+    [InlineData("(2000")]
+    [InlineData("2,000 VND")]
+    [InlineData("$2,000")]
+    [InlineData("12a")]
+    [InlineData("1,50")]
+    [InlineData("1,0000")]
+    [InlineData(",000")]
+    [InlineData("2,000.")]
+    [InlineData(".")]
+    [InlineData("-")]
+    public void An_amount_that_is_not_one_well_formed_number_cannot_be_read(string written)
+    {
+        var statement = Read($"Date;Details;Amount\n02/08/2026;X;{written}\n", Signed with { Separator = Separator.Semicolon }, Currency.USD);
+
+        Assert.Equal(RowProblem.AmountUnreadable, Assert.Single(statement.Rows, row => row.Kind == StatementRowKind.Failed).Problem);
     }
 
     [Theory]

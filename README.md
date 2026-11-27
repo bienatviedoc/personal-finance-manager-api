@@ -518,7 +518,8 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   the payee), and either one signed `amountColumn` (below zero for money going out) or a `debitColumn` and a
   `creditColumn`, all counted from 0; and how dates and amounts are written: `dateFormat` (`dayMonthYear`,
   `monthDayYear`, `yearMonthDay`, whatever separates the parts, a time after the date passed over) and
-  `decimalSeparator` (`dot` or `comma`; the other mark groups thousands). `MappingInput` reads one as text, the
+  `decimalSeparator` (`dot` or `comma`; the other mark, or a space, groups thousands in threes). An amount is one
+  well-formed number: one sign before or after it, or brackets round it, and nothing else (no currency, no exponent). `MappingInput` reads one as text, the
   same for the preview and the commit, naming each choice it cannot read.
 - **The preview** (`GET /imports/{id}/preview`, the mapping in the query string) reads the file with the mapping
   (`Statement`, in `Pfm.Domain.Imports`) and answers every row, numbered by its place in the file: `skipped`,

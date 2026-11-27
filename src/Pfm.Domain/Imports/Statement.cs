@@ -281,61 +281,51 @@ public sealed class Statement
     }
 
     /// <summary>
-    /// A signed amount, written with the decimal separator chosen and the other mark (or spaces) grouping
-    /// thousands. A minus sign before or after, or brackets, make it negative; a currency code or symbol is passed over.
+    /// A signed amount: one well-formed number, written with the decimal separator chosen and the other mark (or a
+    /// space) grouping thousands in threes. One sign before it or after it, or brackets round it, make it negative;
+    /// a plus sign may stand before or after it. Anything else, a second sign, a letter, a currency, an exponent, is
+    /// no amount: null.
     /// </summary>
     private static decimal? ReadAmount(string text, DecimalSeparator decimalSeparator)
     {
         var (decimalMark, groupMark) = decimalSeparator == DecimalSeparator.Comma ? (',', '.') : ('.', ',');
-        var digits = new StringBuilder(text.Length);
+        var number = text.Trim();
         var negative = false;
-        var trimmed = text.Trim();
-        if (trimmed.StartsWith('(') && trimmed.EndsWith(')'))
+        if (number.Length >= 2 && number[0] == '(' && number[^1] == ')')
         {
-            negative = true;
-            trimmed = trimmed[1..^1];
+            (negative, number) = (true, number[1..^1].Trim());
+        }
+        else if (number.Length > 0 && number[0] is '-' or '+')
+        {
+            (negative, number) = (number[0] == '-', number[1..].TrimStart());
+        }
+        else if (number.Length > 0 && number[^1] is '-' or '+')
+        {
+            (negative, number) = (number[^1] == '-', number[..^1].TrimEnd());
         }
 
-        var decimals = 0;
-        foreach (var character in trimmed)
-        {
-            if (char.IsAsciiDigit(character))
-            {
-                digits.Append(character);
-            }
-            else if (character == decimalMark)
-            {
-                if (++decimals > 1)
-                {
-                    return null;
-                }
-
-                digits.Append('.');
-            }
-            else if (character == '-')
-            {
-                negative = !negative;
-            }
-            else if (character == groupMark || character == '+' || char.IsWhiteSpace(character) || char.IsLetter(character)
-                     || CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.CurrencySymbol)
-            {
-                // Grouping, a plus sign or a currency: not part of the number.
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        if (!digits.ToString().Any(char.IsAsciiDigit))
+        var parts = number.Split(decimalMark);
+        if (parts.Length > 2 || (parts.Length == 2 && !IsDigits(parts[1])) || Whole(parts[0], groupMark) is not { } whole)
         {
             return null;
         }
 
-        return decimal.TryParse(digits.ToString(), NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount)
+        var digits = parts.Length == 2 ? $"{whole}.{parts[1]}" : whole;
+        return decimal.TryParse(digits, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out var amount)
             ? negative ? -amount : amount
             : null;
     }
+
+    /// <summary>The digits of a whole number, written plain or grouped in threes by the group mark or a space (a no-break one too); null when it is neither.</summary>
+    private static string? Whole(string written, char groupMark)
+    {
+        var groups = written.Split([groupMark, ' ', '\u00A0', '\u202F']);
+        return groups.All(IsDigits) && (groups.Length == 1 || (groups[0].Length <= 3 && groups.Skip(1).All(group => group.Length == 3)))
+            ? string.Concat(groups)
+            : null;
+    }
+
+    private static bool IsDigits(string text) => text.Length > 0 && text.All(char.IsAsciiDigit);
 
     private static string? Describe(string cell)
     {
