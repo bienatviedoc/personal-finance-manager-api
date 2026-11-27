@@ -1187,6 +1187,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Identity.AuditEntry", b =>
+                {
+                    b.HasOne("Pfm.Infrastructure.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>
                 {
                     b.HasOne("Pfm.Domain.Accounts.Account", null)

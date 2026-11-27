@@ -308,7 +308,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `CategoryRule` | MatchText, MatchType, CategoryId, Priority | `CategorisationRule` in code. Used by the import preview and quick add. The highest priority that matches wins; a rule categorises only transactions of its category's kind, and nothing while its category is archived |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
 | `ExchangeRate` | FromCurrency, ToCurrency, Date, Rate | What one unit of FromCurrency was worth in ToCurrency that day. Shared across users; no UserId |
-| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` but of a deactivated user's entries, which erasing them removes with the rest (decision record 0009). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
+| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` while the entry's user exists, deactivated or not: erasing the user deletes their row, and their entries go with it (decision record 0009). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
 
 **Indexes and integrity**
 

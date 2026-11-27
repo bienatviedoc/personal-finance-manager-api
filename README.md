@@ -979,9 +979,11 @@ Spec section 8 (Auditability): sensitive actions leave a trace the user can revi
   (`limit` and `cursor`, as every list). The SPA shows it under Settings.
 - **Append only** (decision record 0009): there is no endpoint that changes or deletes an entry. `PfmDbContext`
   refuses to save a change or delete of any `IAppendOnly` entity, and the database's
-  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` but of
-  the entries of a deactivated user (or one already gone): erasing a user after their 30 days removes their entries
-  with everything else (spec section 8, Privacy), and nothing else can. The full export has them as
+  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` while
+  the entry's user still has a row in `Users`, deactivated or not. Erasing a user after their 30 days (spec section 8,
+  Privacy) leaves their entries out of `IUserData.EraseEverythingAsync` (they are `IAppendOnly`) and deletes the user's
+  row last; the `AuditEntries` foreign key to `Users` then deletes their entries with it, on delete cascade, and
+  nothing else can. The full export has them as
   `audit-entries.csv`, like all user-owned data.
 
 ## Hardening

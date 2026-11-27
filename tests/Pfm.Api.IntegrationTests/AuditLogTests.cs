@@ -149,6 +149,27 @@ public class AuditLogTests(PfmApi api)
     }
 
     [Fact]
+    public async Task The_database_refuses_to_delete_an_entry_of_a_user_who_asked_to_be_deleted_until_erasing_them_removes_it_with_them()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var userId = (await browser.Http.GetFromJsonAsync<JsonElement>("/api/v1/me")).GetProperty("id").GetGuid();
+        var id = (await ListAsync(browser)).Items[0].Id;
+        (await browser.PostAsync("/api/v1/me/deletion", new { password = PfmApi.Password })).EnsureSuccessStatusCode();
+
+        await using (var connection = new NpgsqlConnection(api.ConnectionString))
+        {
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("""DELETE FROM "AuditEntries" WHERE "Id" = @id""", connection);
+            command.Parameters.AddWithValue("id", id);
+            await Assert.ThrowsAsync<PostgresException>(() => command.ExecuteNonQueryAsync());
+        }
+
+        Assert.Contains("AuditEntries", (await api.RowsOwnedByAsync(userId)).Keys);
+        await api.EraseDeactivatedUsersAsync(after: TimeSpan.FromDays(31));
+        Assert.Empty(await api.RowsOwnedByAsync(userId));
+    }
+
+    [Fact]
     public async Task A_bulk_edit_leaves_one_entry_saying_what_it_did_to_how_many_transactions()
     {
         var (browser, _) = await api.SignedInAsync();

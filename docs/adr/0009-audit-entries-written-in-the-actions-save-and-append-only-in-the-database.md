@@ -15,9 +15,12 @@ locale, and decides what a summary may hold: never a secret or a statement's tex
 
 **Append only, three times over.** No endpoint changes or deletes an entry. `PfmDbContext` refuses to save a change or a
 delete of any `IAppendOnly` entity. And a PostgreSQL trigger on `AuditEntries` refuses every `UPDATE` and `TRUNCATE`,
-and every `DELETE` except of the entries of a deactivated user, or of a user already gone. That one exception is the
-erasure: spec section 8 erases all of a user's data 30 days after they delete themselves, and audit entries are their
-data (the full export has them too). Only erasing a user deletes the entries of a deactivated user.
+and every `DELETE` while the entry's user still has a row in `Users`. That one exception is the erasure: spec section 8
+erases all of a user's data 30 days after they delete themselves, and audit entries are their data (the full export
+has them too). The erasure deletes everything else of theirs first, then the user's row, and the entries' foreign key
+to `Users` deletes them with it (on delete cascade), when the trigger finds no user. A user who has asked to be deleted
+and is waiting out their 30 days still has their row, so their entries stay, as they must should they sign in again and
+cancel. (The first version let any deactivated user's entries go at any time; it was narrowed to the erasure itself.)
 
 ## Considered options
 
@@ -40,5 +43,5 @@ data (the full export has them too). Only erasing a user deletes the entries of 
 
 - A use case that records must call `IAuditLog` before it saves, inside the code it retries on a concurrent change.
 - A summary is written once, in the locale the user had then; changing locale later does not rewrite old entries.
-- Removing a user's entries by any route but deactivating them first fails in the database, so a future clean-up job
-  that is not erasure needs a decision of its own.
+- Removing a user's entries by any route but deleting the user fails in the database, so a future clean-up job that is
+  not erasure needs a decision of its own.
