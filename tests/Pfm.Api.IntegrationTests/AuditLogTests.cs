@@ -204,6 +204,42 @@ public class AuditLogTests(PfmApi api)
         Assert.Equal(["signIn"], (await ListAsync(browser)).Items.Select(entry => entry.Action));
     }
 
+    [Fact]
+    public async Task Deleting_a_transaction_leaves_an_entry_naming_it_with_its_amount_and_date()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var lunch = await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Groceries", "45000", November2);
+
+        (await browser.DeleteAsync($"/api/v1/transactions/{lunch}")).EnsureSuccessStatusCode();
+
+        var entry = (await ListAsync(browser)).Items[0];
+        Assert.Equal(("delete", "transaction", (Guid?)lunch, "Deleted a transaction of ₫45,000 dated 2026-11-02."), (entry.Action, entry.EntityType, entry.EntityId, entry.Summary));
+    }
+
+    [Fact]
+    public async Task Deleting_a_transfer_or_one_of_its_legs_leaves_an_entry_naming_the_transfer()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var savings = await AddAccountAsync(browser, "Savings");
+        await TransferAsync(browser, everyday, savings, "200000", November2);
+        await TransferAsync(browser, everyday, savings, "300000", November2);
+        var legs = (await browser.Http.GetFromJsonAsync<JsonElement>("/api/v1/transactions?type=transferOut")).GetProperty("items").EnumerateArray()
+            .Select(leg => (Id: leg.GetProperty("id").GetGuid(), TransferId: leg.GetProperty("transferId").GetGuid(), Amount: leg.GetProperty("amount").GetString()))
+            .OrderBy(leg => leg.Amount, StringComparer.Ordinal)
+            .ToList();
+
+        (await browser.DeleteAsync($"/api/v1/transfers/{legs[0].TransferId}")).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/transactions/{legs[1].Id}")).EnsureSuccessStatusCode();
+
+        Assert.Equal(
+            [
+                ("delete", "transfer", (Guid?)legs[1].TransferId, "Deleted a transfer of ₫300,000 dated 2026-11-02."),
+                ("delete", "transfer", (Guid?)legs[0].TransferId, "Deleted a transfer of ₫200,000 dated 2026-11-02."),
+            ],
+            (await ListAsync(browser)).Items.Take(2).Select(entry => (entry.Action, entry.EntityType, entry.EntityId, entry.Summary)));
+    }
+
     private static async Task BulkAsync(Browser browser, object request) =>
         (await browser.PostAsync(Bulk, request)).EnsureSuccessStatusCode();
 
