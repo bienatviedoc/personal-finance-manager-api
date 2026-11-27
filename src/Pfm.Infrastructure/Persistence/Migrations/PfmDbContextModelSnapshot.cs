@@ -390,6 +390,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ExpenseCategoryId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
                     b.Property<int>("FailedCount")
                         .HasColumnType("integer");
 

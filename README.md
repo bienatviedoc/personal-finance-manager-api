@@ -557,7 +557,10 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   notifications of every date it imported (`IBudgetNotifications.CheckAsync`, BUD-7). Rows that can no longer be
   recorded stop the batch as `failed`, with a code in `failure` for the SPA to say in the user's language
   (`ImportFailure`): `accountArchived`, `categoryArchived`, `accountCurrencyChanged` or `transactionRefused`
-  (`IImportedTransactions.RecordAsync` answers a `RecordImportOutcome`); what it imported stays. Nothing is imported for a deactivated user. Hangfire is not in the repository yet (see
+  (`IImportedTransactions.RecordAsync` answers a `RecordImportOutcome`); what it imported stays. A batch the
+  worker fails on unexpectedly holds up no other batch or user: the failure is logged, the run carries on, and after
+  five failures in a row (`ImportCommits.MaxAttempts`, counted in `FailedAttempts`) the batch is stopped as
+  `failed` with `unexpected`. Nothing is imported for a deactivated user. Hangfire is not in the repository yet (see
   Exchange rates), so the batches being committed are the queue (decision record 0006).
 - **What the spec leaves as it is.** An imported row is income or an expense on the account, in its currency; a row
   that is one leg of a move between the user's own accounts is joined with the other leg afterwards by

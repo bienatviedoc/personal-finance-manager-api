@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Pfm.Application.Imports;
+using Pfm.Domain.Transactions;
 using Xunit.Abstractions;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
@@ -344,6 +345,39 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_batch_the_worker_keeps_failing_on_unexpectedly_is_stopped_after_a_few_attempts_and_holds_up_no_other_batch()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var failing = await UploadAsync(browser, await AddAccountAsync(browser, "Techcombank"), Small);
+        (await CommitAsync(browser, failing, SmallMapping, [2])).EnsureSuccessStatusCode();
+        var (other, _) = await api.SignedInAsync();
+        var healthy = await UploadAsync(other, await AddAccountAsync(other, "Vietcombank"), Small);
+        (await CommitAsync(other, healthy, SmallMapping, [2, 3, 5])).EnsureSuccessStatusCode();
+        api.Saves.BeforeEverySaveOf<Transaction>(transaction => transaction.ImportBatchId == failing.Id, () => throw new InvalidOperationException("Something unforeseen."));
+        try
+        {
+            var first = await ImportNextAsync();
+
+            Assert.Equal(("committed", 3), ((await BatchAsync(other, healthy.Id)).Status, (await BatchAsync(other, healthy.Id)).ImportedCount));
+            Assert.Equal("committing", (await BatchAsync(browser, failing.Id)).Status);
+            Assert.Contains(first.Failures, failure => failure.InnerException?.Message == "Something unforeseen.");
+
+            for (var attempt = 1; attempt < ImportCommits.MaxAttempts; attempt++)
+            {
+                await ImportNextAsync();
+            }
+        }
+        finally
+        {
+            api.Saves.Stop();
+        }
+
+        var stopped = await BatchAsync(browser, failing.Id);
+        Assert.Equal(("failed", "unexpected", 0), (stopped.Status, stopped.Failure, stopped.ImportedCount));
+        Assert.Empty((await ImportNextAsync()).Failures);
+    }
+
+    [Fact]
     public async Task Another_users_batch_is_not_found()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -418,11 +452,19 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"Uploading and previewing 5,000 rows took {clock.Elapsed}.");
     }
 
-    /// <summary>Imports what is committed the way the worker's job does, until nothing is left.</summary>
+    /// <summary>Imports what is committed the way the worker's job does, a scope for each run, until a run imports nothing.</summary>
     private async Task ImportAsync()
     {
+        while ((await ImportNextAsync()).Rows > 0)
+        {
+        }
+    }
+
+    /// <summary>One run of the worker's job.</summary>
+    private async Task<ImportRun> ImportNextAsync()
+    {
         await using var scope = api.Services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportAllAsync();
+        return await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync();
     }
 
     private static Task<HttpResponseMessage> UploadAsync(Browser browser, Guid accountId, string fileName, byte[] content) =>

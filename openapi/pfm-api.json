@@ -7932,6 +7932,7 @@
           "categoryArchived",
           "accountCurrencyChanged",
           "transactionRefused",
+          "unexpected",
           null
         ]
       },

@@ -30,6 +30,9 @@ public enum ImportFailure
 
     /// <summary>A row broke a rule every transaction keeps.</summary>
     TransactionRefused = 4,
+
+    /// <summary>The worker failed on it, for no reason the user can act on, several times in a row.</summary>
+    Unexpected = 5,
 }
 
 /// <summary>An import batch that would break a rule. Names the property at fault.</summary>
@@ -103,6 +106,9 @@ public sealed class ImportBatch : IUserOwned
 
     /// <summary>How many rows could not be read as a transaction, and so were not imported.</summary>
     public int FailedCount { get; private set; }
+
+    /// <summary>How many times in a row the worker has failed on the batch unexpectedly; back to 0 once a save of its rows succeeds.</summary>
+    public int FailedAttempts { get; private set; }
 
     /// <summary>Why the worker stopped, when it did.</summary>
     public ImportFailure? Failure { get; private set; }
@@ -245,12 +251,32 @@ public sealed class ImportBatch : IUserOwned
         }
 
         ImportedCount += count;
+        FailedAttempts = 0;
         UpdatedAt = now;
         if (ImportedCount == SelectedCount)
         {
             Status = ImportBatchStatus.Committed;
             CommittedAt = now;
             Content = null;
+        }
+    }
+
+    /// <summary>
+    /// Counts a failed attempt at importing the next rows, for no reason the batch itself gives. Once
+    /// <paramref name="maxAttempts"/> have failed in a row, the batch is stopped as <see cref="ImportFailure.Unexpected"/>.
+    /// </summary>
+    public void AttemptFailed(int maxAttempts, DateTimeOffset now)
+    {
+        if (Status != ImportBatchStatus.Committing)
+        {
+            throw new InvalidOperationException("Only a batch being committed is imported.");
+        }
+
+        FailedAttempts++;
+        UpdatedAt = now;
+        if (FailedAttempts >= maxAttempts)
+        {
+            Fail(ImportFailure.Unexpected, now);
         }
     }
 

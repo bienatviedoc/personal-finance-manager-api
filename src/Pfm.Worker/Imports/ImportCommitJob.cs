@@ -6,8 +6,9 @@ namespace Pfm.Worker.Imports;
 /// <summary>
 /// Imports the rows of committed statements as transactions, in the background with progress (spec section 5):
 /// every few seconds it imports the next rows of each batch being committed, a save at a time, until none is left.
-/// A run that fails is logged, which reports it to the error tracker; nothing is lost, as every save records its rows
-/// with the batch's count, and the next run carries on from that count.
+/// What fails is logged, which reports it to the error tracker: a batch that fails holds up no other, and is stopped
+/// after a few failures in a row (<see cref="ImportCommits.MaxAttempts"/>). Nothing is lost, as every save records
+/// its rows with the batch's count, and the next run carries on from that count.
 /// </summary>
 public sealed partial class ImportCommitJob(
     IServiceScopeFactory scopes, IOptions<ImportCommitOptions> options, TimeProvider time, ILogger<ImportCommitJob> logger)
@@ -31,10 +32,16 @@ public sealed partial class ImportCommitJob(
             for (var imported = 1; imported > 0;)
             {
                 await using var scope = scopes.CreateAsyncScope();
-                imported = await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync(cancellationToken: cancellationToken);
+                var run = await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync(cancellationToken: cancellationToken);
+                imported = run.Rows;
                 if (imported > 0)
                 {
                     LogImported(imported);
+                }
+
+                foreach (var failure in run.Failures)
+                {
+                    LogFailed(failure);
                 }
             }
         }
@@ -47,6 +54,6 @@ public sealed partial class ImportCommitJob(
     [LoggerMessage(Level = LogLevel.Information, Message = "Imported {Rows} row(s) of committed statements")]
     private partial void LogImported(int rows);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Importing committed statements failed; the next run carries on where the last save left off")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "Importing committed statements failed; the next run carries on where the last save left off, and a batch failing again and again is stopped")]
     private partial void LogFailed(Exception exception);
 }
