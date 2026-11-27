@@ -77,7 +77,7 @@ Whether a budget in the current budget month is being spent faster than the mont
 _Avoid_: Burn rate, forecast, trajectory
 
 **Budget notification**:
-A message, shown in the app and emailed, that a category's budget moved into warning or over in a budget month. The overall budget raises none. Each category raises at most one warning and one over a budget month, and keeps what the budget stood at when it was raised. Email can be switched off in settings; the app always shows it.
+A message, shown in the app and emailed, that a category's budget moved into warning or over in a budget month. The overall budget raises none, and neither does a month that has ended. Each category raises at most one warning and one over a budget month, and keeps what the budget stood at when it was raised. Email can be switched off in settings; the app always shows it.
 _Avoid_: Alert, reminder (which is a recurring rule's), budget email
 
 **Archive**:

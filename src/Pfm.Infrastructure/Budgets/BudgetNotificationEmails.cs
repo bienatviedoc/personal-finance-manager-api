@@ -34,15 +34,16 @@ internal sealed partial class BudgetNotificationEmails(IEmailSender sender, IOpt
     {
         var link = $"{app.Value.PublicUrl}/budgets/{notification.Month}";
         var settings = $"{app.Value.PublicUrl}/settings/profile";
-        var (category, percent) = (notification.Category.Name, notification.PercentSpent);
+        var category = notification.Category.Name;
+        var percent = notification.PercentSpent is { } spent ? $" ({spent}%)" : "";
         return locale switch
         {
             Locale.Vi => (
                 notification.State == BudgetState.Over
                     ? $"{category} đã vượt ngân sách tháng {notification.Month.FirstDay.Month}/{notification.Month.FirstDay.Year}"
-                    : $"{category} đã dùng {percent}% ngân sách tháng {notification.Month.FirstDay.Month}/{notification.Month.FirstDay.Year}",
+                    : $"{category} đã dùng {notification.PercentSpent}% ngân sách tháng {notification.Month.FirstDay.Month}/{notification.Month.FirstDay.Year}",
                 $"""
-                Bạn đã chi {Amount(notification.Spent, notification.Currency, "vi-VN")} cho {category}, trên ngân sách {Amount(notification.Budgeted, notification.Currency, "vi-VN")} ({percent}%).
+                Bạn đã chi {Amount(notification.Spent, notification.Currency, "vi-VN")} cho {category}, trên ngân sách {Amount(notification.Budgeted, notification.Currency, "vi-VN")}{percent}.
 
                 Xem ngân sách của tháng:
 
@@ -53,9 +54,9 @@ internal sealed partial class BudgetNotificationEmails(IEmailSender sender, IOpt
             Locale.En or null => (
                 notification.State == BudgetState.Over
                     ? $"{category} is over budget for {MonthName(notification.Month)}"
-                    : $"{category} is at {percent}% of its budget for {MonthName(notification.Month)}",
+                    : $"{category} is at {notification.PercentSpent}% of its budget for {MonthName(notification.Month)}",
                 $"""
-                You have spent {Amount(notification.Spent, notification.Currency, "en-US")} on {category}, against a budget of {Amount(notification.Budgeted, notification.Currency, "en-US")} ({percent}%).
+                You have spent {Amount(notification.Spent, notification.Currency, "en-US")} on {category}, against a budget of {Amount(notification.Budgeted, notification.Currency, "en-US")}{percent}.
 
                 See the month's budgets:
 

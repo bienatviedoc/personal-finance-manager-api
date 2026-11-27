@@ -177,7 +177,7 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_late_edit_that_moves_spent_raises_the_notification_in_the_month_it_lands_in()
+    public async Task A_late_edit_that_moves_a_past_month_over_raises_no_notification()
     {
         var (browser, _) = await api.SignedInAsync();
         var everyday = await AddAccountAsync(browser, "Everyday");
@@ -191,8 +191,7 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
         }, ifMatch: await TransactionRowVersionAsync(browser, expense));
 
         Assert.Equal(HttpStatusCode.OK, edited.StatusCode);
-        var notification = Assert.Single((await ListAsync(browser)).Items);
-        Assert.Equal(($"{InLastMonth:yyyy-MM}", "over"), (notification.Month, notification.State));
+        Assert.Empty((await ListAsync(browser)).Items);
     }
 
     [Fact]
@@ -314,6 +313,24 @@ public class BudgetNotificationTests(PfmApi api) : IAsyncLifetime
         (await browser.PostAsync($"/api/v1/categories/{await CategoryAsync(browser, "Shopping")}/merge", new { targetId = transport })).EnsureSuccessStatusCode();
 
         Assert.Equal(["over"], (await ListAsync(browser)).Items.Select(item => item.State));
+    }
+
+    [Fact]
+    public async Task Merging_a_category_raises_no_notification_for_a_month_that_has_ended()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var transport = await BudgetAsync(browser, "Transport", "1000000");
+        var health = await CategoryAsync(browser, "Health");
+        (await browser.PutAsync($"/api/v1/budgets/{InLastMonth:yyyy-MM}/{transport}", new { amount = "1000000" })).EnsureSuccessStatusCode();
+        (await browser.PutAsync($"/api/v1/budgets/{InLastMonth:yyyy-MM}/{health}", new { amount = "100000" })).EnsureSuccessStatusCode();
+        await SpendAsync(browser, everyday, "Health", "500000", InLastMonth);
+        await SpendAsync(browser, everyday, "Shopping", "1200000", InLastMonth);
+        await SpendAsync(browser, everyday, "Shopping", "1200000", FirstOfThisMonth);
+
+        (await browser.PostAsync($"/api/v1/categories/{await CategoryAsync(browser, "Shopping")}/merge", new { targetId = transport })).EnsureSuccessStatusCode();
+
+        Assert.Equal([(ThisMonth, "over")], (await ListAsync(browser)).Items.Select(item => (item.Month, item.State)));
     }
 
     [Fact]

@@ -14,17 +14,20 @@ namespace Pfm.Application.Budgets;
 /// is about a category, and the month read holds the overall budget apart from its category budgets. A unique index holds that when
 /// two requests raise the same one at once: the second reads again. New notifications are emailed unless the user
 /// switched that off.
+/// Only this budget month and later ones are checked: a month that has ended is history, and it may hold budgets
+/// that went over before notifications existed, so a late edit or a merge touching it must not notify about all of them.
 /// </summary>
 public sealed class BudgetNotifications(
     BudgetMonthReader reader, IBudgetNotificationRepository notifications, ICategoryLookup categories, INotificationRecipient recipients,
-    IBudgetNotificationEmails emails, IUnitOfWork unitOfWork, TimeProvider clock)
+    IBudgetNotificationEmails emails, IUserCalendar calendar, IUnitOfWork unitOfWork, TimeProvider clock)
     : IBudgetNotifications
 {
     public async Task CheckAsync(IReadOnlyCollection<DateOnly> dates, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dates);
+        var thisMonth = BudgetMonth.Of(await calendar.TodayAsync(cancellationToken));
         List<BudgetNotification> raised = [];
-        foreach (var month in dates.Select(BudgetMonth.Of).Distinct())
+        foreach (var month in dates.Select(BudgetMonth.Of).Distinct().Where(month => month.FirstDay >= thisMonth.FirstDay))
         {
             raised.AddRange(await RaiseAsync(month, cancellationToken));
         }

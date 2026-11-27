@@ -555,7 +555,8 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   restored or converted once its rate arrives, a bulk action, a transfer unmarked, a category merged, an occurrence posted) or a budget
   set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
   the dates it touched (a merge, every month the category merged into is budgeted in once merged, as its budget may now
-  meet spending it did not, and its subcategories' spending now counts toward it). `BudgetNotifications` reads each of those budget months as the budget screen does and
+  meet spending it did not, and its subcategories' spending now counts toward it). `BudgetNotifications` reads each of those budget months that is this month or later (a month that has ended
+  raises none, so a late edit or a merge never notifies about budgets that went over before notifications existed) as the budget screen does and
   raises a `BudgetNotification` for each category budget (the overall budget raises none: BUD-7 is about a category) that moved into `warning` or `over` and has not raised that
   one in the month (`BudgetNotification.Due`): one warning and one over at most, and no warning after over, even
   when spent drops back and crosses again. A unique index holds that when two requests raise the same one at once.

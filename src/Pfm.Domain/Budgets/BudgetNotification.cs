@@ -49,7 +49,7 @@ public sealed class BudgetNotification : IUserOwned
     public DateTimeOffset RaisedAt { get; private set; }
 
     /// <summary>Spent as whole percent of the budget when it was raised, rounded down as on the budget; null for a budget of zero.</summary>
-    public int? PercentSpent => Budgeted == 0 ? null : (int)Math.Clamp(Math.Floor(Spent * 100 / Budgeted), int.MinValue, int.MaxValue);
+    public int? PercentSpent => BudgetProgress.PercentOf(Budgeted, Spent);
 
     /// <summary>When the user read it in the app; null while unread.</summary>
     public DateTimeOffset? ReadAt { get; private set; }
