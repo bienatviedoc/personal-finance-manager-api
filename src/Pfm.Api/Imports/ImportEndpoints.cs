@@ -62,13 +62,13 @@ public static class ImportEndpoints
     private static async Task<Results<Ok<ImportPreviewResponse>, NotFound, ValidationProblem, ProblemHttpResult>> Preview(
         Guid id, [AsParameters] MappingParameters parameters, PreviewImportHandler handler, CancellationToken cancellationToken)
     {
-        var input = parameters.Input();
-        if (input.Read() is not { } mapping)
+        var result = await handler.HandleAsync(new PreviewImportCommand(id, parameters.Input()), cancellationToken);
+        if (!result.IsValid)
         {
-            return ValidationProblems.For(Result<ImportPreviewResponse>.Invalid(input.Errors()));
+            return ValidationProblems.For(result);
         }
 
-        return await handler.HandleAsync(new PreviewImport(id, mapping), cancellationToken) switch
+        return result.Outcome switch
         {
             null => TypedResults.NotFound(),
             PreviewImportOutcome.Ready ready => TypedResults.Ok(ImportPreviewResponse.From(ready.Preview)),

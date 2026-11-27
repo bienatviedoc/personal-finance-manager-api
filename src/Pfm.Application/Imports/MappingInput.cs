@@ -1,3 +1,4 @@
+using FluentValidation;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Imports;
 
@@ -69,4 +70,21 @@ public sealed record MappingInput(
                 AmountColumn, DebitColumn, CreditColumn,
                 EnumText<Domain.Imports.DateFormat>.Read(DateFormat) ?? Domain.Imports.DateFormat.DayMonthYear,
                 EnumText<Domain.Imports.DecimalSeparator>.Read(DecimalSeparator) ?? Domain.Imports.DecimalSeparator.Dot);
+}
+
+/// <summary>The rule a preview and a commit share: each choice of a mapping that cannot be read is an error on it.</summary>
+public static class MappingRules
+{
+    /// <param name="under">What goes before each choice's name: the mapping's own, when it is one field of a request.</param>
+    public static IRuleBuilderOptionsConditions<T, MappingInput?> MappingInRange<T>(this IRuleBuilder<T, MappingInput?> rule, string under = "") =>
+        rule.Custom((mapping, context) =>
+        {
+            foreach (var (property, messages) in mapping?.Errors() ?? new Dictionary<string, string[]>())
+            {
+                foreach (var message in messages)
+                {
+                    context.AddFailure(under + property, message);
+                }
+            }
+        });
 }

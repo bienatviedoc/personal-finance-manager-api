@@ -1,3 +1,4 @@
+using FluentValidation;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Imports;
@@ -6,9 +7,22 @@ namespace Pfm.Application.Imports;
 
 /// <summary>
 /// An uploaded statement read with a mapping, before anything is saved (spec IMP-1): every row, the ones that
-/// cannot be read with why, and the likely duplicates (IMP-3) marked and unticked.
+/// cannot be read with why, and the likely duplicates (IMP-3) marked and unticked. Nothing changes, but the mapping
+/// is the user's input, so it is a command with a validator.
 /// </summary>
-public sealed record PreviewImport(Guid Id, StatementMapping Mapping);
+/// <param name="Mapping">The mapping as the user sent it.</param>
+public sealed record PreviewImportCommand(Guid Id, MappingInput? Mapping);
+
+public sealed class PreviewImportValidator : AbstractValidator<PreviewImportCommand>
+{
+    public PreviewImportValidator()
+    {
+        RuleFor(command => command.Id).Required();
+        RuleFor(command => command.Mapping).NotNull().WithMessage("Send the mapping to read the statement with.");
+        // The preview's query string sends each choice on its own, so each error is on the choice.
+        RuleFor(command => command.Mapping).MappingInRange();
+    }
+}
 
 /// <summary>What previewing a batch came to.</summary>
 public abstract record PreviewImportOutcome
@@ -44,14 +58,14 @@ public sealed record ImportPreview(IReadOnlyList<string> Header, int ColumnCount
 public sealed record PreviewRow(StatementRow Row, bool LikelyDuplicate, bool Selected);
 
 /// <summary>Answers null when the user has no such batch.</summary>
-public sealed class PreviewImportHandler(IImportBatchRepository batches, StatementReader reader) : IQueryHandler
+public sealed class PreviewImportHandler(IValidator<PreviewImportCommand> validator, IImportBatchRepository batches, StatementReader reader)
+    : CommandHandler<PreviewImportCommand, PreviewImportOutcome?>(validator)
 {
-    public async Task<PreviewImportOutcome?> HandleAsync(PreviewImport query, CancellationToken cancellationToken = default)
+    protected override async Task<Result<PreviewImportOutcome?>> ExecuteAsync(PreviewImportCommand command, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(query);
-        if (await batches.FindAsync(query.Id, cancellationToken) is not { } batch)
+        if (await batches.FindAsync(command.Id, cancellationToken) is not { } batch)
         {
-            return null;
+            return (PreviewImportOutcome?)null;
         }
 
         if (batch.Status != ImportBatchStatus.Uploaded)
@@ -59,7 +73,7 @@ public sealed class PreviewImportHandler(IImportBatchRepository batches, Stateme
             return new PreviewImportOutcome.AlreadyCommitted();
         }
 
-        var read = await reader.ReadAsync(batch, query.Mapping, cancellationToken);
+        var read = await reader.ReadAsync(batch, command.Mapping!.Read()!, cancellationToken);
         var rows = read.Statement.Rows
             .Select(row =>
             {

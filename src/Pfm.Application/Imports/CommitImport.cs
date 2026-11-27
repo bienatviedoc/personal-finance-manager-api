@@ -22,16 +22,7 @@ public sealed class CommitImportValidator : AbstractValidator<CommitImportComman
     {
         RuleFor(command => command.Id).Required();
         RuleFor(command => command.Mapping).NotNull().WithMessage("Send the mapping the statement was previewed with.");
-        RuleFor(command => command.Mapping).Custom((mapping, context) =>
-        {
-            foreach (var (property, messages) in mapping?.Errors() ?? new Dictionary<string, string[]>())
-            {
-                foreach (var message in messages)
-                {
-                    context.AddFailure($"{nameof(CommitImportCommand.Mapping)}.{property}", message);
-                }
-            }
-        });
+        RuleFor(command => command.Mapping).MappingInRange(under: $"{nameof(CommitImportCommand.Mapping)}.");
         RuleFor(command => command.Rows).NotNull().WithMessage("Choose the rows to import.")
             .Must(rows => rows!.Count <= ImportBatch.MaxRows).WithMessage($"Choose at most {ImportBatch.MaxRows} rows.");
     }
