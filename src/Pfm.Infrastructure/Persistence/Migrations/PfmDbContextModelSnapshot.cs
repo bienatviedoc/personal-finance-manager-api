@@ -439,7 +439,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AccountId");
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ImportBatches_AccountId_Committing")
+                        .HasFilter("\"Status\" = 'Committing'");
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_ImportBatches_UserId_Committing")

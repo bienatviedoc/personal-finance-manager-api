@@ -52,12 +52,20 @@ public abstract record CommitImportOutcome
 
     /// <summary>The batch had been committed already; nothing changed.</summary>
     public sealed record AlreadyCommitted : CommitImportOutcome;
+
+    /// <summary>
+    /// Another statement is being imported into the account; nothing changed. Once it is, the preview shows which of
+    /// this one's rows it already brought in, as likely duplicates (spec IMP-3).
+    /// </summary>
+    public sealed record ImportInProgress : CommitImportOutcome;
 }
 
 /// <summary>
 /// Answers null when the user has no such batch. The statement is read again with the mapping, as the preview read
 /// it, so the rows chosen are the rows previewed; the likely duplicates left out are counted. The rows are imported by
-/// <see cref="ImportCommits"/>, which the worker runs.
+/// <see cref="ImportCommits"/>, which the worker runs. One batch at a time is committed into an account: while
+/// another is, committing answers <see cref="CommitImportOutcome.ImportInProgress"/>, so the second statement's
+/// rows are checked against the first's once it is imported, and a statement committed twice is not imported twice.
 /// </summary>
 public sealed class CommitImportHandler(
     IValidator<CommitImportCommand> validator, IImportBatchRepository batches, StatementReader reader, ICategoryLookup categories, IUnitOfWork unitOfWork,
@@ -109,7 +117,22 @@ public sealed class CommitImportHandler(
             return Result<CommitImportOutcome?>.Invalid(FieldError.On(property, violation.Message));
         }
 
-        await unitOfWork.SaveChangesAsync(cancellationToken);
+        if (await batches.IsCommittingIntoAsync(batch.AccountId, cancellationToken))
+        {
+            return new CommitImportOutcome.ImportInProgress();
+        }
+
+        try
+        {
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+        }
+        catch (AlreadyExistsException)
+        {
+            // Another statement was committed into the account meanwhile: one batch at a time is.
+            unitOfWork.DiscardChanges();
+            return new CommitImportOutcome.ImportInProgress();
+        }
+
         return new CommitImportOutcome.Committing(ImportBatchDetails.Of(batch));
     }
 }

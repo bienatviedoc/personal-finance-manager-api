@@ -541,6 +541,10 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   not parsed is refused on `rows`. The batch keeps the mapping, the rows and the counts (`rowCount`, `selectedCount`,
   `duplicateCount`: likely duplicates left out, `failedCount`), becomes `committing`, and the answer is 202. A
   batch committed already answers 409 `urn:pfm:problem:import-committed`, and so does its preview, as its file is gone.
+  One batch at a time is committed into an account (a unique index on the account of the batches `committing`):
+  while another is, a commit answers 409 `urn:pfm:problem:import-in-progress` and changes nothing. Once the first
+  is imported, the preview finds its rows as likely duplicates, so the same file committed twice in quick
+  succession is not imported twice.
 - **The worker imports** (`ImportCommitJob`, every two seconds, `Imports__CommitEvery`): `ImportCommits` takes the
   next 250 chosen rows of each batch being committed and records each as income or an expense through
   `IImportedTransactions`, by the same rules as a transaction a user records (converted into the base currency at

@@ -49,6 +49,10 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
 
         batch.HasIndex(row => new { row.UserId, row.CreatedAt });
 
+        // One batch at a time is committed into an account, so a statement committed twice before the worker gets to the
+        // first finds the first's rows as likely duplicates once they are imported (spec IMP-3), never imports them twice.
+        batch.HasIndex(row => row.AccountId).IsUnique().HasFilter("\"Status\" = 'Committing'").HasDatabaseName("IX_ImportBatches_AccountId_Committing");
+
         // The batches being committed, which the worker asks for every few seconds.
         batch.HasIndex(row => row.UserId).HasFilter("\"Status\" = 'Committing'").HasDatabaseName("IX_ImportBatches_UserId_Committing");
     }

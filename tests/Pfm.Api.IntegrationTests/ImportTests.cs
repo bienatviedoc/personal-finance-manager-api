@@ -286,6 +286,27 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_second_statement_for_an_account_cannot_be_committed_while_another_is_being_imported_and_once_it_is_its_rows_are_likely_duplicates()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var first = await UploadAsync(browser, account, Small);
+        var second = await UploadAsync(browser, account, Small);
+        var elsewhere = await UploadAsync(browser, await AddAccountAsync(browser, "Cash"), Small);
+        (await CommitAsync(browser, first, SmallMapping, [2, 3, 5])).EnsureSuccessStatusCode();
+
+        var meanwhile = await CommitAsync(browser, second, SmallMapping, [2, 3, 5]);
+        var otherAccount = await CommitAsync(browser, elsewhere, SmallMapping, [2, 3, 5]);
+        await ImportAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, meanwhile.StatusCode);
+        Assert.Equal("urn:pfm:problem:import-in-progress", await meanwhile.ProblemTypeAsync());
+        Assert.Equal(HttpStatusCode.Accepted, otherAccount.StatusCode);
+        Assert.Equal("uploaded", (await BatchAsync(browser, second.Id)).Status);
+        Assert.Equal(new CountsBody(3, 1, 3, 0), (await PreviewAsync(browser, second, SmallMapping)).Counts);
+    }
+
+    [Fact]
     public async Task Another_users_batch_is_not_found()
     {
         var (browser, _) = await api.SignedInAsync();

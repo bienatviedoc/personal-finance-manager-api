@@ -17,6 +17,9 @@ internal sealed class ImportBatchRepository(PfmDbContext db) : IImportBatchRepos
             .Select(batch => batch.Id)
             .ToListAsync(cancellationToken);
 
+    public Task<bool> IsCommittingIntoAsync(Guid accountId, CancellationToken cancellationToken) =>
+        db.Set<ImportBatch>().AnyAsync(batch => batch.AccountId == accountId && batch.Status == ImportBatchStatus.Committing, cancellationToken);
+
     /// <summary>
     /// Looks past the user filter, for the worker, which acts for no user: it answers user ids only, never a
     /// row, and the worker then acts for each of them in turn (README, "User-owned data").

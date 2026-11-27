@@ -14,6 +14,9 @@ public static class ImportEndpoints
     /// <summary>A batch has been committed: it cannot be committed again, and its file is no longer kept to preview.</summary>
     public const string ImportCommitted = "urn:pfm:problem:import-committed";
 
+    /// <summary>Another statement is being imported into the account: one is committed into an account at a time.</summary>
+    public const string ImportInProgress = "urn:pfm:problem:import-in-progress";
+
     /// <summary>Room for a file somewhat over the 5 MB a statement may be, so that one gets the answer that says so.</summary>
     private const long MaxRequestSize = 2 * ImportBatch.MaxFileSize;
 
@@ -32,7 +35,7 @@ public static class ImportEndpoints
             .WithDescription("The uploaded statement read with a mapping, before anything is saved: every row with its cells, what it is (header, skipped, blank, parsed, failed or unmapped), for a parsed row the transaction it says, and for a failed row what is wrong with it. A row with the date, amount, direction and description (compared without case, accents or extra spaces) of a transaction already on the account is a likely duplicate, unticked (selected false). Without a date column and an amount (or a debit and a credit) column the rows are only cut into cells, for the user to map. A committed batch keeps no file: 409 with the problem type urn:pfm:problem:import-committed.")
             .ProducesProblem(StatusCodes.Status409Conflict);
         imports.MapPost("/{id:guid}/commit", Commit).WithName("CommitImport")
-            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed.")
+            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -87,6 +90,9 @@ public static class ImportEndpoints
         {
             null => TypedResults.NotFound(),
             CommitImportOutcome.Committing committing => TypedResults.Accepted($"/api/v1/imports/{id}", ImportBatchResponse.From(committing.Batch)),
+            CommitImportOutcome.ImportInProgress => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportInProgress, title: "Another statement is being imported into this account.",
+                detail: "Wait for it to finish, then check the preview again: the rows it imported show as likely duplicates."),
             _ => Committed(),
         };
     }

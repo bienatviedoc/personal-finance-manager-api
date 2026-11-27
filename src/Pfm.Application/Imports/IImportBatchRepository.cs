@@ -11,6 +11,9 @@ public interface IImportBatchRepository
     /// <summary>The ids of the user's batches being committed, the first committed first.</summary>
     Task<IReadOnlyList<Guid>> ListCommittingAsync(CancellationToken cancellationToken);
 
+    /// <summary>Whether another of the user's batches is being committed into the account.</summary>
+    Task<bool> IsCommittingIntoAsync(Guid accountId, CancellationToken cancellationToken);
+
     /// <summary>Every user, signed in or not, who has a batch being committed: the worker's queue.</summary>
     Task<IReadOnlyList<Guid>> UsersWithCommittingAsync(CancellationToken cancellationToken);
 
