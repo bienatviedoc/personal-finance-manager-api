@@ -61,7 +61,12 @@ public sealed class CategorisationRule : IUserOwned
     /// <summary>Changes with every change saved: an edit or a reorder names the one it was made from.</summary>
     public uint RowVersion { get; private set; }
 
-    public static bool IsValidMatchText(string? text) => !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxMatchTextLength;
+    /// <summary>
+    /// Text left with something to compare once its case, accents and extra spaces are taken out: text that has nothing
+    /// left would be in every description, and match every row.
+    /// </summary>
+    public static bool IsValidMatchText(string? text) =>
+        !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxMatchTextLength && ComparableText.Of(text).Length > 0;
 
     public static bool IsValidPriority(int priority) => priority is >= 0 and <= MaxPriority;
 

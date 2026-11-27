@@ -36,6 +36,15 @@ public class CategorisationRuleTests
         Assert.Equal(matches, Rule(matchText, match, Transport, 1).Matches(text));
     }
 
+    [Theory]
+    [InlineData("\u0301\u0300")]
+    [InlineData(" \u0303 ")]
+    public void Match_text_with_nothing_left_to_compare_once_accents_are_taken_out_is_not_valid(string matchText)
+    {
+        Assert.False(CategorisationRule.IsValidMatchText(matchText));
+        Assert.Throws<ArgumentException>(() => Rule(matchText, CategorisationMatch.Contains, Transport, 1));
+    }
+
     [Fact]
     public void When_several_rules_match_the_one_of_highest_priority_wins()
     {
