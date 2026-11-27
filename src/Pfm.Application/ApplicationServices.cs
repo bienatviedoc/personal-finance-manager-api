@@ -59,6 +59,8 @@ public static class ApplicationServices
         services.AddScoped<StatementReader>();
         services.AddScoped<ImportCommits>();
         services.AddScoped<AbandonedUploadSweep>();
+        services.AddScoped<AuditLog>();
+        services.AddScoped<IAuditLog>(provider => provider.GetRequiredService<AuditLog>());
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
         services.AddScoped<DeletedTransactionPurge>();

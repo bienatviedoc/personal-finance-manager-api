@@ -100,6 +100,8 @@ public static class UserErasureFixtures
         {
             ["Accounts"] = 2,
             ["Attachments"] = 1,
+            // Signing in, the transaction deleted and the statement committed.
+            ["AuditEntries"] = 3,
             ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
             ["CategorisationRules"] = 1,

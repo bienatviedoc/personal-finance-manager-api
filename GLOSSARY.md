@@ -152,6 +152,14 @@ _Avoid_: Backup code, scratch code
 A user who has asked to be deleted and is within the 30 days before permanent erasure; signing in again cancels the deletion.
 _Avoid_: Deleted user, suspended user
 
+**Audit log**:
+The record of the sensitive things a user did, read in their settings, the newest first: each sign-in, statement committed, import undone, bulk action and delete of a transaction or transfer. Only the app writes to it, and nothing in it is ever changed or removed, until the user is erased with everything else of theirs.
+_Avoid_: History, activity (the dashboard's recent activity is something else), event log
+
+**Audit entry**:
+One line of the audit log: what the user did, the kind of thing and the one thing it affected (none for a bulk action), when, and a short summary in words, written in the user's locale at the time. A summary never holds a password, a code or a statement's text.
+_Avoid_: Event, log line, record
+
 **Base currency**:
 The single currency a user chooses for totals, budgets and reports across accounts in different currencies.
 _Avoid_: Home currency, default currency, reporting currency
@@ -210,7 +218,7 @@ _Avoid_: Download (for the file itself), backup, report (for the file)
 
 **Integrity check**:
 The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.
-_Avoid_: Reconciliation (which the user does against a statement), audit, validation
+_Avoid_: Reconciliation (which the user does against a statement), audit (the audit log is something else), validation
 
 **Drift**:
 Something the integrity check finds that does not add up in what was saved, such as a transfer missing a leg. It is logged for a person to look into, never corrected automatically.

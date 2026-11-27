@@ -1,4 +1,5 @@
 using FluentValidation;
+using Pfm.Application.Abstractions;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Identity;
 
@@ -60,9 +61,12 @@ public enum SignInOutcome
 /// Signing in is how a deactivated user cancels their deletion (spec section 8, Privacy): only a sign-in that
 /// gets all the way through does, so the password alone is not enough for a user who signs in with two factors.
 /// Once their 30 days are over there is nothing left to cancel, and they are refused as a wrong password is.
+/// A sign-in that gets through is recorded in the user's audit log in the transaction that clears their failed
+/// attempts and cancels their deletion, before the session is issued.
 /// </remarks>
 public sealed class SignInHandler(
-    IValidator<SignInCommand> validator, IUsers users, ITwoFactor twoFactor, ISessions sessions, TimeProvider clock)
+    IValidator<SignInCommand> validator, IUsers users, ITwoFactor twoFactor, ISessions sessions, AuditLog auditLog, IActForUser actFor, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<SignInCommand, SignInOutcome>(validator)
 {
     protected override async Task<Result<SignInOutcome>> ExecuteAsync(SignInCommand command, CancellationToken cancellationToken)
@@ -115,10 +119,21 @@ public sealed class SignInHandler(
             }
         }
 
-        await users.ClearFailedSignInsAsync(user.Id);
-        if (user.DeactivatedAt is not null)
+        var method = !user.TwoFactorEnabled ? SignInMethod.Password
+            : command.TwoFactorCode.Length > 0 ? SignInMethod.AuthenticatorCode
+            : SignInMethod.RecoveryCode;
+        using (actFor.ActFor(user.Id))
         {
-            await users.ReactivateAsync(user.Id);
+            await using var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken);
+            await users.ClearFailedSignInsAsync(user.Id);
+            if (user.DeactivatedAt is not null)
+            {
+                await users.ReactivateAsync(user.Id);
+            }
+
+            await auditLog.SignedInAsync(user.Id, method, deletionCancelled: user.DeactivatedAt is not null, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
         }
 
         await sessions.SignInAsync(user.Id);

@@ -624,8 +624,8 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   being committed is undone too, which stops it: the deletes and the batch are one save guarded by its row version,
   so of an undo and the worker saving the next rows at the same moment, one goes first and the other is made again
   (the undo, deleting those rows too) or saves nothing (the worker). The mapping saved for the account stays.
-- **Still to come**: an audit entry for each commit and undo (#45). The batch keeps the mapping it was committed with and every transaction its
-  `importBatchId` for them; an undo is one call to `UndoImportHandler`.
+- The batch keeps the mapping it was committed with and every transaction its `importBatchId`; an undo is one call to
+  `UndoImportHandler`. Each commit and undo leaves an entry in the [audit log](#audit-log), in its own save.
 
 ### Budgets
 
@@ -826,7 +826,7 @@ the browser never holds a token a script could read.
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password, change the password, set up, turn on, turn off and get recovery codes for two-factor
-sign-in, export the user's data, delete the user and erase deactivated users) are in
+sign-in, export the user's data, delete the user, erase deactivated users and list the audit log) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
 `SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
@@ -940,6 +940,33 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   must create a row of every user-owned table, or the export test fails; and what a user owns outside the
   database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`,
   as attachments have.
+
+## Audit log
+
+Spec section 8 (Auditability): sensitive actions leave a trace the user can review, and nobody can change.
+
+- **What is recorded:** each sign-in that gets through (saying which second factor, and whether it cancelled the
+  user's deletion), each statement committed, each import undone, each bulk action (one entry for all the
+  transactions it took, `bulkEdit` or `bulkDelete`), and each delete of a transaction or a transfer. An
+  `AuditEntry` (`Pfm.Domain.Identity`) keeps the `action`, the `entityType` and `entityId` it affected (none for
+  a bulk action), `at` and a short `summary`, written by `AuditSummaries` in the user's locale at the time (English
+  when they have none). A summary names a file, a category, a tag, an account, an amount or a count; never a
+  password, a code, a token or a statement's text. A refused action records nothing.
+- **In the same transaction as the action:** other modules record through `IAuditLog`
+  (`Pfm.Application.Contracts.Identity`), whose methods add the entry to the use case's unsaved changes; the use case
+  then saves both together. Call it just before `SaveChangesAsync`. A use case made again after a concurrent change
+  records again, as `DiscardChanges` dropped the first entry with everything else. Signing in records in the
+  transaction that clears the failed attempts and cancels a deletion, before the session cookie is issued.
+- **Undoing an import** records with `IAuditLog.ImportUndoneAsync(batchId, fileName, transactions)` in `UndoImport`, in
+  the save that deletes the batch's transactions. Undoing a batch undone already records nothing.
+- **Reading it:** `GET /api/v1/me/audit-log` answers the signed-in user's entries, the newest first, a page at a time
+  (`limit` and `cursor`, as every list). The SPA shows it under Settings.
+- **Append only** (decision record 0009): there is no endpoint that changes or deletes an entry. `PfmDbContext`
+  refuses to save a change or delete of any `IAppendOnly` entity, and the database's
+  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` but of
+  the entries of a deactivated user (or one already gone): erasing a user after their 30 days removes their entries
+  with everything else (spec section 8, Privacy), and nothing else can. The full export has them as
+  `audit-entries.csv`, like all user-owned data.
 
 ## Hardening
 

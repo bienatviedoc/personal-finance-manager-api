@@ -94,6 +94,7 @@ public static class InfrastructureServices
         services.AddScoped<ITransactionTrends, TransactionTrends>();
         services.AddScoped<IBudgetRepository, BudgetRepository>();
         services.AddScoped<IBudgetNotificationRepository, BudgetNotificationRepository>();
+        services.AddScoped<IAuditEntryRepository, AuditEntryRepository>();
         services.AddTransient<IBudgetNotificationEmails, BudgetNotificationEmails>();
         services.AddExchangeRates();
         services.AddSingleton<IPdfWriter, MigraDocPdfWriter>();

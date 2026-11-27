@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Imports;
@@ -41,12 +42,12 @@ public abstract record UndoImportOutcome
 /// Answers null when the user has no such batch. The transactions are deleted and the batch marked undone in one save,
 /// guarded by the batch's row version (decision record 0007): a worker importing the batch's next rows at the same
 /// moment either saves first, and this undo is made again and deletes those rows too, or meets the undone batch and
-/// saves none of them. Undoing a batch again answers it as it is. One call, so whatever must happen on every undo
+/// saves none of them. The undo is recorded in the user's audit log in that same save. Undoing a batch again answers it as it is. One call, so whatever must happen on every undo
 /// happens here.
 /// </summary>
 public sealed class UndoImportHandler(
     IValidator<UndoImportCommand> validator, IImportBatchRepository batches, IImportedTransactions transactions, IBudgetNotifications budgetNotifications,
-    IUnitOfWork unitOfWork, TimeProvider clock)
+    IAuditLog auditLog, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<UndoImportCommand, UndoImportOutcome?>(validator)
 {
     protected override Task<Result<UndoImportOutcome?>> ExecuteAsync(UndoImportCommand command, CancellationToken cancellationToken) =>
@@ -75,6 +76,7 @@ public sealed class UndoImportHandler(
 
         var (count, dates) = (DeleteImportedOutcome.Deleted)deleted;
         batch.Undo(clock.GetUtcNow());
+        await auditLog.ImportUndoneAsync(batch.Id, batch.FileName, count, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         // A refund deleted raises spent again, as deleting one transaction does.
