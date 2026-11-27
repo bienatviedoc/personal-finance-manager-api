@@ -101,11 +101,23 @@ An occurrence of a recurring rule set to remind, due on or before today, waiting
 _Avoid_: Notification, alert, pending transaction
 
 **Import batch**:
-One uploaded statement file together with the transactions created from it.
-_Avoid_: Import, upload, statement
+One uploaded statement file together with the transactions created from it. The file is kept only until its rows are imported; each transaction created belongs to the batch.
+_Avoid_: Import, upload, statement (for the batch)
+
+**Statement file**:
+A bank's export of an account's transactions, as a CSV file the user uploads to import. Its rows may be preceded by a preamble and followed by a footer, such as a total.
+_Avoid_: Bank file, export (which is the app's own file out), CSV (for the thing itself)
+
+**Mapping**:
+How the user says a statement file is read: what separates its cells, the rows to skip before and after the transactions, whether a header row names the columns, which column holds the date, the description, and either one signed amount or a debit and a credit, and how dates and amounts are written. No bank's layout is built in; each is mapped.
+_Avoid_: Parser, format, template, column map
+
+**Preview**:
+A statement file read with a mapping before anything is saved: every row, the transaction each says, the rows that cannot be read and why, and the likely duplicates, unticked. The user chooses there which rows to commit.
+_Avoid_: Dry run, draft
 
 **Likely duplicate**:
-A row in an import batch that matches an existing transaction on account, date, amount and description, and is skipped unless the user chooses to keep it.
+A row of a statement file that matches a transaction already on the account on date, amount, which way the money went, and description compared without case, accents or extra spaces. Each existing transaction matches one row at most. It is shown, unticked, and skipped unless the user ticks it; never dropped silently.
 _Avoid_: Dupe, conflict
 
 **Reconciliation**:
