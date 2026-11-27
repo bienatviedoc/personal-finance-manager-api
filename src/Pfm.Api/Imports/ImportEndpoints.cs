@@ -29,6 +29,8 @@ public static class ImportEndpoints
             .WithMetadata(new UploadSizeLimit(MaxRequestSize, ImportBatch.FileSizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
+        imports.MapGet("/", List).WithName("ListImportBatches")
+            .WithDescription("The user's past import batches: every statement committed, whatever became of it since (committing, committed, failed or undone), with its file name, when it was uploaded and its counts, the last uploaded first, a page at a time. accountId lists one account's. A statement uploaded and not committed is not listed.");
         imports.MapGet("/{id:guid}", Get).WithName("GetImportBatch")
             .WithDescription("One import batch: where it has got to (uploaded, committing, committed or failed) and its counts. While it is committing, importedCount grows towards selectedCount as the worker imports the rows: ask again every second or two to show progress.");
         imports.MapGet("/{id:guid}/preview", Preview).WithName("PreviewImport")
@@ -54,6 +56,27 @@ public static class ImportEndpoints
         return result.IsValid
             ? TypedResults.Created($"/api/v1/imports/{result.Outcome.Id}", ImportBatchResponse.From(result.Outcome))
             : ValidationProblems.For(result);
+    }
+
+    /// <param name="accountId">Only the batches of this account.</param>
+    /// <param name="limit">How many batches a page holds: 1 to 100, 50 when left out.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    private static async Task<Results<Ok<ImportBatchListResponse>, ValidationProblem>> List(
+        ListImportBatchesHandler handler, CancellationToken cancellationToken, Guid? accountId = null, int limit = Paging.DefaultLimit, string? cursor = null)
+    {
+        if (!Paging.IsValidLimit(limit))
+        {
+            return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+        }
+
+        ImportBatchCursor? after = null;
+        if (cursor is not null && !ImportBatchCursor.TryParse(cursor, out after))
+        {
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
+        }
+
+        var page = await handler.HandleAsync(new ListImportBatches(accountId, limit, after), cancellationToken);
+        return TypedResults.Ok(new ImportBatchListResponse([.. page.Items.Select(ImportBatchResponse.From)], page.NextCursor));
     }
 
     private static async Task<Results<Ok<ImportBatchResponse>, NotFound>> Get(Guid id, GetImportBatchHandler handler, CancellationToken cancellationToken) =>
@@ -199,6 +222,10 @@ public sealed record ImportBatchResponse(
             batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping),
             MappingResponse.From(batch.SavedMapping), batch.UndoneAt);
 }
+
+/// <summary>A page of past import batches.</summary>
+/// <param name="NextCursor">What to send as <c>cursor</c> for the next page; null on the last.</param>
+public sealed record ImportBatchListResponse(IReadOnlyList<ImportBatchResponse> Items, string? NextCursor);
 
 /// <summary>One row of a previewed statement.</summary>
 /// <param name="Number">Its place in the file, counted from 1: what a commit names it by.</param>

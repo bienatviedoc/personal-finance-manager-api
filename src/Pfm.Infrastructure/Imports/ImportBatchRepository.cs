@@ -46,6 +46,25 @@ internal sealed class ImportBatchRepository(PfmDbContext db) : IImportBatchRepos
             .Distinct()
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ImportBatch>> ListPastAsync(Guid? accountId, int take, ImportBatchCursor? after, CancellationToken cancellationToken)
+    {
+        var past = db.Set<ImportBatch>().AsNoTracking().Where(batch => batch.Status != ImportBatchStatus.Uploaded);
+        if (accountId is { } account)
+        {
+            past = past.Where(batch => batch.AccountId == account);
+        }
+
+        if (after is not null)
+        {
+            past = past.Where(batch => batch.CreatedAt < after.CreatedAt || (batch.CreatedAt == after.CreatedAt && batch.Id < after.Id));
+        }
+
+        return await past
+            .OrderByDescending(batch => batch.CreatedAt).ThenByDescending(batch => batch.Id)
+            .Take(take)
+            .ToListAsync(cancellationToken);
+    }
+
     public void Add(ImportBatch batch) => db.Set<ImportBatch>().Add(batch);
 
     public void Remove(ImportBatch batch) => db.Set<ImportBatch>().Remove(batch);
