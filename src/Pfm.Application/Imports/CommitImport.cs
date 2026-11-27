@@ -108,6 +108,7 @@ public sealed class CommitImportHandler(
 
         if (await batches.IsCommittingIntoAsync(batch.AccountId, cancellationToken))
         {
+            unitOfWork.DiscardChanges();
             return new CommitImportOutcome.ImportInProgress();
         }
 
