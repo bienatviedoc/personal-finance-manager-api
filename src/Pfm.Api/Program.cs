@@ -30,7 +30,7 @@ builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
 builder.Services.AddAuthRateLimit();
 builder.Services.AddPfmJson();
-builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = AttachmentEndpoints.ExplainTooLarge);
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = UploadSizeLimit.ExplainTooLarge);
 builder.Services.AddOpenApi("v1");
 
 var app = builder.Build();

@@ -375,6 +375,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("CommittedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateOnly?>("CommittedOn")
+                        .HasColumnType("date");
+
                     b.Property<string>("Content")
                         .HasColumnType("text");
 
@@ -387,12 +390,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("ExpenseCategoryId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
                     b.Property<int>("FailedCount")
                         .HasColumnType("integer");
 
                     b.Property<string>("Failure")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
 
                     b.Property<string>("FileName")
                         .IsRequired()
@@ -439,7 +445,10 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AccountId");
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ImportBatches_AccountId_Committing")
+                        .HasFilter("\"Status\" = 'Committing'");
 
                     b.HasIndex("UserId")
                         .HasDatabaseName("IX_ImportBatches_UserId_Committing")

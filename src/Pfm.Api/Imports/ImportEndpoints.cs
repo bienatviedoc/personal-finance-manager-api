@@ -14,6 +14,9 @@ public static class ImportEndpoints
     /// <summary>A batch has been committed: it cannot be committed again, and its file is no longer kept to preview.</summary>
     public const string ImportCommitted = "urn:pfm:problem:import-committed";
 
+    /// <summary>Another statement is being imported into the account: one is committed into an account at a time.</summary>
+    public const string ImportInProgress = "urn:pfm:problem:import-in-progress";
+
     /// <summary>Room for a file somewhat over the 5 MB a statement may be, so that one gets the answer that says so.</summary>
     private const long MaxRequestSize = 2 * ImportBatch.MaxFileSize;
 
@@ -22,7 +25,7 @@ public static class ImportEndpoints
         var imports = api.MapGroup("/imports").WithTags("Imports").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         imports.MapPost("/", Upload).WithName("UploadStatement")
-            .WithDescription("Uploads a bank statement to import into one of the user's accounts: a CSV file of at most 5 MB, saved as text (UTF-8, or UTF-16 with a byte order mark), sent as the file field of a multipart/form-data body beside accountId. Nothing is imported yet: the answer is the import batch, with a first guess at how to read the file (suggestedMapping) for the user to confirm or change in the preview.")
+            .WithDescription("Uploads a bank statement to import into one of the user's accounts: a CSV file of at most 5 MB and 10,000 rows, saved as text (UTF-8, or UTF-16 with a byte order mark), sent as the file field of a multipart/form-data body beside accountId. Nothing is imported yet: the answer is the import batch, with a first guess at how to read the file (suggestedMapping) for the user to confirm or change in the preview.")
             .WithMetadata(new UploadSizeLimit(MaxRequestSize, ImportBatch.FileSizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
@@ -32,7 +35,7 @@ public static class ImportEndpoints
             .WithDescription("The uploaded statement read with a mapping, before anything is saved: every row with its cells, what it is (header, skipped, blank, parsed, failed or unmapped), for a parsed row the transaction it says, and for a failed row what is wrong with it. A row with the date, amount, direction and description (compared without case, accents or extra spaces) of a transaction already on the account is a likely duplicate, unticked (selected false). Without a date column and an amount (or a debit and a credit) column the rows are only cut into cells, for the user to map. A committed batch keeps no file: 409 with the problem type urn:pfm:problem:import-committed.")
             .ProducesProblem(StatusCodes.Status409Conflict);
         imports.MapPost("/{id:guid}/commit", Commit).WithName("CommitImport")
-            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed.")
+            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         return api;
@@ -59,13 +62,13 @@ public static class ImportEndpoints
     private static async Task<Results<Ok<ImportPreviewResponse>, NotFound, ValidationProblem, ProblemHttpResult>> Preview(
         Guid id, [AsParameters] MappingParameters parameters, PreviewImportHandler handler, CancellationToken cancellationToken)
     {
-        var input = parameters.Input();
-        if (input.Read() is not { } mapping)
+        var result = await handler.HandleAsync(new PreviewImportCommand(id, parameters.Input()), cancellationToken);
+        if (!result.IsValid)
         {
-            return ValidationProblems.For(Result<ImportPreviewResponse>.Invalid(input.Errors()));
+            return ValidationProblems.For(result);
         }
 
-        return await handler.HandleAsync(new PreviewImport(id, mapping), cancellationToken) switch
+        return result.Outcome switch
         {
             null => TypedResults.NotFound(),
             PreviewImportOutcome.Ready ready => TypedResults.Ok(ImportPreviewResponse.From(ready.Preview)),
@@ -87,6 +90,9 @@ public static class ImportEndpoints
         {
             null => TypedResults.NotFound(),
             CommitImportOutcome.Committing committing => TypedResults.Accepted($"/api/v1/imports/{id}", ImportBatchResponse.From(committing.Batch)),
+            CommitImportOutcome.ImportInProgress => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportInProgress, title: "Another statement is being imported into this account.",
+                detail: "Wait for it to finish, then check the preview again: the rows it imported show as likely duplicates."),
             _ => Committed(),
         };
     }
@@ -177,13 +183,13 @@ public sealed record MappingResponse(
 /// <param name="ImportedCount">How many of them are transactions now; it reaches selectedCount when the batch is committed.</param>
 /// <param name="DuplicateCount">How many likely duplicates were left out, unticked.</param>
 /// <param name="FailedCount">How many rows could not be read as a transaction, and were not imported.</param>
-/// <param name="Failure">Why the worker stopped, when the batch failed.</param>
+/// <param name="Failure">Why the worker stopped, when the batch failed: <c>accountArchived</c>, <c>categoryArchived</c> (a category chosen for it was archived since it was committed), <c>accountCurrencyChanged</c>, <c>transactionRefused</c> (a row broke another rule of transactions) or <c>unexpected</c> (the worker failed on it several times in a row). A code, for the app to say in the user's language.</param>
 /// <param name="CommittedAt">When its last row was imported.</param>
 /// <param name="Mapping">How the file was read when it was committed; null before.</param>
 /// <param name="SuggestedMapping">A first guess at how to read the file (its separator, and the header row after any preamble), while it is uploaded; null after.</param>
 public sealed record ImportBatchResponse(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
-    int FailedCount, string? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
+    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
 {
     public static ImportBatchResponse From(ImportBatchDetails batch) =>
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,
@@ -212,7 +218,10 @@ public sealed record PreviewRowResponse(
 /// <param name="Selected">Ticked to import at first: parsed rows but the likely duplicates.</param>
 public sealed record PreviewCountsResponse(int Parsed, int Failed, int LikelyDuplicates, int Selected);
 
-/// <summary>An uploaded statement read with a mapping. Every row is in it, not a page: a preview is checked whole before committing.</summary>
+/// <summary>
+/// An uploaded statement read with a mapping. Every row is in it, not a page: a preview is checked whole before
+/// committing, and a statement has at most 10,000 rows.
+/// </summary>
 /// <param name="Header">The cells of the header row; none without one.</param>
 /// <param name="ColumnCount">The most cells any row has: the columns there are to map.</param>
 /// <param name="Currency">The account's, which every amount is in.</param>

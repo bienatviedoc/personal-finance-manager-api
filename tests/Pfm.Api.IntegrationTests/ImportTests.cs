@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Pfm.Application.Imports;
+using Pfm.Domain.Transactions;
 using Xunit.Abstractions;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
@@ -87,6 +88,21 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_statement_of_more_than_10000_rows_is_refused()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Everyday");
+        var rows = string.Concat(Enumerable.Repeat("02-08-2026;GRAB;-1.000\n", 10_000));
+
+        var atTheLimit = await UploadAsync(browser, account, "statement.csv", Encoding.UTF8.GetBytes(rows));
+        var over = await UploadAsync(browser, account, "statement.csv", Encoding.UTF8.GetBytes("Date;Details;Amount\n" + rows));
+
+        Assert.Equal(HttpStatusCode.Created, atTheLimit.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, over.StatusCode);
+        Assert.Equal("Upload a statement of at most 10,000 rows.", await over.ErrorOnAsync("file"));
+    }
+
+    [Fact]
     public async Task A_file_over_5_MB_is_refused()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -158,6 +174,22 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
 
         Assert.Equal([(2, true, false), (3, false, true), (5, false, true)], preview.Rows.Where(row => row.Kind == "parsed").Select(row => (row.Number, row.LikelyDuplicate, row.Selected)));
         Assert.Equal(new CountsBody(3, 1, 1, 2), preview.Counts);
+    }
+
+    [Fact]
+    public async Task A_row_matching_a_transfer_leg_on_the_account_the_same_way_is_a_likely_duplicate_whatever_its_description()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var savings = await AddAccountAsync(browser, "Savings");
+        await TransferAsync(browser, account, savings, "146000", new DateOnly(2026, 8, 6));
+        await TransferAsync(browser, savings, account, "28500000", new DateOnly(2026, 8, 5));
+        await TransferAsync(browser, savings, account, "55000", new DateOnly(2026, 8, 2));
+        var batch = await UploadAsync(browser, account, Small);
+
+        var preview = await PreviewAsync(browser, batch, SmallMapping);
+
+        Assert.Equal([(2, false), (3, true), (5, true)], preview.Rows.Where(row => row.Kind == "parsed").Select(row => (row.Number, row.LikelyDuplicate)));
     }
 
     [Fact]
@@ -234,6 +266,43 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_row_dated_today_when_it_was_committed_is_imported_even_when_the_users_time_zone_moves_back_a_day_before_the_worker_gets_to_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Pacific/Kiritimati" })).EnsureSuccessStatusCode();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(14));
+        var batch = await UploadAsync(browser, account, $"Date;Details;Amount\n{today:dd-MM-yyyy};GRABFOOD HCM;-146.000,00\n");
+        (await CommitAsync(browser, batch, SmallMapping, [2])).EnsureSuccessStatusCode();
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Etc/GMT+12" })).EnsureSuccessStatusCode();
+
+        await ImportAsync();
+
+        var imported = await BatchAsync(browser, batch.Id);
+        Assert.Equal(("committed", 1, (string?)null), (imported.Status, imported.ImportedCount, imported.Failure));
+    }
+
+    [Fact]
+    public async Task A_batch_whose_category_or_account_is_archived_before_it_is_imported_stops_with_a_code_saying_which()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var categoryGone = await UploadAsync(browser, account, Small);
+        var otherAccount = await AddAccountAsync(browser, "Cash");
+        var accountGone = await UploadAsync(browser, otherAccount, Small);
+        var groceries = await CategoryAsync(browser, "Groceries");
+        (await CommitAsync(browser, categoryGone, SmallMapping, [2], expenseCategoryId: groceries)).EnsureSuccessStatusCode();
+        (await CommitAsync(browser, accountGone, SmallMapping, [2])).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/categories/{groceries}")).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/accounts/{otherAccount}")).EnsureSuccessStatusCode();
+
+        await ImportAsync();
+
+        Assert.Equal(("failed", "categoryArchived"), ((await BatchAsync(browser, categoryGone.Id)).Status, (await BatchAsync(browser, categoryGone.Id)).Failure));
+        Assert.Equal(("failed", "accountArchived"), ((await BatchAsync(browser, accountGone.Id)).Status, (await BatchAsync(browser, accountGone.Id)).Failure));
+    }
+
+    [Fact]
     public async Task Only_rows_the_preview_reads_as_transactions_can_be_committed_and_with_a_category_of_the_kind_each_takes()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -253,6 +322,20 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_statement_whose_account_was_archived_after_it_was_uploaded_cannot_be_committed()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var batch = await UploadAsync(browser, account, Small);
+        (await browser.DeleteAsync($"/api/v1/accounts/{account}")).EnsureSuccessStatusCode();
+
+        var response = await CommitAsync(browser, batch, SmallMapping, [2]);
+
+        Assert.Equal("The statement's account has been archived: upload it again for one of your accounts that is not.", await response.ErrorOnAsync("id"));
+        Assert.Equal("uploaded", (await BatchAsync(browser, batch.Id)).Status);
+    }
+
+    [Fact]
     public async Task A_batch_is_committed_once_and_then_has_no_file_to_preview()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -267,6 +350,86 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
         Assert.Equal("urn:pfm:problem:import-committed", await again.ProblemTypeAsync());
         Assert.Equal(HttpStatusCode.Conflict, preview.StatusCode);
         Assert.Equal("urn:pfm:problem:import-committed", await preview.ProblemTypeAsync());
+    }
+
+    [Fact]
+    public async Task A_second_statement_for_an_account_cannot_be_committed_while_another_is_being_imported_and_once_it_is_its_rows_are_likely_duplicates()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var first = await UploadAsync(browser, account, Small);
+        var second = await UploadAsync(browser, account, Small);
+        var elsewhere = await UploadAsync(browser, await AddAccountAsync(browser, "Cash"), Small);
+        (await CommitAsync(browser, first, SmallMapping, [2, 3, 5])).EnsureSuccessStatusCode();
+
+        var meanwhile = await CommitAsync(browser, second, SmallMapping, [2, 3, 5]);
+        var otherAccount = await CommitAsync(browser, elsewhere, SmallMapping, [2, 3, 5]);
+        await ImportAsync();
+
+        Assert.Equal(HttpStatusCode.Conflict, meanwhile.StatusCode);
+        Assert.Equal("urn:pfm:problem:import-in-progress", await meanwhile.ProblemTypeAsync());
+        Assert.Equal(HttpStatusCode.Accepted, otherAccount.StatusCode);
+        Assert.Equal("uploaded", (await BatchAsync(browser, second.Id)).Status);
+        Assert.Equal(new CountsBody(3, 1, 3, 0), (await PreviewAsync(browser, second, SmallMapping)).Counts);
+    }
+
+    [Fact]
+    public async Task A_batch_the_worker_keeps_failing_on_unexpectedly_is_stopped_after_a_few_attempts_and_holds_up_no_other_batch()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var failing = await UploadAsync(browser, await AddAccountAsync(browser, "Techcombank"), Small);
+        (await CommitAsync(browser, failing, SmallMapping, [2])).EnsureSuccessStatusCode();
+        var (other, _) = await api.SignedInAsync();
+        var healthy = await UploadAsync(other, await AddAccountAsync(other, "Vietcombank"), Small);
+        (await CommitAsync(other, healthy, SmallMapping, [2, 3, 5])).EnsureSuccessStatusCode();
+        api.Saves.BeforeEverySaveOf<Transaction>(transaction => transaction.ImportBatchId == failing.Id, () => throw new InvalidOperationException("Something unforeseen."));
+        try
+        {
+            var first = await ImportNextAsync();
+
+            Assert.Equal(("committed", 3), ((await BatchAsync(other, healthy.Id)).Status, (await BatchAsync(other, healthy.Id)).ImportedCount));
+            Assert.Equal("committing", (await BatchAsync(browser, failing.Id)).Status);
+            Assert.Contains(first.Failures, failure => failure.InnerException?.Message == "Something unforeseen.");
+
+            for (var attempt = 1; attempt < ImportCommits.MaxAttempts; attempt++)
+            {
+                await ImportNextAsync();
+            }
+        }
+        finally
+        {
+            api.Saves.Stop();
+        }
+
+        var stopped = await BatchAsync(browser, failing.Id);
+        Assert.Equal(("failed", "unexpected", 0), (stopped.Status, stopped.Failure, stopped.ImportedCount));
+        Assert.Empty((await ImportNextAsync()).Failures);
+    }
+
+    [Fact]
+    public async Task A_statement_uploaded_and_never_committed_is_removed_with_its_file_once_it_is_older_than_the_time_uploads_are_kept()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var abandoned = await UploadAsync(browser, account, Small);
+        var committed = await UploadAsync(browser, account, Small);
+        (await CommitAsync(browser, committed, SmallMapping, [2])).EnsureSuccessStatusCode();
+        await ImportAsync();
+
+        await using (var earlier = api.After(TimeSpan.FromHours(23)).Services.CreateAsyncScope())
+        {
+            await earlier.ServiceProvider.GetRequiredService<AbandonedUploadSweep>().RunAsync(keepFor: TimeSpan.FromHours(24));
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync($"{Imports}/{abandoned.Id}")).StatusCode);
+
+        await using (var later = api.After(TimeSpan.FromHours(25)).Services.CreateAsyncScope())
+        {
+            Assert.True(await later.ServiceProvider.GetRequiredService<AbandonedUploadSweep>().RunAsync(keepFor: TimeSpan.FromHours(24)) >= 1);
+        }
+
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"{Imports}/{abandoned.Id}")).StatusCode);
+        Assert.Equal("committed", (await BatchAsync(browser, committed.Id)).Status);
     }
 
     [Fact]
@@ -344,11 +507,19 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"Uploading and previewing 5,000 rows took {clock.Elapsed}.");
     }
 
-    /// <summary>Imports what is committed the way the worker's job does, until nothing is left.</summary>
+    /// <summary>Imports what is committed the way the worker's job does, a scope for each run, until a run imports nothing.</summary>
     private async Task ImportAsync()
     {
+        while ((await ImportNextAsync()).Rows > 0)
+        {
+        }
+    }
+
+    /// <summary>One run of the worker's job.</summary>
+    private async Task<ImportRun> ImportNextAsync()
+    {
         await using var scope = api.Services.CreateAsyncScope();
-        await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportAllAsync();
+        return await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync();
     }
 
     private static Task<HttpResponseMessage> UploadAsync(Browser browser, Guid accountId, string fileName, byte[] content) =>

@@ -252,11 +252,13 @@ The browser never touches the database or storage directly, and the worker share
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects (`Money`, `DateRange`), domain rules. No framework references | Nothing |
 | `Pfm.Application` | Use cases per module (commands, queries, validators), interfaces for persistence, storage, email, clock | Domain |
-| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, Identity, storage, email, CSV parsing, exchange-rate provider | Application |
+| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, Identity, storage, email, exchange-rate provider | Application |
 | `Pfm.Api` | Endpoints, auth, OpenAPI, rate limiting, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Hosted background jobs | Application, Infrastructure |
 
 Modules are folders inside each project (`Accounts`, `Transactions`, `Budgets`, `Reports`, `Imports`, `Identity`). A module calls another only through its Application-layer interface, and an architecture test enforces this.
+
+Reading a bank statement's CSV sits in `Pfm.Domain.Imports`, not in Infrastructure: cutting the text into cells, and reading each row's date, amount and description with the user's mapping, are the import's rules (what a row says, which rows fail and why, which are likely duplicates), not a way of reaching something outside the app. It needs nothing but the text, so it is unit-tested against the golden files without a database (decision record 0006).
 
 **Stack**
 
@@ -326,7 +328,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Three answers are not paged and return all of their `items` at once: the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; and a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts.
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Four answers are not paged and return all of their `items` at once: the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen).
 - Updates send `If-Match` with the row version; a stale version returns `412`. An upsert (`PUT /budgets/{month}/{categoryId}`) needs it only when the budget exists: creating one sends none.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.

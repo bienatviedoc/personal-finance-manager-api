@@ -8,7 +8,8 @@ namespace Pfm.Application.Imports;
 /// <summary>A batch's file read with a mapping, with its likely duplicates: what the preview shows and a commit takes.</summary>
 /// <param name="Account">The account the statement is imported into.</param>
 /// <param name="LikelyDuplicates">The numbers of the rows that are likely duplicates.</param>
-public sealed record StatementRead(AccountSummary Account, Statement Statement, IReadOnlySet<int> LikelyDuplicates);
+/// <param name="Today">Today in the user's time zone, which the file was read as of.</param>
+public sealed record StatementRead(AccountSummary Account, Statement Statement, IReadOnlySet<int> LikelyDuplicates, DateOnly Today);
 
 /// <summary>
 /// Reads an uploaded batch's file with a mapping, in the currency of its account and on the user's today, and finds
@@ -22,18 +23,20 @@ public sealed class StatementReader(IAccountLookup accounts, IImportedTransactio
         ArgumentNullException.ThrowIfNull(batch);
         var account = await accounts.FindAsync(batch.AccountId, cancellationToken)
             ?? throw new InvalidOperationException("An import batch's account is archived, never deleted.");
-        var statement = batch.Read(mapping, account.Currency, await calendar.TodayAsync(cancellationToken));
+        var today = await calendar.TodayAsync(cancellationToken);
+        var statement = batch.Read(mapping, account.Currency, today);
         var entries = statement.Entries.Select(row => row.Entry!).ToList();
         if (entries.Count == 0)
         {
-            return new StatementRead(account, statement, new HashSet<int>());
+            return new StatementRead(account, statement, new HashSet<int>(), today);
         }
 
         var existing = await transactions.ListOnAccountAsync(account.Id, entries.Min(entry => entry.Date), entries.Max(entry => entry.Date), cancellationToken);
         var duplicates = LikelyDuplicates.Among(
             statement,
             existing.Select(transaction => new ExistingEntry(
-                transaction.Date, transaction.MoneyIn ? StatementEntryType.Income : StatementEntryType.Expense, transaction.Amount, transaction.Payee)));
-        return new StatementRead(account, statement, duplicates);
+                transaction.Date, transaction.MoneyIn ? StatementEntryType.Income : StatementEntryType.Expense, transaction.Amount, transaction.Payee,
+                transaction.IsTransferLeg)));
+        return new StatementRead(account, statement, duplicates, today);
     }
 }

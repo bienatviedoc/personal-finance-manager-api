@@ -145,6 +145,18 @@ public class DataExportTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Text_a_spreadsheet_would_run_as_a_formula_is_exported_as_text_and_a_negative_amount_stays_a_number()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await BrowserFixtures.AddAccountAsync(browser, "=1+2", openingBalance: "-500000");
+
+        var files = await FilesAsync(await browser.GetAsync(Export));
+
+        var account = Row(CsvFiles.Read(files["accounts.csv"]), 1);
+        Assert.Equal(("'=1+2", "-500000.00"), (account["name"], account["openingBalance"].TrimEnd('0').TrimEnd('.') + ".00"));
+    }
+
+    [Fact]
     public async Task The_export_holds_no_column_that_only_says_whose_the_row_is_or_which_version_it_is()
     {
         var (browser, _) = await api.SignedInAsync();

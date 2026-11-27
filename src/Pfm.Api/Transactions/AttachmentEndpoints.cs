@@ -14,20 +14,6 @@ public static class AttachmentEndpoints
     /// </summary>
     private const long MaxRequestSize = 2 * Attachment.MaxSize;
 
-    /// <summary>
-    /// An upload over <see cref="MaxRequestSize"/> is cut off by the server with a bare 413 before the endpoint
-    /// reads it: this gives that problem the same message as a file that was read and found too large.
-    /// </summary>
-    public static void ExplainTooLarge(ProblemDetailsContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (context.ProblemDetails.Status == StatusCodes.Status413PayloadTooLarge
-            && context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<UploadSizeLimit>() is { } limit)
-        {
-            context.ProblemDetails.Detail = limit.Message;
-        }
-    }
-
     public static IEndpointRouteBuilder MapAttachmentEndpoints(this IEndpointRouteBuilder api)
     {
         var ofTransaction = api.MapGroup("/transactions/{id:guid}/attachments").WithTags("Attachments").ProducesProblem(StatusCodes.Status401Unauthorized);

@@ -117,7 +117,7 @@ A statement file read with a mapping before anything is saved: every row, the tr
 _Avoid_: Dry run, draft
 
 **Likely duplicate**:
-A row of a statement file that matches a transaction already on the account on date, amount, which way the money went, and description compared without case, accents or extra spaces. Each existing transaction matches one row at most. It is shown, unticked, and skipped unless the user ticks it; never dropped silently.
+A row of a statement file that matches a transaction already on the account on date, amount, which way the money went, and description compared without case, accents or extra spaces; or a transfer leg on the account on date, amount and which way the money went, as a leg has no description. Each existing transaction matches one row at most. It is shown, unticked, and skipped unless the user ticks it; never dropped silently.
 _Avoid_: Dupe, conflict
 
 **Reconciliation**:

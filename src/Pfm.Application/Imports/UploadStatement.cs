@@ -49,6 +49,11 @@ public sealed class UploadStatementHandler(
             return Result<ImportBatchDetails>.Invalid(FieldError.On(nameof(command.File), "Upload a CSV file saved as text (UTF-8)."));
         }
 
+        if (StatementText.MostRows(text) > ImportBatch.MaxRows)
+        {
+            return Result<ImportBatchDetails>.Invalid(FieldError.On(nameof(command.File), ImportBatch.RowsMessage));
+        }
+
         var batch = ImportBatch.Upload(account.Id, file.Name!, text, clock.GetUtcNow());
         batches.Add(batch);
         await unitOfWork.SaveChangesAsync(cancellationToken);

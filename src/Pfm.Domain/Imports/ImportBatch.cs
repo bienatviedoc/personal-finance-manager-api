@@ -16,6 +16,25 @@ public enum ImportBatchStatus
     Failed = 4,
 }
 
+/// <summary>Why the worker stopped importing a batch: a code the user is shown in their own language.</summary>
+public enum ImportFailure
+{
+    /// <summary>The account was archived after the statement was committed.</summary>
+    AccountArchived = 1,
+
+    /// <summary>A category chosen for the statement was archived after it was committed.</summary>
+    CategoryArchived = 2,
+
+    /// <summary>The account's currency changed after the statement was committed, so its rows no longer read as they did.</summary>
+    AccountCurrencyChanged = 3,
+
+    /// <summary>A row broke a rule every transaction keeps.</summary>
+    TransactionRefused = 4,
+
+    /// <summary>The worker failed on it, for no reason the user can act on, several times in a row.</summary>
+    Unexpected = 5,
+}
+
 /// <summary>An import batch that would break a rule. Names the property at fault.</summary>
 public sealed class ImportRuleViolation(string property, string message) : Exception(message)
 {
@@ -37,6 +56,14 @@ public sealed class ImportBatch : IUserOwned
     public const int MaxFileNameLength = 255;
 
     public const string FileSizeMessage = "Upload a CSV file of at most 5 MB.";
+
+    /// <summary>
+    /// The most rows a statement may have: twice the 5,000 a statement is expected to hold at most (spec section 8), and
+    /// what bounds the preview, which answers every row at once.
+    /// </summary>
+    public const int MaxRows = 10_000;
+
+    public const string RowsMessage = "Upload a statement of at most 10,000 rows.";
 
     private List<int> _selectedRows = [];
 
@@ -88,12 +115,21 @@ public sealed class ImportBatch : IUserOwned
     /// <summary>How many rows could not be read as a transaction, and so were not imported.</summary>
     public int FailedCount { get; private set; }
 
+    /// <summary>How many times in a row the worker has failed on the batch unexpectedly; back to 0 once a save of its rows succeeds.</summary>
+    public int FailedAttempts { get; private set; }
+
     /// <summary>Why the worker stopped, when it did.</summary>
-    public string? Failure { get; private set; }
+    public ImportFailure? Failure { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
     public DateTimeOffset UpdatedAt { get; private set; }
+
+    /// <summary>
+    /// Today in the user's time zone when the batch was committed. The worker reads the file, and records each row's
+    /// transaction, as of that day, so a row the user saw as importable stays so whatever their time zone says later.
+    /// </summary>
+    public DateOnly? CommittedOn { get; private set; }
 
     /// <summary>When the last chosen row was imported.</summary>
     public DateTimeOffset? CommittedAt { get; private set; }
@@ -108,10 +144,15 @@ public sealed class ImportBatch : IUserOwned
         return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length <= MaxFileNameLength ? trimmed : trimmed[..MaxFileNameLength];
     }
 
-    /// <param name="content">The file as text (<see cref="StatementText.Decode"/>).</param>
+    /// <param name="content">The file as text, of at most <see cref="MaxRows"/> rows.</param>
     public static ImportBatch Upload(Guid accountId, string fileName, string content, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrEmpty(content);
+        if (StatementText.MostRows(content) > MaxRows)
+        {
+            throw new ArgumentException(RowsMessage, nameof(content));
+        }
+
         return new ImportBatch
         {
             Id = Guid.CreateVersion7(now),
@@ -134,11 +175,12 @@ public sealed class ImportBatch : IUserOwned
     /// Chooses the rows to import and queues them for the worker (spec IMP-1). Only rows the statement reads as
     /// transactions can be chosen, and at least one; a likely duplicate is imported only when it is chosen.
     /// </summary>
-    /// <param name="statement">The file read with <paramref name="mapping"/>, as the user previewed it.</param>
+    /// <param name="statement">The file read with <paramref name="mapping"/> on <paramref name="today"/>, as the user previewed it.</param>
     /// <param name="likelyDuplicates">The rows of <paramref name="statement"/> that are likely duplicates.</param>
+    /// <param name="today">Today in the user's time zone: the day the rows are read as of until they are imported.</param>
     public void Commit(
         StatementMapping mapping, Statement statement, IReadOnlyCollection<int> rows, IReadOnlySet<int> likelyDuplicates,
-        Guid? expenseCategoryId, Guid? incomeCategoryId, DateTimeOffset now)
+        Guid? expenseCategoryId, Guid? incomeCategoryId, DateOnly today, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(statement);
         ArgumentNullException.ThrowIfNull(rows);
@@ -184,24 +226,26 @@ public sealed class ImportBatch : IUserOwned
         RowCount = entries.Count + FailedCount;
         SelectedCount = chosen.Count;
         DuplicateCount = likelyDuplicates.Count(row => !chosen.Contains(row));
+        CommittedOn = today;
         Status = ImportBatchStatus.Committing;
         UpdatedAt = now;
     }
 
-    /// <summary>The next chosen rows to import, at most <paramref name="max"/>, in the order of the file; none once all are imported.</summary>
-    /// <param name="currency">The currency of <see cref="AccountId"/>.</param>
-    /// <param name="today">Today in the user's time zone.</param>
-    public IReadOnlyList<StatementEntry> NextToImport(Currency currency, DateOnly today, int max) =>
-        Status == ImportBatchStatus.Committing ? [.. ChosenEntries(currency, today).Skip(ImportedCount).Take(max)] : [];
-
     /// <summary>
-    /// Every chosen row as it is imported, in the order of the file, while the file is kept. A chosen row the file
-    /// no longer reads as a transaction (its account has changed currency) cannot be imported.
+    /// Every chosen row as it is imported, in the order of the file, while the file is kept, read as of the day the
+    /// batch was committed. A chosen row the file no longer reads as a transaction cannot be imported: the mapping and
+    /// the day are the batch's own, so only the account's currency can have changed.
     /// </summary>
+    /// <param name="currency">The currency of <see cref="AccountId"/>.</param>
     /// <exception cref="ImportRuleViolation">A chosen row is no longer read as a transaction.</exception>
-    public IReadOnlyList<StatementEntry> ChosenEntries(Currency currency, DateOnly today)
+    public IReadOnlyList<StatementEntry> ChosenEntries(Currency currency)
     {
-        var entries = Read(Mapping ?? throw new InvalidOperationException("The batch is not committed."), currency, today).Entries
+        if (Mapping is null || CommittedOn is not { } committedOn)
+        {
+            throw new InvalidOperationException("The batch is not committed.");
+        }
+
+        var entries = Read(Mapping, currency, committedOn).Entries
             .ToDictionary(row => row.Number, row => row.Entry!);
         return [.. _selectedRows.Select(row => entries.TryGetValue(row, out var entry)
             ? entry
@@ -220,6 +264,7 @@ public sealed class ImportBatch : IUserOwned
         }
 
         ImportedCount += count;
+        FailedAttempts = 0;
         UpdatedAt = now;
         if (ImportedCount == SelectedCount)
         {
@@ -229,8 +274,27 @@ public sealed class ImportBatch : IUserOwned
         }
     }
 
+    /// <summary>
+    /// Counts a failed attempt at importing the next rows, for no reason the batch itself gives. Once
+    /// <paramref name="maxAttempts"/> have failed in a row, the batch is stopped as <see cref="ImportFailure.Unexpected"/>.
+    /// </summary>
+    public void AttemptFailed(int maxAttempts, DateTimeOffset now)
+    {
+        if (Status != ImportBatchStatus.Committing)
+        {
+            throw new InvalidOperationException("Only a batch being committed is imported.");
+        }
+
+        FailedAttempts++;
+        UpdatedAt = now;
+        if (FailedAttempts >= maxAttempts)
+        {
+            Fail(ImportFailure.Unexpected, now);
+        }
+    }
+
     /// <summary>Stops importing, for a reason the user is shown. What was imported stays; the file is let go.</summary>
-    public void Fail(string reason, DateTimeOffset now)
+    public void Fail(ImportFailure reason, DateTimeOffset now)
     {
         Status = ImportBatchStatus.Failed;
         Failure = reason;

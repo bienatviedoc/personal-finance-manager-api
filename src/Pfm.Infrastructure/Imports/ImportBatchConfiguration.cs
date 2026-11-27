@@ -3,17 +3,18 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Pfm.Application.UseCases;
 using Pfm.Domain.Imports;
 
 namespace Pfm.Infrastructure.Imports;
 
 internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
-    private static readonly JsonSerializerOptions MappingJson = new(JsonSerializerDefaults.Web)
+    /// <summary>A mapping as the API writes one: its enums by name, as <see cref="EnumText"/> writes them.</summary>
+    private static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     public void Configure(EntityTypeBuilder<ImportBatch> batch)
     {
@@ -29,7 +30,7 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
         batch.Property(row => row.Id).ValueGeneratedNever();
         batch.Property(row => row.FileName).HasMaxLength(ImportBatch.MaxFileNameLength);
         batch.Property(row => row.Status).HasConversion<string>().HasMaxLength(20);
-        batch.Property(row => row.Failure).HasMaxLength(500);
+        batch.Property(row => row.Failure).HasConversion<string>().HasMaxLength(40);
 
         // How the file was read when it was committed, as the API writes a mapping: for the next import of the account to start from (spec IMP-2).
         batch.Property(row => row.Mapping)
@@ -49,7 +50,21 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
 
         batch.HasIndex(row => new { row.UserId, row.CreatedAt });
 
+        // One batch at a time is committed into an account, so a statement committed twice before the worker gets to the
+        // first finds the first's rows as likely duplicates once they are imported (spec IMP-3), never imports them twice.
+        batch.HasIndex(row => row.AccountId).IsUnique().HasFilter("\"Status\" = 'Committing'").HasDatabaseName("IX_ImportBatches_AccountId_Committing");
+
         // The batches being committed, which the worker asks for every few seconds.
         batch.HasIndex(row => row.UserId).HasFilter("\"Status\" = 'Committing'").HasDatabaseName("IX_ImportBatches_UserId_Committing");
+    }
+
+    private static JsonSerializerOptions WithEnumText(JsonSerializerOptions options)
+    {
+        foreach (var converter in EnumText.JsonConverters())
+        {
+            options.Converters.Add(converter);
+        }
+
+        return options;
     }
 }
