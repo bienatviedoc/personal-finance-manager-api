@@ -7817,7 +7817,9 @@
           "createdAt",
           "committedAt",
           "mapping",
-          "suggestedMapping"
+          "suggestedMapping",
+          "savedMapping",
+          "undoneAt"
         ],
         "type": "object",
         "properties": {
@@ -7915,6 +7917,23 @@
                 "$ref": "#/components/schemas/MappingResponse"
               }
             ]
+          },
+          "savedMapping": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MappingResponse"
+              }
+            ]
+          },
+          "undoneAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },

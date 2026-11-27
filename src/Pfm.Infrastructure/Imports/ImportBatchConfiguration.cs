@@ -11,7 +11,7 @@ namespace Pfm.Infrastructure.Imports;
 internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
     /// <summary>A mapping as the API writes one: its enums by name, as <see cref="EnumText"/> writes them.</summary>
-    private static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     });

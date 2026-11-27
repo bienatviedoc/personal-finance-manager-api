@@ -64,6 +64,10 @@ internal static class ModuleReferences
         modelBuilder.Entity<ImportBatch>()
             .HasOne<Account>().WithMany().HasForeignKey(batch => batch.AccountId).OnDelete(DeleteBehavior.Restrict);
 
+        // An account a mapping is saved for is archived, never deleted.
+        modelBuilder.Entity<ImportMapping>()
+            .HasOne<Account>().WithMany().HasForeignKey(mapping => mapping.AccountId).OnDelete(DeleteBehavior.Restrict);
+
         // A transaction belongs to the import batch it was created from; undoing a batch removes its transactions first (spec IMP-5).
         modelBuilder.Entity<Transaction>()
             .HasOne<ImportBatch>().WithMany().HasForeignKey(transaction => transaction.ImportBatchId).OnDelete(DeleteBehavior.Restrict);

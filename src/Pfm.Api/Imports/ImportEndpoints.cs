@@ -177,7 +177,7 @@ public sealed record MappingResponse(
 
 /// <summary>An import batch: one uploaded statement and the transactions created from it.</summary>
 /// <param name="FileName">What the user's file was called.</param>
-/// <param name="Status"><c>uploaded</c> (to preview and commit), <c>committing</c> (the worker is importing it), <c>committed</c>, or <c>failed</c> (stopped, for the reason in failure; what it imported stays).</param>
+/// <param name="Status"><c>uploaded</c> (to preview and commit), <c>committing</c> (the worker is importing it), <c>committed</c>, <c>failed</c> (stopped, for the reason in failure; what it imported stays), or <c>undone</c> (every transaction it created is deleted).</param>
 /// <param name="RowCount">Once committed, the rows of the file that are transactions or failed to be read as one.</param>
 /// <param name="SelectedCount">How many rows the user chose to import.</param>
 /// <param name="ImportedCount">How many of them are transactions now; it reaches selectedCount when the batch is committed.</param>
@@ -187,13 +187,17 @@ public sealed record MappingResponse(
 /// <param name="CommittedAt">When its last row was imported.</param>
 /// <param name="Mapping">How the file was read when it was committed; null before.</param>
 /// <param name="SuggestedMapping">A first guess at how to read the file (its separator, and the header row after any preamble), while it is uploaded; null after.</param>
+/// <param name="SavedMapping">The mapping saved for the account: the one its last statement was committed with, to start from in place of the suggested one. While the batch is uploaded; null after, or when the account has none.</param>
+/// <param name="UndoneAt">When the user undid the batch, deleting every transaction it created; null unless they did.</param>
 public sealed record ImportBatchResponse(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
-    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
+    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping,
+    MappingResponse? SavedMapping, DateTimeOffset? UndoneAt)
 {
     public static ImportBatchResponse From(ImportBatchDetails batch) =>
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,
-            batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping));
+            batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping),
+            MappingResponse.From(batch.SavedMapping), batch.UndoneAt);
 }
 
 /// <summary>One row of a previewed statement.</summary>
