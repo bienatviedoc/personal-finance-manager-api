@@ -33,7 +33,8 @@ public sealed class StatementReader(IAccountLookup accounts, IImportedTransactio
         var duplicates = LikelyDuplicates.Among(
             statement,
             existing.Select(transaction => new ExistingEntry(
-                transaction.Date, transaction.MoneyIn ? StatementEntryType.Income : StatementEntryType.Expense, transaction.Amount, transaction.Payee)));
+                transaction.Date, transaction.MoneyIn ? StatementEntryType.Income : StatementEntryType.Expense, transaction.Amount, transaction.Payee,
+                transaction.IsTransferLeg)));
         return new StatementRead(account, statement, duplicates);
     }
 }

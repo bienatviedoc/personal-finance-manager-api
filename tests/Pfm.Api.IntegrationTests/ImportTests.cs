@@ -161,6 +161,22 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_row_matching_a_transfer_leg_on_the_account_the_same_way_is_a_likely_duplicate_whatever_its_description()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var savings = await AddAccountAsync(browser, "Savings");
+        await TransferAsync(browser, account, savings, "146000", new DateOnly(2026, 8, 6));
+        await TransferAsync(browser, savings, account, "28500000", new DateOnly(2026, 8, 5));
+        await TransferAsync(browser, savings, account, "55000", new DateOnly(2026, 8, 2));
+        var batch = await UploadAsync(browser, account, Small);
+
+        var preview = await PreviewAsync(browser, batch, SmallMapping);
+
+        Assert.Equal([(2, false), (3, true), (5, true)], preview.Rows.Where(row => row.Kind == "parsed").Select(row => (row.Number, row.LikelyDuplicate)));
+    }
+
+    [Fact]
     public async Task Committing_imports_the_ticked_rows_in_the_background_each_transaction_belonging_to_the_batch()
     {
         var (browser, _) = await api.SignedInAsync();

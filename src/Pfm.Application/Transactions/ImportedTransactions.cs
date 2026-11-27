@@ -18,8 +18,8 @@ public sealed class ImportedTransactions(
 {
     public async Task<IReadOnlyList<AccountTransaction>> ListOnAccountAsync(Guid accountId, DateOnly from, DateOnly to, CancellationToken cancellationToken) =>
         [.. (await transactions.ListOnAccountAsync(accountId, from, to, cancellationToken))
-            .Where(transaction => transaction.Type.IsIncomeOrExpense())
-            .Select(transaction => new AccountTransaction(transaction.Date, transaction.SignedAmount > 0, transaction.Amount, transaction.Payee))];
+            .Select(transaction => new AccountTransaction(
+                transaction.Date, transaction.SignedAmount > 0, transaction.Amount, transaction.Payee, !transaction.Type.IsIncomeOrExpense()))];
 
     public async Task<string?> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> toImport, Guid? expenseCategoryId, Guid? incomeCategoryId,

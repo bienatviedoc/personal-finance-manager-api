@@ -531,7 +531,8 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   the tests on a developer laptop, against the 5 seconds the spec allows (`ImportTests` generates the file).
 - **Likely duplicates** (IMP-3; `LikelyDuplicates`): a parsed row with the date, amount, direction (money in or out)
   and description of an income or expense already on the account, the description compared without case, accents or
-  extra spaces, is `likelyDuplicate` and not `selected`. Each existing transaction accounts for one row, so two
+  extra spaces, or with the date, amount and direction of a transfer leg on it (a transfer out is money going out),
+  whatever its description, as a leg has no payee, is `likelyDuplicate` and not `selected`. Each existing transaction accounts for one row, so two
   coffees on one day against one recorded flag one. Imports asks Transactions for the account's transactions over the
   statement's dates through `IImportedTransactions` (`Pfm.Application.Contracts.Transactions`).
 - **Commit.** `POST /imports/{id}/commit` sends the `mapping` the user previewed with, the `rows` to import (by
@@ -554,9 +555,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **What the spec leaves as it is.** An imported row is income or an expense on the account, in its currency; a row
   that is one leg of a move between the user's own accounts is joined with the other leg afterwards by
   [mark as transfer](#transactions) (IMP-7: nothing is matched automatically). A row may be dated in a period already
-  reconciled, as a transaction a user records may; it is not reconciled itself. A transfer's legs have no payee, so
-  they are never likely duplicates.
-- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), auto-categorisation
+  reconciled, as a transaction a user records may; it is not reconciled itself.- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), auto-categorisation
   rules that pick each row's category in the preview (IMP-4, #24), and an audit entry for each commit (#45). The batch
   keeps the mapping it was committed with and every transaction its `importBatchId` for them.
 

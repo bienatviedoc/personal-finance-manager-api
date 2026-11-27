@@ -6,7 +6,10 @@ namespace Pfm.Application.Contracts.Transactions;
 /// </summary>
 public interface IImportedTransactions
 {
-    /// <summary>The income and expenses on the user's account dated from <paramref name="from"/> to <paramref name="to"/>, both included; deleted ones left out.</summary>
+    /// <summary>
+    /// The income, expenses and transfer legs on the user's account dated from <paramref name="from"/> to
+    /// <paramref name="to"/>, both included; deleted ones left out.
+    /// </summary>
     Task<IReadOnlyList<AccountTransaction>> ListOnAccountAsync(Guid accountId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 
     /// <summary>
@@ -23,9 +26,10 @@ public interface IImportedTransactions
 }
 
 /// <summary>A transaction already on an account, as a likely duplicate is matched against it.</summary>
-/// <param name="MoneyIn">Whether it brought money in: income, or a refund. A statement shows either as a credit.</param>
+/// <param name="MoneyIn">Whether it brought money in: income, a refund or a transfer in. A statement shows any of them as a credit.</param>
 /// <param name="Amount">Greater than zero, in the account's currency.</param>
-public sealed record AccountTransaction(DateOnly Date, bool MoneyIn, decimal Amount, string? Payee);
+/// <param name="IsTransferLeg">One leg of a transfer, which has no payee.</param>
+public sealed record AccountTransaction(DateOnly Date, bool MoneyIn, decimal Amount, string? Payee, bool IsTransferLeg);
 
 /// <summary>One statement row to record as a transaction.</summary>
 /// <param name="IsIncome">Money came in, so it is income; else it is an expense.</param>
