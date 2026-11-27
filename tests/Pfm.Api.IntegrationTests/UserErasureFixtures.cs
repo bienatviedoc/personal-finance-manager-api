@@ -90,6 +90,8 @@ public static class UserErasureFixtures
         {
             ["Accounts"] = 2,
             ["Attachments"] = 1,
+            // Signing in.
+            ["AuditEntries"] = 1,
             ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
