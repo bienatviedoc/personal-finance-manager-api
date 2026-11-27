@@ -1,0 +1,14 @@
+{
+  "currency": "VND",
+  "today": "2026-11-27",
+  "separator": "comma",
+  "skipFirstRows": 6,
+  "hasHeaderRow": true,
+  "skipLastRows": 1,
+  "dateColumn": 1,
+  "descriptionColumn": 5,
+  "debitColumn": 3,
+  "creditColumn": 4,
+  "dateFormat": "dayMonthYear",
+  "decimalSeparator": "dot"
+}

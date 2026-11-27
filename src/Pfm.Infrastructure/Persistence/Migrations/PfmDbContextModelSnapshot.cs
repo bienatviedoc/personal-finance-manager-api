@@ -364,6 +364,99 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("ExchangeRates", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("CommittedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DuplicateCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ExpenseCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("FailedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Failure")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<int>("ImportedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("IncomeCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Mapping")
+                        .HasColumnType("jsonb");
+
+                    b.Property<int>("RowCount")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<int>("SelectedCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.PrimitiveCollection<List<int>>("_selectedRows")
+                        .IsRequired()
+                        .HasColumnType("integer[]")
+                        .HasColumnName("SelectedRows");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId");
+
+                    b.HasIndex("UserId")
+                        .HasDatabaseName("IX_ImportBatches_UserId_Committing")
+                        .HasFilter("\"Status\" = 'Committing'");
+
+                    b.HasIndex("UserId", "CreatedAt");
+
+                    b.ToTable("ImportBatches", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ImportBatches_File_Kept_Only_Until_Imported", "\"Content\" IS NULL OR \"Status\" IN ('Uploaded', 'Committing')");
+
+                            t.HasCheckConstraint("CK_ImportBatches_ImportedCount_Within_Selected", "\"ImportedCount\" >= 0 AND \"ImportedCount\" <= \"SelectedCount\"");
+
+                            t.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed')");
+                        });
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -681,6 +774,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("ImportBatchId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("IsReconciled")
                         .HasColumnType("boolean");
 
@@ -752,6 +848,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasIndex("AccountId");
 
                     b.HasIndex("CategoryId");
+
+                    b.HasIndex("ImportBatchId")
+                        .HasFilter("\"ImportBatchId\" IS NOT NULL");
 
                     b.HasIndex("ReconciliationId");
 
@@ -944,6 +1043,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>
+                {
+                    b.HasOne("Pfm.Domain.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
                 {
                     b.HasOne("Pfm.Domain.Transactions.Transaction", null)
@@ -996,6 +1104,11 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Category", null)
                         .WithMany()
                         .HasForeignKey("CategoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Pfm.Domain.Imports.ImportBatch", null)
+                        .WithMany()
+                        .HasForeignKey("ImportBatchId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Pfm.Domain.Transactions.Reconciliation", null)

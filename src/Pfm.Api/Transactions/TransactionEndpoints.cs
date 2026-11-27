@@ -378,16 +378,17 @@ public sealed record TransactionLineRequest(Guid CategoryId, string Amount, stri
 /// <param name="RecurringRuleId">The recurring rule that posted the transaction; null for one the user recorded, and once that rule is deleted.</param>
 /// <param name="Tags">The names of its tags, in alphabetical order; none for a transaction without tags.</param>
 /// <param name="IsReconciled">Whether it is in a completed reconciliation: its amount, date, account and type cannot change, and it cannot be deleted, until that reconciliation is reopened.</param>
+/// <param name="ImportBatchId">The import batch the transaction was created from (<c>/imports/{importBatchId}</c>); null for one the user recorded or a recurring rule posted.</param>
 public sealed record TransactionResponse(
     Guid Id, TransactionType Type, Guid AccountId, string Amount, Currency Currency, DateOnly Date, Guid? CategoryId, string? Payee, string? Note,
     Guid? TransferId, string RowVersion, bool IsRefund, IReadOnlyList<TransactionLineResponse> Lines, Guid? RecurringRuleId, IReadOnlyList<string> Tags,
-    bool IsReconciled)
+    bool IsReconciled, Guid? ImportBatchId)
 {
     public static TransactionResponse From(TransactionDetails transaction) =>
         new(transaction.Id, transaction.Type, transaction.AccountId, AmountJson.Text(transaction.Amount), transaction.Currency, transaction.Date,
             transaction.CategoryId, transaction.Payee, transaction.Note, transaction.TransferId, transaction.RowVersion.ToString(CultureInfo.InvariantCulture),
             transaction.IsRefund, [.. transaction.Lines.Select(line => new TransactionLineResponse(line.CategoryId, AmountJson.Text(line.Amount), line.Note))],
-            transaction.RecurringRuleId, transaction.Tags, transaction.IsReconciled);
+            transaction.RecurringRuleId, transaction.Tags, transaction.IsReconciled, transaction.ImportBatchId);
 }
 
 /// <summary>A recently deleted transaction, as it was when it was deleted.</summary>

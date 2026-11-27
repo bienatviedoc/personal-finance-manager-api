@@ -5,6 +5,7 @@ using Pfm.Api;
 using Pfm.Api.Accounts;
 using Pfm.Api.Budgets;
 using Pfm.Api.Identity;
+using Pfm.Api.Imports;
 using Pfm.Api.Reports;
 using Pfm.Api.Transactions;
 using Pfm.Application;
@@ -121,6 +122,7 @@ app.MapGroup("/api/v1")
     .MapRecurringRuleEndpoints()
     .MapBudgetEndpoints()
     .MapBudgetNotificationEndpoints()
+    .MapImportEndpoints()
     .MapReportEndpoints();
 
 app.Run();

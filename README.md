@@ -66,6 +66,10 @@ address, so its rate limit is set too high to meet; a test of the limit (or of a
 runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
 user (`SignedInAsync`): lockout counts per user. `Totp` stands in for an authenticator app. Integration tests start a real PostgreSQL in a container through Testcontainers, so Docker must be running. They start the object storage emulator the same way (`api.Storage`), so a signed URL is fetched for real.
 
+Statement import is tested against golden files (spec section 13) in `tests/statements`: each statement, the mapping
+a user chooses for it and the rows it must read as. The Vietcombank and Techcombank files there now are **synthetic
+stand-ins**, to be replaced by anonymised real statements; its README says how.
+
 CI runs the same tests through `scripts/test-with-coverage.sh`, which merges coverage from every test
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
@@ -492,6 +496,69 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   be (409 `urn:pfm:problem:reconciliation-not-latest`), as each later one is measured from it.
   `DELETE /reconciliations/{id}` cancels one in progress, unticking what it held.
 
+### Imports
+
+A user imports a bank statement into one of their accounts (spec IMP-1, IMP-3), in the `Imports` module. No bank's
+layout is known to the code (spec section 15): the user maps each file, seeing it, and the golden-file tests check the
+Vietcombank and Techcombank layouts through mappings, not parsers.
+
+- **Upload.** `POST /imports` takes a CSV file of at most 5 MB as the `file` field of a form beside `accountId`, an
+  account of the user's that is not archived (`UploadStatement`). The file must be text: UTF-8 with or without a
+  byte order mark, or UTF-16 with one (`StatementFileText`); anything else (a spreadsheet, an archive) is refused on
+  `file`. Nothing is imported: the answer is an import batch (`ImportBatch`, `uploaded`) with a
+  `suggestedMapping`, a first guess at the separator and the header row after any preamble (`StatementText`), for
+  the user to confirm or change.
+- **The file is kept only until its rows are imported**, in the batch's own row (`ImportBatches.Content`), never in
+  object storage ([decision record 0006](docs/adr/0006-statement-files-kept-in-the-database-until-imported.md)). A
+  statement can hold a full account number, which the app otherwise never stores (spec ACC-8); a check constraint
+  holds that a committed or failed batch keeps no file.
+- **A mapping** (`StatementMapping`; see the glossary) says how to read the file: the `separator` (`comma`,
+  `semicolon`, `tab`, `pipe`), `skipFirstRows` (a preamble), `hasHeaderRow`, `skipLastRows` (a footer, such
+  as a total; blank rows at the very end are not counted), the `dateColumn`, the `descriptionColumn` (which becomes
+  the payee), and either one signed `amountColumn` (below zero for money going out) or a `debitColumn` and a
+  `creditColumn`, all counted from 0; and how dates and amounts are written: `dateFormat` (`dayMonthYear`,
+  `monthDayYear`, `yearMonthDay`, whatever separates the parts, a time after the date passed over) and
+  `decimalSeparator` (`dot` or `comma`; the other mark groups thousands). `MappingInput` reads one as text, the
+  same for the preview and the commit, naming each choice it cannot read.
+- **The preview** (`GET /imports/{id}/preview`, the mapping in the query string) reads the file with the mapping
+  (`Statement`, in `Pfm.Domain.Imports`) and answers every row, numbered by its place in the file: `skipped`,
+  `header`, `blank`, `parsed` (with its date, `income` or `expense`, amount and description), `failed` (with
+  its `problem`: no date or one that cannot be read or is after today, no amount or one that cannot be read, is zero
+  or has more decimals than the account's currency, a debit and a credit on one row, too few cells), or `unmapped`
+  while the date and amount columns are not chosen. A failed row is shown and never imported. It is one answer,
+  not a page: the user checks the whole statement before committing it. 5,000 rows upload and preview in 335 ms in
+  the tests on a developer laptop, against the 5 seconds the spec allows (`ImportTests` generates the file).
+- **Likely duplicates** (IMP-3; `LikelyDuplicates`): a parsed row with the date, amount, direction (money in or out)
+  and description of an income or expense already on the account, the description compared without case, accents or
+  extra spaces, is `likelyDuplicate` and not `selected`. Each existing transaction accounts for one row, so two
+  coffees on one day against one recorded flag one. Imports asks Transactions for the account's transactions over the
+  statement's dates through `IImportedTransactions` (`Pfm.Application.Contracts.Transactions`).
+- **Commit.** `POST /imports/{id}/commit` sends the `mapping` the user previewed with, the `rows` to import (by
+  number), and the `expenseCategoryId` and `incomeCategoryId` money going out and coming in is recorded on
+  (`CommitImport`). The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
+  not parsed is refused on `rows`. The batch keeps the mapping, the rows and the counts (`rowCount`, `selectedCount`,
+  `duplicateCount`: likely duplicates left out, `failedCount`), becomes `committing`, and the answer is 202. A
+  batch committed already answers 409 `urn:pfm:problem:import-committed`, and so does its preview, as its file is gone.
+- **The worker imports** (`ImportCommitJob`, every two seconds, `Imports__CommitEvery`): `ImportCommits` takes the
+  next 250 chosen rows of each batch being committed and records each as income or an expense through
+  `IImportedTransactions`, by the same rules as a transaction a user records (converted into the base currency at
+  the rate of its date), with the batch's id as its `importBatchId`. Those transactions and the batch's
+  `importedCount` moving on are one save, guarded by the batch's row version: a row is never imported twice, and a
+  worker that stops in between leaves nothing half done. `GET /imports/{id}` shows the count growing; the SPA asks
+  every second. Once the last row is in, the batch is `committed`, lets its file go and raises the budget
+  notifications of every date it imported (`IBudgetNotifications.CheckAsync`, BUD-7). Rows that can no longer be
+  recorded (the account or a category archived since) stop the batch as `failed`, with the reason in `failure`;
+  what it imported stays. Nothing is imported for a deactivated user. Hangfire is not in the repository yet (see
+  Exchange rates), so the batches being committed are the queue (decision record 0006).
+- **What the spec leaves as it is.** An imported row is income or an expense on the account, in its currency; a row
+  that is one leg of a move between the user's own accounts is joined with the other leg afterwards by
+  [mark as transfer](#transactions) (IMP-7: nothing is matched automatically). A row may be dated in a period already
+  reconciled, as a transaction a user records may; it is not reconciled itself. A transfer's legs have no payee, so
+  they are never likely duplicates.
+- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), auto-categorisation
+  rules that pick each row's category in the preview (IMP-4, #24), and an audit entry for each commit (#45). The batch
+  keeps the mapping it was committed with and every transaction its `importBatchId` for them.
+
 ### Budgets
 
 - **A budget** is a spending limit for one expense category in one budget month, the calendar month from the 1st
@@ -857,12 +924,14 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are three
-exceptions, and `UserOwnedDataTests` fails when a fourth appears: `TransactionRepository.UsersWithNotConvertedAsync`
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are five
+exceptions, and `UserOwnedDataTests` fails when a sixth appears: `TransactionRepository.UsersWithNotConvertedAsync`
 ignores the filter to answer which users have transactions flagged not converted,
-`TransactionRepository.UsersWithTransactionsAsync` which users have any transaction (for the integrity check), and
+`TransactionRepository.UsersWithTransactionsAsync` which users have any transaction (for the integrity check),
+`TransactionRepository.UsersWithDeletedBeforeAsync` which users have transactions deleted long enough ago to purge,
 `RecurringRuleRepository.UsersWithDueRulesAsync` which users have a recurring rule with an occurrence
-due. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
+due, and `ImportBatchRepository.UsersWithCommittingAsync` which users have a statement committed and waiting to be
+imported. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
 
