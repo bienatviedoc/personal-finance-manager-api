@@ -21,20 +21,29 @@ public sealed record GetQuickAdd(TransactionType? Type = null, string? Payee = n
 /// equally often the one used last; for a payee never used, the category of the highest-priority categorisation
 /// rule it matches (spec IMP-4); null when neither gives one.
 /// </param>
-public sealed record QuickAddDetails(Guid? LastAccountId, Guid? SuggestedCategoryId);
+/// <param name="SuggestedBy">What suggested the category; null when none is.</param>
+public sealed record QuickAddDetails(Guid? LastAccountId, Guid? SuggestedCategoryId, CategorySuggestion? SuggestedBy = null);
 
 public sealed class GetQuickAddHandler(IQuickAddHistory history, IAccountLookup accounts, UserCategorisation categorisation) : IQueryHandler
 {
     public async Task<QuickAddDetails> HandleAsync(GetQuickAdd query, CancellationToken cancellationToken = default)
     {
-        Guid? suggested = null;
-        if (Transaction.Normalised(query.Payee) is { } payee)
+        var (suggested, by) = Transaction.Normalised(query.Payee) is { } payee ? await SuggestAsync(payee, query.Type, cancellationToken) : (null, null);
+
+        return new QuickAddDetails(await LastAccountAsync(cancellationToken), suggested, by);
+    }
+
+    /// <summary>The category the payee's history suggests, or else the one a categorisation rule gives it.</summary>
+    private async Task<(Guid?, CategorySuggestion?)> SuggestAsync(string payee, TransactionType? type, CancellationToken cancellationToken)
+    {
+        if (await history.MostUsedCategoryAsync(payee, type, cancellationToken) is { } used)
         {
-            suggested = await history.MostUsedCategoryAsync(payee, query.Type, cancellationToken)
-                ?? (await categorisation.CategoriserAsync(cancellationToken)).CategoryFor(payee, KindOf(query.Type));
+            return (used, CategorySuggestion.History);
         }
 
-        return new QuickAddDetails(await LastAccountAsync(cancellationToken), suggested);
+        return (await categorisation.CategoriserAsync(cancellationToken)).CategoryFor(payee, KindOf(type)) is { } ruled
+            ? (ruled, CategorySuggestion.Rule)
+            : (null, null);
     }
 
     private static CategoryKind? KindOf(TransactionType? type) => type switch

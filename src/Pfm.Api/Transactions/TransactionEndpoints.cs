@@ -170,7 +170,7 @@ public static class TransactionEndpoints
         }
 
         var quickAdd = await handler.HandleAsync(new GetQuickAdd(read, payee), cancellationToken);
-        return TypedResults.Ok(new QuickAddResponse(quickAdd.LastAccountId, quickAdd.SuggestedCategoryId));
+        return TypedResults.Ok(new QuickAddResponse(quickAdd.LastAccountId, quickAdd.SuggestedCategoryId, quickAdd.SuggestedBy));
     }
 
     /// <param name="limit">How many transactions a page holds: 1 to 100, 50 when left out.</param>
@@ -416,7 +416,8 @@ public sealed record DeletedTransactionListResponse(IReadOnlyList<DeletedTransac
 /// <summary>What quick add starts a new transaction from.</summary>
 /// <param name="LastAccountId">The account, not archived, that the user recorded a transaction on last; null when they have recorded none.</param>
 /// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; for a payee never used, the category of the highest-priority categorisation rule it matches, of the kind the type takes; null when neither gives one.</param>
-public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId);
+/// <param name="SuggestedBy">What suggested the category: <c>history</c> (the payee's earlier transactions) or <c>rule</c> (a categorisation rule); null when none is suggested.</param>
+public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId, CategorySuggestion? SuggestedBy);
 
 /// <summary>One action on many transactions (spec TXN-7).</summary>
 /// <param name="Action"><c>setCategory</c>, <c>addTag</c>, <c>removeTag</c>, <c>moveToAccount</c> or <c>delete</c>.</param>

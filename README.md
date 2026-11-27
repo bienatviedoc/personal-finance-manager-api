@@ -358,7 +358,8 @@ one of the merged category's own subcategories is refused as an error on `target
   a split is a use of its category. Refunds, deleted transactions and archived accounts and categories are passed
   over. It reads through its own port,
   `IQuickAddHistory`. A payee with no such history takes the category of the highest-priority
-  [categorisation rule](#categorisation-rules) it matches, of the kind the `type` takes.
+  [categorisation rule](#categorisation-rules) it matches, of the kind the `type` takes. `suggestedBy` says which
+  (`history` or `rule`), so the SPA can say why.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
