@@ -20,7 +20,7 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
     {
         batch.ToTable("ImportBatches", table =>
         {
-            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed')");
+            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed', 'Undone')");
             table.HasCheckConstraint("CK_ImportBatches_ImportedCount_Within_Selected", "\"ImportedCount\" >= 0 AND \"ImportedCount\" <= \"SelectedCount\"");
 
             // The file is kept only until its rows are imported: it can hold a full account number (spec ACC-8).

@@ -17,7 +17,7 @@ public sealed record ImportBatchDetails(
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,
             batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, batch.Mapping,
             batch is { Status: ImportBatchStatus.Uploaded, Content: { } content } ? StatementText.SuggestMapping(content) : null,
-            batch.Status == ImportBatchStatus.Uploaded ? saved?.Mapping : null);
+            batch.Status == ImportBatchStatus.Uploaded ? saved?.Mapping : null, batch.UndoneAt);
 
     /// <summary>The batch with the mapping saved for its account, while it is uploaded and the user maps it.</summary>
     public static async Task<ImportBatchDetails> OfAsync(ImportBatch batch, IImportMappingRepository mappings, CancellationToken cancellationToken) =>

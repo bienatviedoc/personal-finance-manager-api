@@ -17,6 +17,12 @@ public static class ImportEndpoints
     /// <summary>Another statement is being imported into the account: one is committed into an account at a time.</summary>
     public const string ImportInProgress = "urn:pfm:problem:import-in-progress";
 
+    /// <summary>A statement uploaded and never committed has nothing to undo.</summary>
+    public const string ImportNotCommitted = "urn:pfm:problem:import-not-committed";
+
+    /// <summary>A statement any of whose transactions is reconciled cannot be undone until the reconciliation is reopened.</summary>
+    public const string ImportReconciled = "urn:pfm:problem:import-reconciled";
+
     /// <summary>Room for a file somewhat over the 5 MB a statement may be, so that one gets the answer that says so.</summary>
     private const long MaxRequestSize = 2 * ImportBatch.MaxFileSize;
 
@@ -40,7 +46,35 @@ public static class ImportEndpoints
             .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        imports.MapDelete("/{id:guid}", Undo).WithName("UndoImport")
+            .WithDescription("Undoes the import batch: every transaction it created is deleted, edited or not, and can be restored for 30 days like any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it. A batch still being imported is stopped, and what it imported so far deleted. The answer is the batch, undone; undoing it again answers the same. While any of its transactions (or the other leg of a transfer one is a leg of) is reconciled it answers 409 with the problem type urn:pfm:problem:import-reconciled and changes nothing: reopen the reconciliation first. A statement uploaded and never committed answers 409 with the problem type urn:pfm:problem:import-not-committed.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         return api;
+    }
+
+    private static async Task<Results<Ok<ImportBatchResponse>, NotFound, ValidationProblem, ProblemHttpResult>> Undo(
+        Guid id, UndoImportHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new UndoImportCommand(id), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            null => TypedResults.NotFound(),
+            UndoImportOutcome.Undone undone => TypedResults.Ok(ImportBatchResponse.From(undone.Batch)),
+            UndoImportOutcome.Reconciled reconciled => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportReconciled,
+                title: "This statement cannot be undone while any of its transactions is reconciled.",
+                detail: $"{reconciled.Transactions} of its transactions {(reconciled.Transactions == 1 ? "is" : "are")} reconciled. Reopen the reconciliation, then undo the statement.",
+                extensions: new Dictionary<string, object?> { ["reconciledCount"] = reconciled.Transactions }),
+            _ => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportNotCommitted, title: "This statement has not been committed.",
+                detail: "Nothing has been imported from it, so there is nothing to undo."),
+        };
     }
 
     /// <param name="accountId">The account to import into: one of the user's that is not archived.</param>

@@ -5051,6 +5051,69 @@
             "description": "Not Found"
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "Imports"
+        ],
+        "description": "Undoes the import batch: every transaction it created is deleted, edited or not, and can be restored for 30 days like any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it. A batch still being imported is stopped, and what it imported so far deleted. The answer is the batch, undone; undoing it again answers the same. While any of its transactions (or the other leg of a transfer one is a leg of) is reconciled it answers 409 with the problem type urn:pfm:problem:import-reconciled and changes nothing: reopen the reconciliation first. A statement uploaded and never committed answers 409 with the problem type urn:pfm:problem:import-not-committed.",
+        "operationId": "UndoImport",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HttpValidationProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportBatchResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/imports/{id}/preview": {
@@ -8032,7 +8095,8 @@
           "uploaded",
           "committing",
           "committed",
-          "failed"
+          "failed",
+          "undone"
         ]
       },
       "ImportFailure": {
