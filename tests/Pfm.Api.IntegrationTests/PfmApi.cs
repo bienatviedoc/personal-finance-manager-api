@@ -202,6 +202,14 @@ public sealed class PfmApi : IAsyncLifetime
         return factory;
     }
 
+    /// <summary>A second copy of the API with some of its services changed, as a test of a race arranges them.</summary>
+    public WebApplicationFactory<Program> WithServices(Action<IServiceCollection> configure)
+    {
+        var factory = CreateFactory(ConnectionString, Emails, configure: configure);
+        _extraFactories.Add(factory);
+        return factory;
+    }
+
     /// <summary>A second copy of the API whose signed URLs stop working after this long.</summary>
     public WebApplicationFactory<Program> WhereSignedUrlsLastFor(TimeSpan time)
     {

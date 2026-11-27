@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions.Attachments;
@@ -12,9 +13,9 @@ public sealed class RemoveAttachmentValidator : AbstractValidator<RemoveAttachme
     public RemoveAttachmentValidator() => RuleFor(command => command.Id).Required();
 }
 
-/// <summary>Answers null when the user has no attachment with that id.</summary>
+/// <summary>Answers null when the user has no attachment with that id. The removal is recorded in the user's audit log in the same save.</summary>
 public sealed class RemoveAttachmentHandler(
-    IValidator<RemoveAttachmentCommand> validator, IAttachmentRepository attachments, IObjectStorage storage, IUnitOfWork unitOfWork)
+    IValidator<RemoveAttachmentCommand> validator, IAttachmentRepository attachments, IObjectStorage storage, IAuditLog auditLog, IUnitOfWork unitOfWork)
     : CommandHandler<RemoveAttachmentCommand, Done?>(validator)
 {
     protected override async Task<Result<Done?>> ExecuteAsync(RemoveAttachmentCommand command, CancellationToken cancellationToken)
@@ -27,6 +28,7 @@ public sealed class RemoveAttachmentHandler(
 
         // The row first: were the file to go first and the save fail, the attachment would be listed and not open.
         attachments.Remove(attachment);
+        await auditLog.AttachmentRemovedAsync(attachment.Id, attachment.FileName, cancellationToken);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);

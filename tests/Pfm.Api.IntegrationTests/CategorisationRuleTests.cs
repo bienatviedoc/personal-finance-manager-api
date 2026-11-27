@@ -52,11 +52,42 @@ public class CategorisationRuleTests(PfmApi api)
         var rule = await AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"), priority: 1);
         var eatingOut = await CategoryAsync(browser, "Eating out");
 
-        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grabfood", matchType = "exactly", categoryId = eatingOut, priority = 3 });
+        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grabfood", matchType = "exactly", categoryId = eatingOut, priority = 3 }, IfMatch(rule));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new RuleBody(rule.Id, "grabfood", "exactly", eatingOut, 3), await response.Content.ReadFromJsonAsync<RuleBody>());
-        Assert.Equal([new RuleBody(rule.Id, "grabfood", "exactly", eatingOut, 3)], await ListAsync(browser));
+        var edited = (await response.Content.ReadFromJsonAsync<RuleBody>())!;
+        Assert.Equal((rule.Id, "grabfood", "exactly", eatingOut, 3), (edited.Id, edited.MatchText, edited.MatchType, edited.CategoryId, edited.Priority));
+        Assert.NotEqual(rule.RowVersion, edited.RowVersion);
+        Assert.Equal(IfMatch(edited), response.Headers.ETag?.Tag);
+        Assert.Equal([edited], await ListAsync(browser));
+    }
+
+    [Fact]
+    public async Task An_edit_made_from_a_stale_row_version_is_refused_with_412_and_one_without_a_row_version_with_428_and_neither_changes_the_rule()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var transport = await CategoryAsync(browser, "Transport");
+        var rule = await AddAsync(browser, "grab", "contains", transport, priority: 1);
+        (await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grab bike", matchType = "contains", categoryId = transport }, IfMatch(rule))).EnsureSuccessStatusCode();
+        var read = Assert.Single(await ListAsync(browser));
+
+        var stale = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "be", matchType = "contains", categoryId = transport }, IfMatch(rule));
+        var none = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "be", matchType = "contains", categoryId = transport });
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        Assert.Equal(HttpStatusCode.PreconditionRequired, none.StatusCode);
+        Assert.Equal([read], await ListAsync(browser));
+    }
+
+    [Fact]
+    public async Task A_rule_set_up_answers_its_row_version_as_its_etag()
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await browser.PostAsync(Rules, new { matchText = "grab", matchType = "contains", categoryId = await CategoryAsync(browser, "Transport") });
+
+        var created = (await response.Content.ReadFromJsonAsync<RuleBody>())!;
+        Assert.Equal(IfMatch(created), response.Headers.ETag?.Tag);
     }
 
     [Fact]
@@ -68,7 +99,7 @@ public class CategorisationRuleTests(PfmApi api)
         var b = await AddAsync(browser, "b", "contains", transport, priority: 10);
         var c = await AddAsync(browser, "c", "contains", transport, priority: 2);
 
-        var response = await browser.PutAsync($"{Rules}/order", new { ids = new[] { c.Id, a.Id, b.Id } });
+        var response = await browser.PutAsync($"{Rules}/order", Order(c, a, b));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var reordered = (await response.Content.ReadFromJsonAsync<RuleList>())!.Items;
@@ -77,7 +108,22 @@ public class CategorisationRuleTests(PfmApi api)
     }
 
     [Fact]
-    public async Task An_order_that_leaves_out_names_twice_or_names_another_users_rule_is_refused_and_changes_nothing()
+    public async Task An_order_that_names_a_rule_twice_is_refused_and_changes_nothing()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var transport = await CategoryAsync(browser, "Transport");
+        var a = await AddAsync(browser, "a", "contains", transport, priority: 1);
+        var b = await AddAsync(browser, "b", "contains", transport, priority: 0);
+
+        var response = await browser.PutAsync($"{Rules}/order", Order(b, b, a));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("List each of your rules once.", await response.ErrorOnAsync("rules"));
+        Assert.Equal(["a", "b"], (await ListAsync(browser)).Select(rule => rule.MatchText));
+    }
+
+    [Fact]
+    public async Task An_order_made_from_rules_that_changed_since_they_were_read_is_refused_with_412_and_changes_nothing()
     {
         var (browser, _) = await api.SignedInAsync();
         var transport = await CategoryAsync(browser, "Transport");
@@ -85,16 +131,18 @@ public class CategorisationRuleTests(PfmApi api)
         var b = await AddAsync(browser, "b", "contains", transport, priority: 0);
         var (other, _) = await api.SignedInAsync();
         var theirs = await AddAsync(other, "x", "contains", await CategoryAsync(other, "Transport"));
+        var read = await ListAsync(browser);
 
-        foreach (var ids in new[] { new[] { b.Id }, [b.Id, b.Id, a.Id], [b.Id, a.Id, theirs.Id] })
-        {
-            var response = await browser.PutAsync($"{Rules}/order", new { ids });
+        var leftOut = await browser.PutAsync($"{Rules}/order", Order(b));
+        var another = await browser.PutAsync($"{Rules}/order", Order(b, a, theirs));
+        (await browser.PutAsync($"{Rules}/{a.Id}", new { matchText = "a bike", matchType = "contains", categoryId = transport }, IfMatch(a))).EnsureSuccessStatusCode();
+        var edited = await browser.PutAsync($"{Rules}/order", Order(b, a));
+        var c = await AddAsync(browser, "c", "contains", transport);
+        var added = await browser.PutAsync($"{Rules}/order", Order([.. (await ListAsync(browser)).Where(rule => rule.Id != c.Id).Reverse()]));
 
-            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-            Assert.Equal("List each of your rules once.", await response.ErrorOnAsync("ids"));
-        }
-
-        Assert.Equal(["a", "b"], (await ListAsync(browser)).Select(rule => rule.MatchText));
+        Assert.All([leftOut, another, edited, added], response => Assert.Equal(HttpStatusCode.PreconditionFailed, response.StatusCode));
+        Assert.Equal(["c", "a bike", "b"], (await ListAsync(browser)).Select(rule => rule.MatchText));
+        Assert.Equal(["a", "b"], read.Select(rule => rule.MatchText));
     }
 
     [Fact]
@@ -148,10 +196,24 @@ public class CategorisationRuleTests(PfmApi api)
         var rule = await AddAsync(browser, "grab", "contains", transport);
         (await browser.DeleteAsync($"/api/v1/categories/{transport}")).EnsureSuccessStatusCode();
 
-        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grab bike", matchType = "contains", categoryId = transport, priority = 0 });
+        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grab bike", matchType = "contains", categoryId = transport, priority = 0 }, IfMatch(rule));
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal([transport], (await ListAsync(browser)).Select(listed => listed.CategoryId));
+    }
+
+    [Fact]
+    public async Task A_rule_cannot_be_moved_onto_a_category_that_is_archived()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"));
+        var eatingOut = await CategoryAsync(browser, "Eating out");
+        (await browser.DeleteAsync($"/api/v1/categories/{eatingOut}")).EnsureSuccessStatusCode();
+
+        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grab", matchType = "contains", categoryId = eatingOut }, IfMatch(rule));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("An archived category takes nothing new: choose one that is not archived.", await response.ErrorOnAsync("categoryId"));
     }
 
     [Fact]
@@ -174,7 +236,7 @@ public class CategorisationRuleTests(PfmApi api)
         var rule = await AddAsync(alice, "grab", "contains", await CategoryAsync(alice, "Transport"));
         var (bob, _) = await api.SignedInAsync();
 
-        var edit = await bob.PutAsync($"{Rules}/{rule.Id}", new { matchText = "x", matchType = "contains", categoryId = await CategoryAsync(bob, "Transport"), priority = 0 });
+        var edit = await bob.PutAsync($"{Rules}/{rule.Id}", new { matchText = "x", matchType = "contains", categoryId = await CategoryAsync(bob, "Transport"), priority = 0 }, IfMatch(rule));
 
         Assert.Equal(HttpStatusCode.NotFound, edit.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await bob.DeleteAsync($"{Rules}/{rule.Id}")).StatusCode);
@@ -197,7 +259,13 @@ public class CategorisationRuleTests(PfmApi api)
 
     private static async Task<List<RuleBody>> ListAsync(Browser browser) => (await browser.Http.GetFromJsonAsync<RuleList>(Rules))!.Items;
 
-    public sealed record RuleBody(Guid Id, string MatchText, string MatchType, Guid CategoryId, int Priority);
+    /// <summary>The rule's row version as it was read, in double quotes, ready for <c>If-Match</c>.</summary>
+    private static string IfMatch(RuleBody rule) => $"\"{rule.RowVersion}\"";
+
+    /// <summary>A new order of the rules, each with the row version it was read at.</summary>
+    private static object Order(params RuleBody[] rules) => new { rules = rules.Select(rule => new { id = rule.Id, rowVersion = rule.RowVersion }) };
+
+    public sealed record RuleBody(Guid Id, string MatchText, string MatchType, Guid CategoryId, int Priority, string RowVersion);
 
     private sealed record RuleList(List<RuleBody> Items);
 }

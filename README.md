@@ -470,7 +470,10 @@ code keeps for a category's own rules, `CategoryRules` and `CategoryRuleViolatio
   rule never categorises income) that is not archived, the highest priority; of equal ones, the one set up first.
 - **Endpoints**: `GET, POST /category-rules`, `PUT, DELETE /category-rules/{id}`, and `PUT /category-rules/order`
   with every rule's id once, the one to try first first, which gives them priorities from their places (the last 0),
-  so a reorder is one save. The list is unpaged and in the order rules are tried. A new rule left without a
+  so a reorder is one save. An edit names the rule's `rowVersion` in `If-Match` like every edit (412 when stale, 428
+  when missing), and a reorder sends each rule's `rowVersion` with its id: an order made before a rule was set up,
+  edited or deleted answers 412 and saves nothing, so it never puts a rule the user has not seen in a place they did
+  not choose. A rule named twice is a validation problem on `rules`. The list is unpaged and in the order rules are tried. A new rule left without a
   `priority` goes one above the highest. Rules are deleted, not archived: they are settings, not money.
 - **Archived categories.** A rule is set up only on a category that is not archived. Once its category is archived it
   stays listed and categorises nothing; it can be edited keeping that category, or moved to another. Merging a category
@@ -614,7 +617,12 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   before. An upload, and `GET /imports/{id}` while the batch is uploaded, answer it as `savedMapping` (null when the
   account has none), beside the `suggestedMapping` guessed from the file: the SPA starts from the saved one, so the
   next statement of the same bank is one click, and the user can still change it in the preview; the change is saved
-  when that statement is committed. A commit refused saves nothing.
+  when that statement is committed. A commit refused saves nothing. The expense and income categories the statement
+  was committed with are saved beside the mapping and answered as `savedExpenseCategoryId` and
+  `savedIncomeCategoryId`, for the SPA to start from too (when they are not archived since), so a repeat import needs no
+  choices; a commit that sends no category of a kind (its rows needed none) keeps the one saved. Two first commits
+  into an account that both save its mapping do not fail: the second to save breaks the one-per-account index, which
+  `PfmDbContext` reads as a concurrent change, and is made again on the first's mapping.
 - **Past imports.** `GET /imports` lists the batches the user committed, whatever became of them (`committing`,
   `committed`, `failed` or `undone`), the last uploaded first, a page at a time, with `accountId` to list one
   account's (`ListImportBatches`): each with its `fileName`, `createdAt` (uploaded), `committedAt`, `undoneAt` and
@@ -955,7 +963,10 @@ Spec section 8 (Auditability): sensitive actions leave a trace the user can revi
 
 - **What is recorded:** each sign-in that gets through (saying which second factor, and whether it cancelled the
   user's deletion), each statement committed, each import undone, each bulk action (one entry for all the
-  transactions it took, `bulkEdit` or `bulkDelete`), and each delete of a transaction or a transfer. An
+  transactions it took, `bulkEdit` or `bulkDelete`), each `delete` of a transaction, a transfer, an attachment, a
+  budget (overall or of a category), a recurring rule or a categorisation rule, and the user asking to be deleted
+  (`deletionRequest`, saved in the transaction that deactivates them; signing in again cancels it, which the sign-in's
+  entry says). An
   `AuditEntry` (`Pfm.Domain.Identity`) keeps the `action`, the `entityType` and `entityId` it affected (none for
   a bulk action), `at` and a short `summary`, written by `AuditSummaries` in the user's locale at the time (English
   when they have none). A summary names a file, a category, a tag, an account, an amount or a count; never a
@@ -971,9 +982,11 @@ Spec section 8 (Auditability): sensitive actions leave a trace the user can revi
   (`limit` and `cursor`, as every list). The SPA shows it under Settings.
 - **Append only** (decision record 0009): there is no endpoint that changes or deletes an entry. `PfmDbContext`
   refuses to save a change or delete of any `IAppendOnly` entity, and the database's
-  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` but of
-  the entries of a deactivated user (or one already gone): erasing a user after their 30 days removes their entries
-  with everything else (spec section 8, Privacy), and nothing else can. The full export has them as
+  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` while
+  the entry's user still has a row in `Users`, deactivated or not. Erasing a user after their 30 days (spec section 8,
+  Privacy) leaves their entries out of `IUserData.EraseEverythingAsync` (they are `IAppendOnly`) and deletes the user's
+  row last; the `AuditEntries` foreign key to `Users` then deletes their entries with it, on delete cascade, and
+  nothing else can. The full export has them as
   `audit-entries.csv`, like all user-owned data.
 
 ## Hardening
@@ -1054,7 +1067,7 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Five answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. These answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview
@@ -1064,9 +1077,9 @@ Registration uses it to create the new user's default categories.
   (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
   its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
-  recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
+  recurring rule, a categorisation rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
-  `PUT /recurring-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  `PUT /recurring-rules/{id}` and `PUT /category-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has

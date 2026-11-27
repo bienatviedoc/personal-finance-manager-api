@@ -113,7 +113,7 @@ How the user says a statement file is read: what separates its cells, the rows t
 _Avoid_: Parser, format, template, column map
 
 **Saved mapping**:
-The mapping an account's last statement was committed with, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
+The mapping an account's last statement was committed with, and the expense and income categories its rows were recorded on, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
 _Avoid_: Template, profile, preset
 
 **Undo** (of an import batch):
@@ -153,7 +153,7 @@ A user who has asked to be deleted and is within the 30 days before permanent er
 _Avoid_: Deleted user, suspended user
 
 **Audit log**:
-The record of the sensitive things a user did, read in their settings, the newest first: each sign-in, statement committed, import undone, bulk action and delete of a transaction or transfer. Only the app writes to it, and nothing in it is ever changed or removed, until the user is erased with everything else of theirs.
+The record of the sensitive things a user did, read in their settings, the newest first: each sign-in, statement committed, import undone, bulk action, delete (of a transaction, a transfer, an attachment, a budget, a recurring rule or a categorisation rule) and request to delete the user. Only the app writes to it, and nothing in it is ever changed or removed, until the user is erased with everything else of theirs.
 _Avoid_: History, activity (the dashboard's recent activity is something else), event log
 
 **Audit entry**:

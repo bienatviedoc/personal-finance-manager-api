@@ -12,8 +12,8 @@ public interface IUserData
     Task<IReadOnlyList<UserDataTable>> ReadEverythingAsync(CancellationToken cancellationToken);
 
     /// <summary>
-    /// Erases every row the user owns, for good. The user themselves is left: Identity erases them after
-    /// (<c>IUsers.EraseAsync</c>), in the same transaction.
+    /// Erases every row the user owns, for good, but what is append only (<c>IAppendOnly</c>): that goes with the
+    /// user themselves, whom Identity erases after (<c>IUsers.EraseAsync</c>), in the same transaction.
     /// </summary>
     Task EraseEverythingAsync(CancellationToken cancellationToken);
 }

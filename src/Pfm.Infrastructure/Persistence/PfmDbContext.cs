@@ -53,10 +53,11 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         }
         catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException
         {
-            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation, ConstraintName: Transactions.TagConfiguration.OneTagOfEachName,
+            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation,
+            ConstraintName: Transactions.TagConfiguration.OneTagOfEachName or Imports.ImportMappingConfiguration.OnePerAccount,
         })
         {
-            // Another request created the tag first: the use case is made again and finds it.
+            // Another request created the tag, or saved the account's mapping, first: the use case is made again and finds it.
             throw new ConcurrentChangeException(exception);
         }
         catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })

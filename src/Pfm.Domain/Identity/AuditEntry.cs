@@ -69,8 +69,11 @@ public enum AuditAction
     /// <summary>The user deleted many transactions in one bulk action.</summary>
     BulkDelete,
 
-    /// <summary>The user deleted one transaction or transfer.</summary>
+    /// <summary>The user deleted one thing: a transaction, a transfer, an attachment, a budget or a rule.</summary>
     Delete,
+
+    /// <summary>The user asked to be deleted: they are deactivated, and erased after 30 days unless they sign in again.</summary>
+    DeletionRequest,
 }
 
 /// <summary>The kind of thing an audit entry's action affected.</summary>
@@ -80,6 +83,10 @@ public enum AuditEntityType
     ImportBatch,
     Transaction,
     Transfer,
+    Attachment,
+    Budget,
+    RecurringRule,
+    CategorisationRule,
 }
 
 /// <summary>How a user proved who they are when they signed in.</summary>

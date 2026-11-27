@@ -524,6 +524,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ExpenseCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("IncomeCategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Mapping")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -538,7 +544,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AccountId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_ImportMappings_AccountId");
 
                     b.ToTable("ImportMappings", (string)null);
                 });
@@ -617,6 +624,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("Priority")
                         .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -1172,6 +1185,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .WithMany()
                         .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Identity.AuditEntry", b =>
+                {
+                    b.HasOne("Pfm.Infrastructure.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>

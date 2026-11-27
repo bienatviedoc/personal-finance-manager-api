@@ -231,7 +231,7 @@ Financial data is sensitive even without real money moving, so security and data
 | Privacy | User can export all their data and delete their user. On deletion the user is signed out and deactivated at once; signing in again within 30 days cancels it, and after 30 days all data is erased. No third-party analytics on financial content |
 | Performance | API p95 under 300 ms for lists and under 1 s for reports at 50,000 transactions; first load under 2.5 s on 4G; transaction list virtualised |
 | Reliability | Daily automated backups with point-in-time recovery, restore tested quarterly; 99.5% availability target |
-| Auditability | Created and updated timestamps on every row; an audit log for sign-ins, imports, bulk edits and deletes |
+| Auditability | Created and updated timestamps on every row; an audit log for sign-ins, imports, bulk edits and deletes (of transactions, transfers, attachments, budgets and rules, and of the user, when they ask for it) |
 | Accessibility | WCAG 2.1 AA: keyboard operable, screen-reader labels, colour never the only signal for budget state |
 | Internationalisation | English and Vietnamese; locale-aware number, currency and date formats (VND shows no decimals) |
 | Responsiveness | Usable from 360 px width up; installable PWA. Offline entry is out of scope for v1 |
@@ -304,11 +304,11 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Budget` | CategoryId?, Month (first day), Amount | Null category means the overall monthly budget. Unique on (UserId, CategoryId, Month) |
 | `RecurringRule` | Template fields, Frequency, Interval, StartDate, EndDate?, NextRunDate, Mode (AutoPost or Remind) |  |
 | `ImportBatch` | AccountId, FileName, Content?, Status, Mapping? (JSON), SelectedRows (JSON), RowCategories (JSON), ExpenseCategoryId?, IncomeCategoryId?, RowCount, SelectedCount, ImportedCount, DuplicateCount, FailedCount, FailedAttempts, Failure?, CommittedOn?, CommittedAt?, UndoneAt?, RowVersion | Content is the statement's text, dropped once it is imported, fails, is undone or is abandoned (ACC-8, decision record 0006). One batch per account may be committing at a time. Undo soft-deletes by ImportBatchId in the same save as the batch, which stops a commit in progress (decision record 0007) |
-| `ImportMapping` | AccountId, Mapping (JSON: columns, separator, rows skipped, date format, decimal separator) | One per account: the mapping its last statement was committed with, offered for the next upload (IMP-2) |
+| `ImportMapping` | AccountId, Mapping (JSON: columns, separator, rows skipped, date format, decimal separator), ExpenseCategoryId?, IncomeCategoryId? | One per account: the mapping its last statement was committed with, and the categories its rows were recorded on, offered for the next upload (IMP-2) |
 | `CategoryRule` | MatchText, MatchType, CategoryId, Priority | `CategorisationRule` in code. Used by the import preview and quick add. The highest priority that matches wins; a rule categorises only transactions of its category's kind, and nothing while its category is archived |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
 | `ExchangeRate` | FromCurrency, ToCurrency, Date, Rate | What one unit of FromCurrency was worth in ToCurrency that day. Shared across users; no UserId |
-| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` but of a deactivated user's entries, which erasing them removes with the rest (decision record 0009). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
+| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` while the entry's user exists, deactivated or not: erasing the user deletes their row, and their entries go with it (decision record 0009). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
 
 **Indexes and integrity**
 
@@ -328,7 +328,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Five answers are not paged and return everything at once (the preview's list is its `rows`, the others' their `items`): the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen); and the categorisation rules (`GET /category-rules`), a few dozen, listed and reordered whole.
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. These answers are not paged and return everything at once (the preview's list is its `rows`, the others' their `items`): the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen); and the categorisation rules (`GET /category-rules`), a few dozen, listed and reordered whole.
 - Updates send `If-Match` with the row version; a stale version returns `412`. An upsert (`PUT /budgets/{month}/{categoryId}`) needs it only when the budget exists: creating one sends none.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.
@@ -340,7 +340,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
-| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions and deletes. Read only |
+| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions, deletes and the user asking to be deleted. Read only |
 | Auth | `POST /me/deletion` | The user deletes themselves, with their password: signed out and deactivated at once. `POST /auth/login` within 30 days cancels it and says so (`deletionCancelled`) |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
@@ -357,7 +357,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Budgets | `PUT /budgets/{month}/{categoryId}`; `DELETE` same; `POST /budgets/{month}/copy-from/{sourceMonth}` | Upsert, remove, copy |
 | Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
 | Imports | `GET /imports?accountId` (past imports); `POST /imports` (upload); `GET /imports/{id}`; `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Past imports, upload (with the account's saved mapping), progress, preview, commit, undo |
-| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}`; `PUT /category-rules/order` | Auto-categorisation rules, and putting them in the order they are tried |
+| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}`; `PUT /category-rules/order` | Auto-categorisation rules, and putting them in the order they are tried. A reorder names each rule's row version: one made before a rule was set up, edited or deleted returns `412` |
 | Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expenses`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
 | Export | `GET /export/transactions.csv`; `GET /export/all.zip`; `GET /reports/monthly-summary.pdf` | Data out |
 | System | `GET /health/live`, `/health/ready` | Probes |

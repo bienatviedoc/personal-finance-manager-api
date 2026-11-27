@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Transactions.Categorisation;
@@ -12,9 +13,9 @@ public sealed class DeleteCategorisationRuleValidator : AbstractValidator<Delete
     public DeleteCategorisationRuleValidator() => RuleFor(command => command.Id).Required();
 }
 
-/// <summary>Answers null when the user has no rule with that id.</summary>
+/// <summary>Answers null when the user has no rule with that id. The delete is recorded in the user's audit log in the same save.</summary>
 public sealed class DeleteCategorisationRuleHandler(
-    IValidator<DeleteCategorisationRuleCommand> validator, ICategorisationRuleRepository rules, IUnitOfWork unitOfWork)
+    IValidator<DeleteCategorisationRuleCommand> validator, ICategorisationRuleRepository rules, IAuditLog auditLog, IUnitOfWork unitOfWork)
     : CommandHandler<DeleteCategorisationRuleCommand, Done?>(validator)
 {
     protected override async Task<Result<Done?>> ExecuteAsync(DeleteCategorisationRuleCommand command, CancellationToken cancellationToken)
@@ -25,6 +26,7 @@ public sealed class DeleteCategorisationRuleHandler(
         }
 
         rules.Remove(rule);
+        await auditLog.CategorisationRuleDeletedAsync(rule.Id, rule.MatchText, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return new Done();
     }

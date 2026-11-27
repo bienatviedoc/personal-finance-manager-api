@@ -31,7 +31,7 @@ public sealed class CreateCategorisationRuleHandler(
     {
         if (await categories.FindAsync(command.CategoryId, cancellationToken) is not { IsArchived: false } category)
         {
-            return Result<CategorisationRuleDetails>.Invalid(FieldError.On(nameof(command.CategoryId), CategorisationRuleFields.CategoryMessage));
+            return Result<CategorisationRuleDetails>.Invalid(FieldError.On(nameof(command.CategoryId), CategorisationRuleRules.CategoryMessage));
         }
 
         var priority = command.Priority ?? await AboveTheHighestAsync(cancellationToken);

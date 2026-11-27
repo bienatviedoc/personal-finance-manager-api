@@ -1,5 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Budgets;
 
@@ -22,8 +24,12 @@ public sealed class RemoveBudgetValidator : AbstractValidator<RemoveBudgetComman
     }
 }
 
-/// <summary>Answers null when the category has no budget that month, or is not one of the user's.</summary>
-public sealed class RemoveBudgetHandler(IValidator<RemoveBudgetCommand> validator, IBudgetRepository budgets, IUnitOfWork unitOfWork)
+/// <summary>
+/// Answers null when the category has no budget that month, or is not one of the user's. The removal is recorded in the
+/// user's audit log in the same save.
+/// </summary>
+public sealed class RemoveBudgetHandler(
+    IValidator<RemoveBudgetCommand> validator, IBudgetRepository budgets, ICategoryLookup categories, IAuditLog auditLog, IUnitOfWork unitOfWork)
     : CommandHandler<RemoveBudgetCommand, Done?>(validator)
 {
     /// <summary>Removing names no row version, so a budget whose amount is changed at the same moment is removed all the same.</summary>
@@ -37,6 +43,8 @@ public sealed class RemoveBudgetHandler(IValidator<RemoveBudgetCommand> validato
             }
 
             budgets.Remove(budget);
+            var category = (await categories.ListAsync(cancellationToken)).SingleOrDefault(category => category.Id == command.CategoryId)?.Name;
+            await auditLog.BudgetRemovedAsync(budget.Id, category, budget.Amount, budget.Currency, budget.Month.ToString(), cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return new Done();
         });

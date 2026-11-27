@@ -58,6 +58,9 @@ public sealed class CategorisationRule : IUserOwned
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>Changes with every change saved: an edit or a reorder names the one it was made from.</summary>
+    public uint RowVersion { get; private set; }
+
     public static bool IsValidMatchText(string? text) => !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxMatchTextLength;
 
     public static bool IsValidPriority(int priority) => priority is >= 0 and <= MaxPriority;
@@ -128,6 +131,10 @@ public sealed class CategorisationRule : IUserOwned
         UpdatedAt = now;
     }
 
+    /// <summary>The rules in the order they are tried: highest priority first, and of equal ones the one set up first.</summary>
+    public static IEnumerable<CategorisationRule> InTriedOrder(IEnumerable<CategorisationRule> rules) =>
+        rules.OrderByDescending(rule => rule.Priority).ThenBy(rule => rule.CreatedAt).ThenBy(rule => rule.Id);
+
     /// <summary>Whether the payee or description has the match text the rule's way.</summary>
     public bool Matches(string? text)
     {
@@ -190,9 +197,7 @@ public sealed class Categoriser
         var byId = categories.ToDictionary(category => category.Id);
         _rules =
         [
-            .. rules
-                .Where(rule => byId.TryGetValue(rule.CategoryId, out var category) && !category.IsArchived)
-                .OrderByDescending(rule => rule.Priority).ThenBy(rule => rule.CreatedAt).ThenBy(rule => rule.Id)
+            .. CategorisationRule.InTriedOrder(rules.Where(rule => byId.TryGetValue(rule.CategoryId, out var category) && !category.IsArchived))
                 .Select(rule => (rule, byId[rule.CategoryId])),
         ];
     }
