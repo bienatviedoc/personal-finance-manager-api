@@ -18,8 +18,8 @@ public interface IImportedTransactions
     /// caller saves them together with what it records of the batch, so both are saved or neither. Answers
     /// <see cref="RecordImportOutcome.Recorded"/>, or why they cannot be recorded, with nothing recorded.
     /// </summary>
-    /// <param name="expenseCategoryId">The category an expense is recorded on.</param>
-    /// <param name="incomeCategoryId">The category income is recorded on.</param>
+    /// <param name="expenseCategoryId">The category an expense without one of its own is recorded on.</param>
+    /// <param name="incomeCategoryId">The category income without one of its own is recorded on.</param>
     /// <param name="today">The user's today the statement was committed on: no transaction is dated after it.</param>
     Task<RecordImportOutcome> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> transactions, Guid? expenseCategoryId, Guid? incomeCategoryId,
@@ -51,4 +51,5 @@ public sealed record AccountTransaction(DateOnly Date, bool MoneyIn, decimal Amo
 /// <param name="IsIncome">Money came in, so it is income; else it is an expense.</param>
 /// <param name="Amount">Greater than zero, in the account's currency.</param>
 /// <param name="Payee">The row's description.</param>
-public sealed record TransactionToImport(DateOnly Date, bool IsIncome, decimal Amount, string? Payee);
+/// <param name="CategoryId">The category the user gave the row of its own; null for the batch's category of its kind.</param>
+public sealed record TransactionToImport(DateOnly Date, bool IsIncome, decimal Amount, string? Payee, Guid? CategoryId = null);

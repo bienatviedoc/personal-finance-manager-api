@@ -8,8 +8,8 @@ namespace Pfm.Application.Transactions;
 
 /// <summary>
 /// Transactions as Imports reads and records them. An imported transaction is recorded by the same rules as one a
-/// user records (<see cref="Transaction.Record"/>), on a category the user chose for the batch, with the row's
-/// description as its payee.
+/// user records (<see cref="Transaction.Record"/>), on the category the user gave the row, or else the one they chose
+/// for the batch, with the row's description as its payee.
 /// </summary>
 public sealed class ImportedTransactions(
     ITransactionRepository transactions, IAccountLookup accounts, ICategoryRepository categories, IBaseCurrency baseCurrency,
@@ -34,13 +34,19 @@ public sealed class ImportedTransactions(
         var expenseCategory = expenseCategoryId is { } expenseId ? await categories.FindAsync(expenseId, cancellationToken) : null;
         var incomeCategory = incomeCategoryId is { } incomeId ? await categories.FindAsync(incomeId, cancellationToken) : null;
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);
+        var own = new Dictionary<Guid, Category?>();
+        foreach (var categoryId in toImport.Select(row => row.CategoryId).OfType<Guid>().Distinct())
+        {
+            own[categoryId] = await categories.FindAsync(categoryId, cancellationToken);
+        }
+
         var now = clock.GetUtcNow();
         var recorded = new List<Transaction>(toImport.Count);
         try
         {
             foreach (var row in toImport)
             {
-                var category = (row.IsIncome ? incomeCategory : expenseCategory)
+                var category = (row.CategoryId is { } ownId ? own[ownId] : row.IsIncome ? incomeCategory : expenseCategory)
                     ?? throw new TransactionRuleViolation(nameof(Transaction.CategoryId), "The category chosen for the statement is gone.");
                 var transaction = Transaction.Record(
                     row.IsIncome ? TransactionType.Income : TransactionType.Expense, account.Id, account.Currency, row.Amount, row.Date, category, row.Payee,

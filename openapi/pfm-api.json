@@ -5408,7 +5408,7 @@
         "tags": [
           "Imports"
         ],
-        "description": "Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.",
+        "description": "Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income or expenses on the batch's account, each on the category rowCategories gives it, or else on incomeCategoryId or expenseCategoryId, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.",
         "operationId": "CommitImport",
         "parameters": [
           {
@@ -7423,6 +7423,15 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "rowCategories": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/RowCategoryRequest"
+            }
           }
         }
       },
@@ -9092,7 +9101,8 @@
           "description",
           "problem",
           "likelyDuplicate",
-          "selected"
+          "selected",
+          "suggestedCategoryId"
         ],
         "type": "object",
         "properties": {
@@ -9157,6 +9167,13 @@
           },
           "selected": {
             "type": "boolean"
+          },
+          "suggestedCategoryId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -9876,6 +9893,27 @@
           },
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "RowCategoryRequest": {
+        "required": [
+          "row",
+          "categoryId"
+        ],
+        "type": "object",
+        "properties": {
+          "row": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "categoryId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },

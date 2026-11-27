@@ -438,6 +438,13 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("_rowCategories")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("RowCategories")
+                        .HasDefaultValueSql("'{}'::jsonb");
+
                     b.PrimitiveCollection<List<int>>("_selectedRows")
                         .IsRequired()
                         .HasColumnType("integer[]")
