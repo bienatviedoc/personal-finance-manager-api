@@ -226,6 +226,17 @@ public class AuditLogTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_bulk_action_whose_filter_matches_nothing_leaves_no_entry()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+
+        await BulkAsync(browser, new { action = "delete", filter = new { accountId = everyday } });
+
+        Assert.Equal(["signIn"], (await ListAsync(browser)).Items.Select(entry => entry.Action));
+    }
+
+    [Fact]
     public async Task Deleting_a_transaction_leaves_an_entry_naming_it_with_its_amount_and_date()
     {
         var (browser, _) = await api.SignedInAsync();

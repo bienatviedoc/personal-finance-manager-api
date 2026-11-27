@@ -148,6 +148,12 @@ public sealed class BulkEditTransactionsHandler(
             return new BulkEditOutcome.Refused([.. refused.OrderBy(row => order.IndexOf(row.TransactionId))]);
         }
 
+        if (acted.Outcome.Count == 0)
+        {
+            // A filter that selected nothing changed nothing: there is nothing to save, nor to record.
+            return new BulkEditOutcome.Done(0);
+        }
+
         // In the same save as the action, so the log has it exactly when the transactions took it.
         await auditLog.BulkActionTakenAsync(acted.Outcome.Action, acted.Outcome.Count, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
