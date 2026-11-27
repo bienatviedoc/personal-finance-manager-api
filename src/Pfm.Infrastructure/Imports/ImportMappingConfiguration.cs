@@ -7,6 +7,12 @@ namespace Pfm.Infrastructure.Imports;
 
 internal sealed class ImportMappingConfiguration : IEntityTypeConfiguration<ImportMapping>
 {
+    /// <summary>
+    /// The unique index of one mapping per account. Two first commits into an account both add one; the second to save
+    /// breaks it, and is made again, finding the first's mapping to change.
+    /// </summary>
+    public const string OnePerAccount = "IX_ImportMappings_AccountId";
+
     public void Configure(EntityTypeBuilder<ImportMapping> mapping)
     {
         mapping.ToTable("ImportMappings");
@@ -21,6 +27,6 @@ internal sealed class ImportMappingConfiguration : IEntityTypeConfiguration<Impo
                 json => JsonSerializer.Deserialize<StatementMapping>(json, ImportBatchConfiguration.MappingJson)!);
 
         // One per account.
-        mapping.HasIndex(row => row.AccountId).IsUnique();
+        mapping.HasIndex(row => row.AccountId).IsUnique().HasDatabaseName(OnePerAccount);
     }
 }

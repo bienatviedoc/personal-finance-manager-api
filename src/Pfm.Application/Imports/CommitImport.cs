@@ -157,8 +157,8 @@ public sealed class CommitImportHandler(
         }
         catch (AlreadyExistsException)
         {
-            // Another statement was committed into the account meanwhile: one batch at a time is. (Or, the first time
-            // statements are committed into it, another saved its mapping first, which is as rare and as safe to retry.)
+            // Another statement was committed into the account meanwhile: one batch at a time is. (Another commit that
+            // saved the account's first mapping meanwhile is a concurrent change instead: the commit is made again.)
             unitOfWork.DiscardChanges();
             return new CommitImportOutcome.ImportInProgress();
         }
