@@ -308,7 +308,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `CategoryRule` | MatchText, MatchType, CategoryId, Priority | Used by import and quick add |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
 | `ExchangeRate` | FromCurrency, ToCurrency, Date, Rate | What one unit of FromCurrency was worth in ToCurrency that day. Shared across users; no UserId |
-| `AuditEntry` | Action, EntityType, EntityId, At, Summary | Append only |
+| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` but of a deactivated user's entries, which erasing them removes with the rest (decision record 0007). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
 
 **Indexes and integrity**
 
@@ -340,6 +340,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
+| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions and deletes. Read only |
 | Auth | `POST /me/deletion` | The user deletes themselves, with their password: signed out and deactivated at once. `POST /auth/login` within 30 days cancels it and says so (`deletionCancelled`) |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
@@ -378,7 +379,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 | `/reports/:report` | Reports | Shared filter bar, chart and table toggle, export |
 | `/recurring` | Recurring | Rules list, upcoming 30 days |
 | `/import` | Import wizard | Upload, map columns, preview with duplicates flagged, commit |
-| `/settings/*` | Settings | Profile, categories, rules, security, data export and deleting the user |
+| `/settings/*` | Settings | Profile, categories, rules, security, audit log, data export and deleting the user |
 
 **Design decisions**
 
