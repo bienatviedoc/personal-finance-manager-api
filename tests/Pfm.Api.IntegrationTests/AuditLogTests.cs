@@ -7,6 +7,7 @@ using Npgsql;
 using Pfm.Application.Abstractions;
 using Pfm.Domain.Identity;
 using Pfm.Infrastructure.Persistence;
+using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
 
@@ -18,6 +19,8 @@ namespace Pfm.Api.IntegrationTests;
 public class AuditLogTests(PfmApi api)
 {
     private const string AuditLog = "/api/v1/me/audit-log";
+    private const string Bulk = "/api/v1/transactions/bulk";
+    private static readonly DateOnly November2 = new(2026, 11, 2);
 
     [Fact]
     public async Task Signing_in_leaves_an_audit_entry_naming_the_user_when_and_a_short_summary()
@@ -56,7 +59,7 @@ public class AuditLogTests(PfmApi api)
         var again = api.CreateBrowser();
         (await again.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
 
-        Assert.Equal("Đã đăng nhập bằng mật khẩu. Việc đăng nhập đã hủy yêu cầu xóa người dùng.", (await ListAsync(again)).Items[0].Summary);
+        Assert.Equal("Đã đăng nhập bằng mật khẩu. Việc đăng nhập đã hủy yêu cầu xóa hồ sơ.", (await ListAsync(again)).Items[0].Summary);
     }
 
     [Fact]
@@ -144,6 +147,65 @@ public class AuditLogTests(PfmApi api)
 
         Assert.Equal(id, (await ListAsync(browser)).Items[0].Id);
     }
+
+    [Fact]
+    public async Task A_bulk_edit_leaves_one_entry_saying_what_it_did_to_how_many_transactions()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var savings = await AddAccountAsync(browser, "Savings");
+        var first = await SpendAsync(browser, everyday, "Groceries", "1000", November2);
+        var second = await SpendAsync(browser, everyday, "Transport", "2000", November2);
+        var both = new[] { first, second };
+
+        await BulkAsync(browser, new { action = "setCategory", transactionIds = both, categoryId = await CategoryAsync(browser, "Eating out") });
+        await BulkAsync(browser, new { action = "addTag", transactionIds = both, tag = "Tet-2027" });
+        await BulkAsync(browser, new { action = "removeTag", transactionIds = new[] { first }, tag = "tet-2027" });
+        await BulkAsync(browser, new { action = "moveToAccount", transactionIds = both, accountId = savings });
+
+        var entries = (await ListAsync(browser)).Items.Take(4).Reverse().ToList();
+        Assert.All(entries, entry => Assert.Equal(("bulkEdit", "transaction", (Guid?)null), (entry.Action, entry.EntityType, entry.EntityId)));
+        Assert.Equal(
+            [
+                "Put 2 transactions on the category Eating out.",
+                "Added the tag tet-2027 to 2 transactions.",
+                "Removed the tag tet-2027 from 1 transaction.",
+                "Moved 2 transactions to the account Savings.",
+            ],
+            entries.Select(entry => entry.Summary));
+    }
+
+    [Fact]
+    public async Task A_bulk_delete_leaves_one_entry_counting_the_legs_of_the_transfers_it_took_with_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var groceries = await SpendAsync(browser, everyday, "Groceries", "1000", November2);
+        await TransferAsync(browser, everyday, await AddAccountAsync(browser, "Savings"), "500", November2);
+        var leg = (await browser.Http.GetFromJsonAsync<JsonElement>("/api/v1/transactions?type=transferOut")).GetProperty("items")[0].GetProperty("id").GetGuid();
+        (await browser.PatchAsync("/api/v1/me", new { locale = "vi" })).EnsureSuccessStatusCode();
+
+        await BulkAsync(browser, new { action = "delete", transactionIds = new[] { groceries, leg } });
+
+        var entry = (await ListAsync(browser)).Items[0];
+        Assert.Equal(("bulkDelete", "transaction", (Guid?)null, "Đã xóa 3 giao dịch."), (entry.Action, entry.EntityType, entry.EntityId, entry.Summary));
+    }
+
+    [Fact]
+    public async Task A_bulk_action_refused_leaves_no_entry()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var salary = await RecordAsync(browser, "income", everyday, "Salary", "5000", November2);
+
+        var response = await browser.PostAsync(Bulk, new { action = "setCategory", transactionIds = new[] { salary }, categoryId = await CategoryAsync(browser, "Eating out") });
+
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal(["signIn"], (await ListAsync(browser)).Items.Select(entry => entry.Action));
+    }
+
+    private static async Task BulkAsync(Browser browser, object request) =>
+        (await browser.PostAsync(Bulk, request)).EnsureSuccessStatusCode();
 
     private static async Task<AuditLogBody> ListAsync(Browser browser, string query = "")
     {

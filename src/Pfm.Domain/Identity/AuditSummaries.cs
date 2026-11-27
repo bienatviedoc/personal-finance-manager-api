@@ -23,6 +23,46 @@ public static class AuditSummaries
             return signedIn;
         }
 
-        return signedIn + (locale == Locale.Vi ? " Việc đăng nhập đã hủy yêu cầu xóa người dùng." : " Signing in cancelled the deletion the user had asked for.");
+        return signedIn + (locale == Locale.Vi ? " Việc đăng nhập đã hủy yêu cầu xóa hồ sơ." : " Signing in cancelled the deletion the user had asked for.");
     }
+
+    public static string ImportCommit(Locale locale, string fileName, int rows) => locale == Locale.Vi
+        ? $"Đã xác nhận nhập sao kê {fileName}: {rows} dòng sẽ được nhập."
+        : $"Committed the statement {fileName}: {Count(rows, "row")} to import.";
+
+    public static string ImportUndo(Locale locale, string fileName, int transactions) => locale == Locale.Vi
+        ? $"Đã hoàn tác lần nhập sao kê {fileName}: đã xóa {transactions} giao dịch."
+        : $"Undid the import of the statement {fileName}: {Count(transactions, "transaction")} removed.";
+
+    public static string CategorySet(Locale locale, int transactions, string category) => locale == Locale.Vi
+        ? $"Đã chuyển {transactions} giao dịch sang danh mục {category}."
+        : $"Put {Count(transactions, "transaction")} on the category {category}.";
+
+    public static string TagAdded(Locale locale, int transactions, string tag) => locale == Locale.Vi
+        ? $"Đã gắn nhãn {tag} cho {transactions} giao dịch."
+        : $"Added the tag {tag} to {Count(transactions, "transaction")}.";
+
+    public static string TagRemoved(Locale locale, int transactions, string tag) => locale == Locale.Vi
+        ? $"Đã gỡ nhãn {tag} khỏi {transactions} giao dịch."
+        : $"Removed the tag {tag} from {Count(transactions, "transaction")}.";
+
+    public static string MovedToAccount(Locale locale, int transactions, string account) => locale == Locale.Vi
+        ? $"Đã chuyển {transactions} giao dịch sang tài khoản {account}."
+        : $"Moved {Count(transactions, "transaction")} to the account {account}.";
+
+    public static string BulkDelete(Locale locale, int transactions) => locale == Locale.Vi
+        ? $"Đã xóa {transactions} giao dịch."
+        : $"Deleted {Count(transactions, "transaction")}.";
+
+    public static string TransactionDeleted(Locale locale, decimal amount, Currency currency, DateOnly date) => locale == Locale.Vi
+        ? $"Đã xóa một giao dịch {locale.WriteAmount(amount, currency)} ngày {Date(date)}."
+        : $"Deleted a transaction of {locale.WriteAmount(amount, currency)} dated {Date(date)}.";
+
+    public static string TransferDeleted(Locale locale, decimal amount, Currency currency, DateOnly date) => locale == Locale.Vi
+        ? $"Đã xóa một chuyển khoản {locale.WriteAmount(amount, currency)} ngày {Date(date)}."
+        : $"Deleted a transfer of {locale.WriteAmount(amount, currency)} dated {Date(date)}.";
+
+    private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
+
+    private static string Date(DateOnly date) => date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 }
