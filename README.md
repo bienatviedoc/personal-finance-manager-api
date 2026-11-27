@@ -74,6 +74,14 @@ CI runs the same tests through `scripts/test-with-coverage.sh`, which merges cov
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
 
+### End-to-end and accessibility tests
+
+The Playwright journey and the axe checks of spec section 13 live in the SPA repository: `npm run e2e` there starts this
+repository's `compose.yaml` with the SPA's image on top, under a Compose project of its own (`pfm-e2e`), and the
+SPA's CI runs it against this repository's `main` ([decision record 0010](docs/adr/0010-end-to-end-tests-live-in-the-spa-and-run-against-the-apis-compose-stack.md)).
+So keep `compose.yaml` working without its published ports, and keep `seed` and the synthetic statements in
+`tests/statements/synthetic-stand-ins`, which the journey imports.
+
 ### Load test
 
 `tests/load/load-test.js` is a [k6](https://k6.io) test of the speed targets (spec section 8): every list and
