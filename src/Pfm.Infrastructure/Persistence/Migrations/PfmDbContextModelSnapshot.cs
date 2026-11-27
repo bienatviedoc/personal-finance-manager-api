@@ -375,6 +375,9 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("CommittedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<DateOnly?>("CommittedOn")
+                        .HasColumnType("date");
+
                     b.Property<string>("Content")
                         .HasColumnType("text");
 

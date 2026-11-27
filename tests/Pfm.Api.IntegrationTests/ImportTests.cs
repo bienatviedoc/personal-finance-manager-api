@@ -250,6 +250,23 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_row_dated_today_when_it_was_committed_is_imported_even_when_the_users_time_zone_moves_back_a_day_before_the_worker_gets_to_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Pacific/Kiritimati" })).EnsureSuccessStatusCode();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(14));
+        var batch = await UploadAsync(browser, account, $"Date;Details;Amount\n{today:dd-MM-yyyy};GRABFOOD HCM;-146.000,00\n");
+        (await CommitAsync(browser, batch, SmallMapping, [2])).EnsureSuccessStatusCode();
+        (await browser.PatchAsync("/api/v1/me", new { timeZone = "Etc/GMT+12" })).EnsureSuccessStatusCode();
+
+        await ImportAsync();
+
+        var imported = await BatchAsync(browser, batch.Id);
+        Assert.Equal(("committed", 1, (string?)null), (imported.Status, imported.ImportedCount, imported.Failure));
+    }
+
+    [Fact]
     public async Task Only_rows_the_preview_reads_as_transactions_can_be_committed_and_with_a_category_of_the_kind_each_takes()
     {
         var (browser, _) = await api.SignedInAsync();

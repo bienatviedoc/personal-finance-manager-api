@@ -20,9 +20,10 @@ public interface IImportedTransactions
     /// </summary>
     /// <param name="expenseCategoryId">The category an expense is recorded on.</param>
     /// <param name="incomeCategoryId">The category income is recorded on.</param>
+    /// <param name="today">The user's today the statement was committed on: no transaction is dated after it.</param>
     Task<string?> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> transactions, Guid? expenseCategoryId, Guid? incomeCategoryId,
-        CancellationToken cancellationToken);
+        DateOnly today, CancellationToken cancellationToken);
 }
 
 /// <summary>A transaction already on an account, as a likely duplicate is matched against it.</summary>

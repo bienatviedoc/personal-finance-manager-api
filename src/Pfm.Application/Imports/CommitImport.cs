@@ -109,7 +109,7 @@ public sealed class CommitImportHandler(
 
         try
         {
-            batch.Commit(mapping, read.Statement, command.Rows!, read.LikelyDuplicates, command.ExpenseCategoryId, command.IncomeCategoryId, clock.GetUtcNow());
+            batch.Commit(mapping, read.Statement, command.Rows!, read.LikelyDuplicates, command.ExpenseCategoryId, command.IncomeCategoryId, read.Today, clock.GetUtcNow());
         }
         catch (ImportRuleViolation violation)
         {

@@ -16,7 +16,7 @@ namespace Pfm.Application.Imports;
 /// deactivated user.
 /// </summary>
 public sealed class ImportCommits(
-    IImportBatchRepository batches, IImportedTransactions transactions, IAccountLookup accounts, IUserCalendar calendar, IUserDeactivation deactivation,
+    IImportBatchRepository batches, IImportedTransactions transactions, IAccountLookup accounts, IUserDeactivation deactivation,
     IBudgetNotifications budgetNotifications, IActForUser actFor, IUnitOfWork unitOfWork, TimeProvider clock)
 {
     /// <summary>How many rows one save imports, unless asked otherwise.</summary>
@@ -67,13 +67,12 @@ public sealed class ImportCommits(
             return 0;
         }
 
-        var today = await calendar.TodayAsync(cancellationToken);
         var account = await accounts.FindAsync(batch.AccountId, cancellationToken)
             ?? throw new InvalidOperationException("An import batch's account is archived, never deleted.");
         IReadOnlyList<StatementEntry> chosen;
         try
         {
-            chosen = batch.ChosenEntries(account.Currency, today);
+            chosen = batch.ChosenEntries(account.Currency);
         }
         catch (ImportRuleViolation violation)
         {
@@ -83,7 +82,7 @@ public sealed class ImportCommits(
         var next = chosen.Skip(batch.ImportedCount).Take(rowsPerSave).ToList();
         var refusal = await transactions.RecordAsync(
             batch.AccountId, batch.Id, [.. next.Select(entry => new TransactionToImport(entry.Date, entry.Type == StatementEntryType.Income, entry.Amount, entry.Description))],
-            batch.ExpenseCategoryId, batch.IncomeCategoryId, cancellationToken);
+            batch.ExpenseCategoryId, batch.IncomeCategoryId, batch.CommittedOn!.Value, cancellationToken);
         if (refusal is not null)
         {
             return await FailAsync(batch, refusal, [.. chosen.Take(batch.ImportedCount).Select(entry => entry.Date)], cancellationToken);

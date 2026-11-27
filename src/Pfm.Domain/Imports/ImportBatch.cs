@@ -95,6 +95,12 @@ public sealed class ImportBatch : IUserOwned
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>
+    /// Today in the user's time zone when the batch was committed. The worker reads the file, and records each row's
+    /// transaction, as of that day, so a row the user saw as importable stays so whatever their time zone says later.
+    /// </summary>
+    public DateOnly? CommittedOn { get; private set; }
+
     /// <summary>When the last chosen row was imported.</summary>
     public DateTimeOffset? CommittedAt { get; private set; }
 
@@ -134,11 +140,12 @@ public sealed class ImportBatch : IUserOwned
     /// Chooses the rows to import and queues them for the worker (spec IMP-1). Only rows the statement reads as
     /// transactions can be chosen, and at least one; a likely duplicate is imported only when it is chosen.
     /// </summary>
-    /// <param name="statement">The file read with <paramref name="mapping"/>, as the user previewed it.</param>
+    /// <param name="statement">The file read with <paramref name="mapping"/> on <paramref name="today"/>, as the user previewed it.</param>
     /// <param name="likelyDuplicates">The rows of <paramref name="statement"/> that are likely duplicates.</param>
+    /// <param name="today">Today in the user's time zone: the day the rows are read as of until they are imported.</param>
     public void Commit(
         StatementMapping mapping, Statement statement, IReadOnlyCollection<int> rows, IReadOnlySet<int> likelyDuplicates,
-        Guid? expenseCategoryId, Guid? incomeCategoryId, DateTimeOffset now)
+        Guid? expenseCategoryId, Guid? incomeCategoryId, DateOnly today, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(statement);
         ArgumentNullException.ThrowIfNull(rows);
@@ -184,24 +191,26 @@ public sealed class ImportBatch : IUserOwned
         RowCount = entries.Count + FailedCount;
         SelectedCount = chosen.Count;
         DuplicateCount = likelyDuplicates.Count(row => !chosen.Contains(row));
+        CommittedOn = today;
         Status = ImportBatchStatus.Committing;
         UpdatedAt = now;
     }
 
-    /// <summary>The next chosen rows to import, at most <paramref name="max"/>, in the order of the file; none once all are imported.</summary>
-    /// <param name="currency">The currency of <see cref="AccountId"/>.</param>
-    /// <param name="today">Today in the user's time zone.</param>
-    public IReadOnlyList<StatementEntry> NextToImport(Currency currency, DateOnly today, int max) =>
-        Status == ImportBatchStatus.Committing ? [.. ChosenEntries(currency, today).Skip(ImportedCount).Take(max)] : [];
-
     /// <summary>
-    /// Every chosen row as it is imported, in the order of the file, while the file is kept. A chosen row the file
-    /// no longer reads as a transaction (its account has changed currency) cannot be imported.
+    /// Every chosen row as it is imported, in the order of the file, while the file is kept, read as of the day the
+    /// batch was committed. A chosen row the file no longer reads as a transaction cannot be imported: the mapping and
+    /// the day are the batch's own, so only the account's currency can have changed.
     /// </summary>
+    /// <param name="currency">The currency of <see cref="AccountId"/>.</param>
     /// <exception cref="ImportRuleViolation">A chosen row is no longer read as a transaction.</exception>
-    public IReadOnlyList<StatementEntry> ChosenEntries(Currency currency, DateOnly today)
+    public IReadOnlyList<StatementEntry> ChosenEntries(Currency currency)
     {
-        var entries = Read(Mapping ?? throw new InvalidOperationException("The batch is not committed."), currency, today).Entries
+        if (Mapping is null || CommittedOn is not { } committedOn)
+        {
+            throw new InvalidOperationException("The batch is not committed.");
+        }
+
+        var entries = Read(Mapping, currency, committedOn).Entries
             .ToDictionary(row => row.Number, row => row.Entry!);
         return [.. _selectedRows.Select(row => entries.TryGetValue(row, out var entry)
             ? entry

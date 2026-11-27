@@ -539,7 +539,9 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   number), and the `expenseCategoryId` and `incomeCategoryId` money going out and coming in is recorded on
   (`CommitImport`). The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
   not parsed is refused on `rows`. The batch keeps the mapping, the rows and the counts (`rowCount`, `selectedCount`,
-  `duplicateCount`: likely duplicates left out, `failedCount`), becomes `committing`, and the answer is 202. A
+  `duplicateCount`: likely duplicates left out, `failedCount`) and the user's today it was read as of
+  (`CommittedOn`), becomes `committing`, and the answer is 202. The worker reads the rows, and records their
+  transactions, as of that day, so a row dated today stays importable when the user's time zone moves back a day. A
   batch committed already answers 409 `urn:pfm:problem:import-committed`, and so does its preview, as its file is gone.
   One batch at a time is committed into an account (a unique index on the account of the batches `committing`):
   while another is, a commit answers 409 `urn:pfm:problem:import-in-progress` and changes nothing. Once the first
