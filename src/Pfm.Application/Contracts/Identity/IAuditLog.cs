@@ -15,10 +15,7 @@ public interface IAuditLog
     /// <param name="rows">How many rows it is to import.</param>
     Task ImportCommittedAsync(Guid importBatchId, string fileName, int rows, CancellationToken cancellationToken);
 
-    /// <summary>
-    /// The user undid an import (spec IMP-5), removing the transactions it brought in. For the undo use case of #23 to
-    /// call in the save that removes them.
-    /// </summary>
+    /// <summary>The user undid an import (spec IMP-5), removing the transactions it brought in.</summary>
     /// <param name="transactions">How many transactions the undo removed.</param>
     Task ImportUndoneAsync(Guid importBatchId, string fileName, int transactions, CancellationToken cancellationToken);
 

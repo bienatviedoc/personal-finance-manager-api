@@ -11,8 +11,5 @@ public sealed record CategorisationRuleDetails(Guid Id, string MatchText, Catego
 
     /// <summary>The rules in the order they are tried: highest priority first, and of equal ones the one set up first.</summary>
     public static IReadOnlyList<CategorisationRuleDetails> InOrder(IEnumerable<CategorisationRule> rules) =>
-        [.. InTriedOrder(rules).Select(Of)];
-
-    internal static IEnumerable<CategorisationRule> InTriedOrder(IEnumerable<CategorisationRule> rules) =>
-        rules.OrderByDescending(rule => rule.Priority).ThenBy(rule => rule.CreatedAt).ThenBy(rule => rule.Id);
+        [.. CategorisationRule.InTriedOrder(rules).Select(Of)];
 }
