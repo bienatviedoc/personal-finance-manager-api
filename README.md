@@ -470,7 +470,10 @@ code keeps for a category's own rules, `CategoryRules` and `CategoryRuleViolatio
   rule never categorises income) that is not archived, the highest priority; of equal ones, the one set up first.
 - **Endpoints**: `GET, POST /category-rules`, `PUT, DELETE /category-rules/{id}`, and `PUT /category-rules/order`
   with every rule's id once, the one to try first first, which gives them priorities from their places (the last 0),
-  so a reorder is one save. The list is unpaged and in the order rules are tried. A new rule left without a
+  so a reorder is one save. An edit names the rule's `rowVersion` in `If-Match` like every edit (412 when stale, 428
+  when missing), and a reorder sends each rule's `rowVersion` with its id: an order made before a rule was set up,
+  edited or deleted answers 412 and saves nothing, so it never puts a rule the user has not seen in a place they did
+  not choose. A rule named twice is a validation problem on `rules`. The list is unpaged and in the order rules are tried. A new rule left without a
   `priority` goes one above the highest. Rules are deleted, not archived: they are settings, not money.
 - **Archived categories.** A rule is set up only on a category that is not archived. Once its category is archived it
   stays listed and categorises nothing; it can be edited keeping that category, or moved to another. Merging a category
@@ -1064,9 +1067,9 @@ Registration uses it to create the new user's default categories.
   (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
   its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
-  recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
+  recurring rule, a categorisation rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
-  `PUT /recurring-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  `PUT /recurring-rules/{id}` and `PUT /category-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has

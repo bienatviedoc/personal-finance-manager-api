@@ -357,7 +357,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Budgets | `PUT /budgets/{month}/{categoryId}`; `DELETE` same; `POST /budgets/{month}/copy-from/{sourceMonth}` | Upsert, remove, copy |
 | Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
 | Imports | `GET /imports?accountId` (past imports); `POST /imports` (upload); `GET /imports/{id}`; `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Past imports, upload (with the account's saved mapping), progress, preview, commit, undo |
-| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}`; `PUT /category-rules/order` | Auto-categorisation rules, and putting them in the order they are tried |
+| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}`; `PUT /category-rules/order` | Auto-categorisation rules, and putting them in the order they are tried. A reorder names each rule's row version: one made before a rule was set up, edited or deleted returns `412` |
 | Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expenses`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
 | Export | `GET /export/transactions.csv`; `GET /export/all.zip`; `GET /reports/monthly-summary.pdf` | Data out |
 | System | `GET /health/live`, `/health/ready` | Probes |

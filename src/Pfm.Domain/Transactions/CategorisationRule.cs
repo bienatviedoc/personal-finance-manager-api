@@ -58,6 +58,9 @@ public sealed class CategorisationRule : IUserOwned
 
     public DateTimeOffset UpdatedAt { get; private set; }
 
+    /// <summary>Changes with every change saved: an edit or a reorder names the one it was made from.</summary>
+    public uint RowVersion { get; private set; }
+
     public static bool IsValidMatchText(string? text) => !string.IsNullOrWhiteSpace(text) && text.Trim().Length <= MaxMatchTextLength;
 
     public static bool IsValidPriority(int priority) => priority is >= 0 and <= MaxPriority;
