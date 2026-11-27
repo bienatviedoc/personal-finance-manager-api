@@ -25,7 +25,7 @@ public sealed record MappingInput(
 
         foreach (var (name, rows) in new[] { (nameof(SkipFirstRows), SkipFirstRows), (nameof(SkipLastRows), SkipLastRows) })
         {
-            if (rows is < 0 or > StatementMapping.MaxSkippedRows)
+            if (!StatementMapping.IsSkipInRange(rows))
             {
                 errors[name] = [$"Skip from 0 to {StatementMapping.MaxSkippedRows} rows."];
             }
@@ -37,7 +37,7 @@ public sealed record MappingInput(
                      (nameof(DebitColumn), DebitColumn), (nameof(CreditColumn), CreditColumn),
                  })
         {
-            if (column is < 0 or > StatementMapping.MaxColumn)
+            if (!StatementMapping.IsColumnInRange(column))
             {
                 errors[name] = [$"Choose a column from 0 to {StatementMapping.MaxColumn}."];
             }

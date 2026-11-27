@@ -70,9 +70,15 @@ public sealed record StatementMapping(
 
     /// <summary>Whether every number in it is in range: nothing below zero, no column past <see cref="MaxColumn"/>.</summary>
     public bool IsInRange =>
-        SkipFirstRows is >= 0 and <= MaxSkippedRows && SkipLastRows is >= 0 and <= MaxSkippedRows
-        && new[] { DateColumn, DescriptionColumn, AmountColumn, DebitColumn, CreditColumn }.All(column => column is null or (>= 0 and <= MaxColumn))
+        IsSkipInRange(SkipFirstRows) && IsSkipInRange(SkipLastRows)
+        && new[] { DateColumn, DescriptionColumn, AmountColumn, DebitColumn, CreditColumn }.All(IsColumnInRange)
         && Enum.IsDefined(Separator) && Enum.IsDefined(DateFormat) && Enum.IsDefined(DecimalSeparator);
+
+    /// <summary>Whether a mapping can skip this many rows at either end: from 0 to <see cref="MaxSkippedRows"/>, or none said.</summary>
+    public static bool IsSkipInRange(int? rows) => rows is null or (>= 0 and <= MaxSkippedRows);
+
+    /// <summary>Whether a mapping can name this column: from 0 to <see cref="MaxColumn"/>, or none.</summary>
+    public static bool IsColumnInRange(int? column) => column is null or (>= 0 and <= MaxColumn);
 
     /// <summary>The character the separator stands for.</summary>
     public char SeparatorCharacter => Separators.Character(Separator);
