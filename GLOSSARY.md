@@ -112,6 +112,14 @@ _Avoid_: Bank file, export (which is the app's own file out), CSV (for the thing
 How the user says a statement file is read: what separates its cells, the rows to skip before and after the transactions, whether a header row names the columns, which column holds the date, the description, and either one signed amount or a debit and a credit, and how dates and amounts are written. No bank's layout is built in; each is mapped.
 _Avoid_: Parser, format, template, column map
 
+**Saved mapping**:
+The mapping an account's last statement was committed with, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
+_Avoid_: Template, profile, preset
+
+**Undo** (of an import batch):
+Deleting every transaction an import batch created, edited or not, in one action. They stay recoverable for 30 days like any deleted transaction; the batch stays, undone, in the list of past imports. Refused while any of them is reconciled; a batch still being imported is stopped.
+_Avoid_: Rollback, revert, delete (for the batch)
+
 **Preview**:
 A statement file read with a mapping before anything is saved: every row, the transaction each says, the rows that cannot be read and why, and the likely duplicates, unticked. The user chooses there which rows to commit.
 _Avoid_: Dry run, draft

@@ -68,4 +68,34 @@ public sealed class ImportedTransactions(
 
         return RecordImportOutcome.Recorded;
     }
+
+    public async Task<DeleteImportedOutcome> DeleteAsync(Guid importBatchId, CancellationToken cancellationToken)
+    {
+        var imported = await transactions.ListImportedByAsync(importBatchId, cancellationToken);
+        var transfers = new Dictionary<Guid, Transfer>();
+        foreach (var transferId in imported.Select(transaction => transaction.TransferId).OfType<Guid>().Distinct())
+        {
+            transfers[transferId] = (await transactions.FindTransferAsync(transferId, deletedToo: false, cancellationToken))!;
+        }
+
+        var reconciled = imported.Count(transaction => transaction.TransferId is { } transferId ? transfers[transferId].IsReconciled : transaction.IsReconciled);
+        if (reconciled > 0)
+        {
+            return new DeleteImportedOutcome.Reconciled(reconciled);
+        }
+
+        var now = clock.GetUtcNow();
+        foreach (var transfer in transfers.Values)
+        {
+            transfer.Delete(now);
+        }
+
+        var incomeAndExpenses = imported.Where(transaction => transaction.TransferId is null).ToList();
+        foreach (var transaction in incomeAndExpenses)
+        {
+            transaction.Delete(now);
+        }
+
+        return new DeleteImportedOutcome.Deleted(incomeAndExpenses.Count + (2 * transfers.Count), [.. incomeAndExpenses.Select(transaction => transaction.Date).Distinct()]);
+    }
 }

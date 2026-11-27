@@ -14,6 +14,9 @@ public enum ImportBatchStatus
 
     /// <summary>The worker stopped, for the reason given; the transactions it created stay.</summary>
     Failed = 4,
+
+    /// <summary>The user undid it: every transaction it created is deleted, and recoverable for 30 days like any other (spec IMP-5).</summary>
+    Undone = 5,
 }
 
 /// <summary>Why the worker stopped importing a batch: a code the user is shown in their own language.</summary>
@@ -141,6 +144,9 @@ public sealed class ImportBatch : IUserOwned
 
     /// <summary>When the last chosen row was imported.</summary>
     public DateTimeOffset? CommittedAt { get; private set; }
+
+    /// <summary>When the user undid the batch; null unless they did.</summary>
+    public DateTimeOffset? UndoneAt { get; private set; }
 
     /// <summary>Changes every time the batch is saved, so two workers never import the same rows.</summary>
     public uint RowVersion { get; private set; }
@@ -313,6 +319,31 @@ public sealed class ImportBatch : IUserOwned
         {
             Fail(ImportFailure.Unexpected, now);
         }
+    }
+
+    /// <summary>
+    /// Undoes the batch (spec IMP-5): whatever it got to, committing, committed or failed, it is undone, and the worker
+    /// imports no more of it. Its transactions are deleted by Transactions, saved together with this, so a worker
+    /// importing the next rows at the same moment fails on the batch's row version and saves none of them. Undoing it
+    /// again changes nothing.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">The batch was never committed, so it has nothing to undo.</exception>
+    public void Undo(DateTimeOffset now)
+    {
+        if (Status == ImportBatchStatus.Undone)
+        {
+            return;
+        }
+
+        if (Status == ImportBatchStatus.Uploaded)
+        {
+            throw new InvalidOperationException("A statement never committed has nothing to undo.");
+        }
+
+        Status = ImportBatchStatus.Undone;
+        UndoneAt = now;
+        Content = null;
+        UpdatedAt = now;
     }
 
     /// <summary>Stops importing, for a reason the user is shown. What was imported stays; the file is let go.</summary>

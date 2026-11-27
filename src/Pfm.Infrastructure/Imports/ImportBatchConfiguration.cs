@@ -11,7 +11,7 @@ namespace Pfm.Infrastructure.Imports;
 internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
     /// <summary>A mapping as the API writes one: its enums by name, as <see cref="EnumText"/> writes them.</summary>
-    private static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     });
@@ -20,7 +20,7 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
     {
         batch.ToTable("ImportBatches", table =>
         {
-            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed')");
+            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed', 'Undone')");
             table.HasCheckConstraint("CK_ImportBatches_ImportedCount_Within_Selected", "\"ImportedCount\" >= 0 AND \"ImportedCount\" <= \"SelectedCount\"");
 
             // The file is kept only until its rows are imported: it can hold a full account number (spec ACC-8).

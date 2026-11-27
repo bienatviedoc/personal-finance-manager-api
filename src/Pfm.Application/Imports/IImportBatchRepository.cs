@@ -23,6 +23,12 @@ public interface IImportBatchRepository
     /// <summary>Every user, signed in or not, who has a batch uploaded before <paramref name="before"/> and never committed: the sweep's queue.</summary>
     Task<IReadOnlyList<Guid>> UsersWithUploadedBeforeAsync(DateTimeOffset before, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Up to <paramref name="take"/> of the user's batches that were committed, whatever became of them since, on the
+    /// account if one is named, the last uploaded first, starting after <paramref name="after"/>.
+    /// </summary>
+    Task<IReadOnlyList<ImportBatch>> ListPastAsync(Guid? accountId, int take, ImportBatchCursor? after, CancellationToken cancellationToken);
+
     void Add(ImportBatch batch);
 
     /// <summary>Removes a batch never committed, file and all; it has no transactions.</summary>

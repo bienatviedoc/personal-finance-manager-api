@@ -83,6 +83,7 @@ public static class InfrastructureServices
         services.AddScoped<IQuickAddHistory, QuickAddHistory>();
         services.AddScoped<IAttachmentRepository, AttachmentRepository>();
         services.AddScoped<IImportBatchRepository, ImportBatchRepository>();
+        services.AddScoped<IImportMappingRepository, ImportMappingRepository>();
 
         // Like the SPA's address: a host fails at start-up, not at the first upload.
         services.AddObjectStorage(validateOnStart: !IsGeneratingOpenApiDocument);

@@ -566,7 +566,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **Categories from rules** (IMP-4). The preview gives each parsed row a `suggestedCategoryId`: the category of the
   highest-priority [categorisation rule](#categorisation-rules) its description matches, of the row's kind (Imports
   asks through `ICategorisation`). It is a suggestion: the commit records what it is sent, and applies no rule itself
-  ([decision record 0007](docs/adr/0007-categorisation-rules-suggest-and-the-commit-records-each-rows-category.md)).
+  ([decision record 0008](docs/adr/0008-categorisation-rules-suggest-and-the-commit-records-each-rows-category.md)).
 - **Commit.** `POST /imports/{id}/commit` sends the `mapping` the user previewed with, the `rows` to import (by
   number), `rowCategories` (`[{ row, categoryId }]`: a category of its own for any chosen row, of the kind the row
   takes, such as the preview's suggestion or the one the user changed it to; kept on the batch as `RowCategories`),
@@ -601,8 +601,31 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   that is one leg of a move between the user's own accounts is joined with the other leg afterwards by
   [mark as transfer](#transactions) (IMP-7: nothing is matched automatically). A row may be dated in a period already
   reconciled, as a transaction a user records may; it is not reconciled itself.
-- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), and an audit entry for each commit (#45). The batch
-  keeps the mapping it was committed with and every transaction its `importBatchId` for them.
+- **The mapping is saved per account** (IMP-2; `ImportMapping`, table `ImportMappings`, one per account). Committing a
+  statement saves the mapping it was committed with for the account, in the same save, in place of the one saved
+  before. An upload, and `GET /imports/{id}` while the batch is uploaded, answer it as `savedMapping` (null when the
+  account has none), beside the `suggestedMapping` guessed from the file: the SPA starts from the saved one, so the
+  next statement of the same bank is one click, and the user can still change it in the preview; the change is saved
+  when that statement is committed. A commit refused saves nothing.
+- **Past imports.** `GET /imports` lists the batches the user committed, whatever became of them (`committing`,
+  `committed`, `failed` or `undone`), the last uploaded first, a page at a time, with `accountId` to list one
+  account's (`ListImportBatches`): each with its `fileName`, `createdAt` (uploaded), `committedAt`, `undoneAt` and
+  counts. A statement uploaded and not committed is not listed.
+- **Undo** (IMP-5; `DELETE /imports/{id}`, `UndoImport`;
+  [decision record 0007](docs/adr/0007-undoing-an-import-deletes-its-transactions-in-one-save-with-the-batch.md)). Every
+  transaction the batch created and not deleted already, edited or not, is deleted softly
+  (`IImportedTransactions.DeleteAsync`): it is listed as recently deleted and restorable for 30 days, one by one, like
+  any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it, as
+  deleting that leg does. The batch becomes `undone` with `undoneAt`, keeps its counts, lets go of its file if it still
+  had it, and answers 200. The budget notifications of the dates deleted are checked, as a delete does. While any of
+  its transactions, or the other leg of a transfer one of them is a leg of, is reconciled, the undo answers 409
+  `urn:pfm:problem:import-reconciled`, with how many in `reconciledCount`, and changes nothing. A statement never
+  committed answers 409 `urn:pfm:problem:import-not-committed`; one undone already answers as it is. A batch still
+  being committed is undone too, which stops it: the deletes and the batch are one save guarded by its row version,
+  so of an undo and the worker saving the next rows at the same moment, one goes first and the other is made again
+  (the undo, deleting those rows too) or saves nothing (the worker). The mapping saved for the account stays.
+- **Still to come**: an audit entry for each commit and undo (#45). The batch keeps the mapping it was committed with and every transaction its
+  `importBatchId` for them; an undo is one call to `UndoImportHandler`.
 
 ### Budgets
 
