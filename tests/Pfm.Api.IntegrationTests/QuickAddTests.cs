@@ -222,6 +222,17 @@ public class QuickAddTests(PfmApi api)
         Assert.Equal(shopping, (await QuickAddAsync(browser, "?type=expense&payee=Acme")).SuggestedCategoryId);
     }
 
+    [Theory]
+    [InlineData("transferOut")]
+    [InlineData("transferIn")]
+    public async Task A_leg_of_a_transfer_takes_no_category_so_no_rule_suggests_one(string type)
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await CategorisationRuleTests.AddAsync(browser, "savings", "contains", await CategoryAsync(browser, "Transport"));
+
+        Assert.Equal((null, null), await SuggestionAsync(browser, $"?type={type}&payee=Savings"));
+    }
+
     [Fact]
     public async Task What_another_user_recorded_is_never_suggested()
     {

@@ -33,12 +33,20 @@ public sealed class GetQuickAddHandler(IQuickAddHistory history, IAccountLookup 
         return new QuickAddDetails(await LastAccountAsync(cancellationToken), suggested, by);
     }
 
-    /// <summary>The category the payee's history suggests, or else the one a categorisation rule gives it.</summary>
+    /// <summary>
+    /// The category the payee's history suggests, or else the one a categorisation rule gives it. A leg of a transfer
+    /// takes no category, so no rule suggests one for it.
+    /// </summary>
     private async Task<(Guid?, CategorySuggestion?)> SuggestAsync(string payee, TransactionType? type, CancellationToken cancellationToken)
     {
         if (await history.MostUsedCategoryAsync(payee, type, cancellationToken) is { } used)
         {
             return (used, CategorySuggestion.History);
+        }
+
+        if (type?.IsTransferLeg() == true)
+        {
+            return (null, null);
         }
 
         return (await categorisation.CategoriserAsync(cancellationToken)).CategoryFor(payee, KindOf(type)) is { } ruled
