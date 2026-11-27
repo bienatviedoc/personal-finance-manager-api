@@ -48,7 +48,9 @@ public sealed class ExportDataHandler(
 
         Amounts are plain numbers with a decimal point, next to their currency's ISO 4217 code.
         Dates are YYYY-MM-DD; moments are ISO 8601 in UTC. A column ending in "Id" names a line of
-        another file by its id.
+        another file by its id. A column holding a list (the rows chosen of an import batch) has its
+        items separated by "; ". Text that starts with =, +, -, @, a tab or a carriage return has a
+        single quote (') before it, so that a spreadsheet shows it rather than runs it as a formula.
 
         """;
 

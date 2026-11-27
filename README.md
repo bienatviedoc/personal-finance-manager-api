@@ -839,7 +839,10 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   answers, and whether two-factor sign-in is on), one CSV file for each table of user-owned data
   (`transactions.csv`, `accounts.csv`, ...) and a `README.txt` that says how to read them. CSV is RFC 4180 in
   UTF-8 with a byte order mark, so a spreadsheet reads Vietnamese text right; values are written as the API's
-  JSON writes them. Transactions the user deleted are included while they are still held. Secrets (the
+  JSON writes them, a list as its items separated by `; `. Text that starts with `=`, `+`, `-`, `@`, a tab or a
+  carriage return (a payee an imported statement brought in, say) is written behind a single quote, so a spreadsheet
+  shows it rather than runs it as a formula (OWASP, CSV injection); numbers are not, so a negative amount stays a
+  number (`Csv`, which the transactions export writes with too). Transactions the user deleted are included while they are still held. Secrets (the
   password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
   it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
   object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
