@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Http.Metadata;
+using Pfm.Application.Abstractions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Domain.Transactions;
 
@@ -22,9 +22,9 @@ public static class AttachmentEndpoints
     {
         ArgumentNullException.ThrowIfNull(context);
         if (context.ProblemDetails.Status == StatusCodes.Status413PayloadTooLarge
-            && context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>() is not null)
+            && context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<UploadSizeLimit>() is { } limit)
         {
-            context.ProblemDetails.Detail = Attachment.SizeMessage;
+            context.ProblemDetails.Detail = limit.Message;
         }
     }
 
@@ -37,7 +37,7 @@ public static class AttachmentEndpoints
             .WithDescription("The receipts attached to a transaction, the first attached first.");
         ofTransaction.MapPost("/", Add).WithName("AddAttachment")
             .WithDescription("Attaches a receipt to a transaction: one JPEG, PNG or PDF file of at most 5 MB, sent as the file field of a multipart/form-data body. What the file is, is read from the file itself, not from its name.")
-            .WithMetadata(new RequestSizeLimitMetadata(MaxRequestSize))
+            .WithMetadata(new UploadSizeLimit(MaxRequestSize, Attachment.SizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
         attachments.MapGet("/{id:guid}", GetUrl).WithName("GetAttachmentUrl")
@@ -87,11 +87,6 @@ public static class AttachmentEndpoints
         }
 
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
-    }
-
-    private sealed class RequestSizeLimitMetadata(long maxRequestBodySize) : IRequestSizeLimitMetadata
-    {
-        public long? MaxRequestBodySize => maxRequestBodySize;
     }
 }
 
