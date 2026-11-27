@@ -206,6 +206,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .Distinct()
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<Transaction>> ListOnCategoryAsync(Guid categoryId, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => transaction.Lines.Any(line => line.CategoryId == categoryId)).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<Transaction>> ListEveryAsync(CancellationToken cancellationToken) =>
         await db.Set<Transaction>().ToListAsync(cancellationToken);
 

@@ -37,6 +37,19 @@ public class BudgetComparisonTests
     }
 
     [Fact]
+    public void The_overall_budget_is_not_compared_as_a_category_and_covers_no_categorys_spending()
+    {
+        var comparison = BudgetComparison.Of(
+            [Budget.SetOverall(March, 10_000_000m, Currency.VND, Now), BudgetOf(Food, March, 3_000_000m)],
+            Categories,
+            [In(March, Spent(GroceriesId, 1_000_000m, []), Spent(Transport.Id, 70_000m, []))],
+            warningPercent: 80);
+
+        Assert.Equal(Food.Id, Assert.Single(comparison.Budgets).CategoryId);
+        Assert.Equal((Transport.Id, 70_000m), (Assert.Single(comparison.Unbudgeted).CategoryId, comparison.Unbudgeted[0].Spent));
+    }
+
+    [Fact]
     public void Across_several_months_a_categorys_budgets_and_what_was_spent_against_them_are_summed()
     {
         var comparison = BudgetComparison.Of(

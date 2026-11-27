@@ -10,7 +10,8 @@ internal sealed class UserProfiles(PfmDbContext db) : IUserProfiles
     public Task<ProfileDetails?> FindAsync(Guid userId, CancellationToken cancellationToken) =>
         db.Users
             .Where(user => user.Id == userId)
-            .Select(user => new ProfileDetails(user.Id, user.Email!, user.BaseCurrency, user.TimeZone, user.Locale, user.BudgetWarningPercent))
+            .Select(user => new ProfileDetails(
+                user.Id, user.Email!, user.BaseCurrency, user.TimeZone, user.Locale, user.BudgetWarningPercent, false, user.EmailBudgetNotifications))
             .SingleOrDefaultAsync(cancellationToken);
 
     public async Task<bool> ChangeSettingsAsync(Guid userId, ProfileSettings settings, CancellationToken cancellationToken)
@@ -24,6 +25,7 @@ internal sealed class UserProfiles(PfmDbContext db) : IUserProfiles
         user.TimeZone = settings.TimeZone;
         user.Locale = settings.Locale;
         user.BudgetWarningPercent = settings.BudgetWarningPercent;
+        user.EmailBudgetNotifications = settings.EmailBudgetNotifications;
         return true;
     }
 }

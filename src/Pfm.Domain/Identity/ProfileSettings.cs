@@ -3,12 +3,14 @@ namespace Pfm.Domain.Identity;
 /// <summary>
 /// How a user wants their money and dates handled: the base currency totals are shown in, the time zone
 /// calendar dates are read in, the locale of the interface, and how much of a budget may be spent before
-/// they are warned.
+/// they are warned, and whether that warning is emailed too.
 /// </summary>
 /// <param name="TimeZone">An IANA time zone id, such as <c>Asia/Ho_Chi_Minh</c>.</param>
 /// <param name="Locale">Null until the user picks one; until then the interface follows their browser.</param>
 /// <param name="BudgetWarningPercent">The share of a budget, in whole percent from 1 to 100, at which its state becomes a warning (spec BUD-3).</param>
-public sealed record ProfileSettings(Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent = ProfileSettings.DefaultBudgetWarningPercent)
+/// <param name="EmailBudgetNotifications">Whether budget notifications are emailed as well as shown in the app (spec BUD-7). On until the user switches it off.</param>
+public sealed record ProfileSettings(
+    Currency BaseCurrency, string TimeZone, Locale? Locale, int BudgetWarningPercent = ProfileSettings.DefaultBudgetWarningPercent, bool EmailBudgetNotifications = true)
 {
     public const int DefaultBudgetWarningPercent = 80;
 

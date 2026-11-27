@@ -107,6 +107,7 @@ public sealed class ExportDataHandler(
         ["timeZone"] = profile.TimeZone,
         ["locale"] = profile.Locale?.Tag(),
         ["budgetWarningPercent"] = profile.BudgetWarningPercent,
+        ["emailBudgetNotifications"] = profile.EmailBudgetNotifications,
         ["twoFactorSignIn"] = user.TwoFactorEnabled,
     };
 

@@ -757,6 +757,192 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         Assert.Equal(there.ToString("yyyy-MM"), month.Month);
     }
 
+    // The overall budget (BUD-5).
+
+    [Fact]
+    public async Task A_user_sets_an_overall_budget_for_a_month_which_tracks_every_expense_whether_or_not_its_category_has_a_budget()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var savings = await AddAccountAsync(browser, "Savings");
+        await SetAsync(browser, ThisMonth, await CategoryAsync(browser, "Food & drink"), "3000000");
+        await SpendAsync(browser, everyday, "Groceries", "1200000", Today);
+        await SpendAsync(browser, everyday, "Transport", "500000", Today);
+        await RefundAsync(browser, everyday, "Shopping", "100000", Today);
+        await SpendAsync(browser, everyday, "Housing", "4000000", FirstOfThisMonth.AddDays(-1));
+        await RecordAsync(browser, "income", everyday, "Salary", "20000000", Today);
+        await browser.PostAsync("/api/v1/transfers", new { fromAccountId = everyday, toAccountId = savings, amount = "2000000", date = Today.ToString("yyyy-MM-dd") });
+
+        var response = await browser.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "10000000" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var overall = (await response.Content.ReadFromJsonAsync<OverallBody>())!;
+        Assert.Equal(("10000000.00", "1600000.00", "8400000.00", 16, "onTrack", 0), (overall.Budgeted, overall.Spent, overall.Remaining, overall.PercentSpent!.Value, overall.State, overall.NotConverted));
+        Assert.Equal($"\"{overall.RowVersion}\"", response.Headers.ETag?.Tag);
+
+        var month = await MonthAsync(browser, ThisMonth);
+        Assert.Equal(overall, month.Overall);
+        Assert.Equal(new TotalsBody("3000000.00", "1200000.00", "1800000.00", 0), month.Totals);
+        Assert.Single(month.Items);
+    }
+
+    [Fact]
+    public async Task A_month_without_an_overall_budget_answers_none_and_an_overall_budget_is_for_one_month_only()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await SetOverallAsync(browser, LastMonth, "10000000");
+
+        Assert.Null((await MonthAsync(browser, ThisMonth)).Overall);
+        Assert.Equal("10000000.00", (await MonthAsync(browser, LastMonth)).Overall!.Budgeted);
+    }
+
+    [Fact]
+    public async Task The_overall_budget_has_the_same_states_and_counts_what_is_not_converted()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var dollars = await AddAccountAsync(browser, "Dollars", "USD");
+        await SetOverallAsync(browser, ThisMonth, "1000000");
+        await SpendAsync(browser, everyday, "Transport", "1000001", Today);
+        await SpendAsync(browser, dollars, "Shopping", "10", Today);
+
+        var overall = (await MonthAsync(browser, ThisMonth)).Overall!;
+
+        Assert.Equal(("1000001.00", "-1.00", "over", 1), (overall.Spent, overall.Remaining, overall.State, overall.NotConverted));
+    }
+
+    [Fact]
+    public async Task Changing_the_overall_budget_is_made_from_its_row_version_and_removing_it_leaves_the_category_budgets()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        var overall = await SetOverallAsync(browser, ThisMonth, "10000000");
+
+        var unnamed = await browser.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "1" });
+        var changed = await browser.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "12000000" }, ifMatch: $"\"{overall.RowVersion}\"");
+        var stale = await browser.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "1" }, ifMatch: $"\"{overall.RowVersion}\"");
+
+        Assert.Equal(HttpStatusCode.PreconditionRequired, unnamed.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+        Assert.Equal(HttpStatusCode.PreconditionFailed, stale.StatusCode);
+        Assert.Equal("12000000.00", (await MonthAsync(browser, ThisMonth)).Overall!.Budgeted);
+
+        var removed = await browser.DeleteAsync($"{Budgets}/{ThisMonth}/overall");
+        var again = await browser.DeleteAsync($"{Budgets}/{ThisMonth}/overall");
+
+        Assert.Equal((HttpStatusCode.NoContent, HttpStatusCode.NotFound), (removed.StatusCode, again.StatusCode));
+        var month = await MonthAsync(browser, ThisMonth);
+        Assert.Null(month.Overall);
+        Assert.Equal(food, Assert.Single(month.Items).CategoryId);
+    }
+
+    [Fact]
+    public async Task When_two_requests_set_the_same_overall_budget_at_once_one_is_set_and_the_other_is_stale()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Budgets.Budget>(async () => await SetOverallAsync(browser, ThisMonth, "1000000"));
+
+        var response = await browser.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "2000000" });
+
+        Assert.Equal(HttpStatusCode.PreconditionFailed, response.StatusCode);
+        Assert.Equal("1000000.00", (await MonthAsync(browser, ThisMonth)).Overall!.Budgeted);
+    }
+
+    [Theory]
+    [InlineData("2026-13", "1", "month")]
+    [InlineData("november", "1", "month")]
+    [InlineData(null, "-1", "amount")]
+    [InlineData(null, "lots", "amount")]
+    public async Task An_overall_budget_takes_a_budget_month_and_an_amount_the_base_currency_takes(string? month, string amount, string field)
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        var response = await browser.PutAsync($"{Budgets}/{month ?? ThisMonth}/overall", new { amount });
+
+        Assert.Equal([field], await response.ErrorFieldsAsync());
+        Assert.Null((await MonthAsync(browser, ThisMonth)).Overall);
+    }
+
+    [Fact]
+    public async Task A_users_overall_budget_is_their_own_and_needs_them_signed_in()
+    {
+        var (alice, _) = await api.SignedInAsync();
+        var (bob, _) = await api.SignedInAsync();
+        await SetOverallAsync(bob, ThisMonth, "5000000");
+        var visitor = api.CreateBrowser();
+
+        Assert.Null((await MonthAsync(alice, ThisMonth)).Overall);
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.DeleteAsync($"{Budgets}/{ThisMonth}/overall")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await visitor.PutAsync($"{Budgets}/{ThisMonth}/overall", new { amount = "1" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await visitor.DeleteAsync($"{Budgets}/{ThisMonth}/overall")).StatusCode);
+        Assert.Equal("5000000.00", (await MonthAsync(bob, ThisMonth)).Overall!.Budgeted);
+    }
+
+    [Fact]
+    public async Task An_overall_budget_alone_locks_the_base_currency()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await SetOverallAsync(browser, ThisMonth, "10000000");
+
+        var change = await browser.PatchAsync("/api/v1/me", new { baseCurrency = "USD" });
+
+        Assert.Equal(["baseCurrency"], await change.ErrorFieldsAsync());
+        await browser.DeleteAsync($"{Budgets}/{ThisMonth}/overall");
+        Assert.False((await ProfileAsync(browser)).BaseCurrencyLocked);
+    }
+
+    [Fact]
+    public async Task Copying_last_months_budgets_copies_its_overall_budget_unless_the_month_has_one()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await SetAsync(browser, LastMonth, await CategoryAsync(browser, "Transport"), "500000");
+        await SetOverallAsync(browser, LastMonth, "10000000");
+        var nextMonth = FirstOfThisMonth.AddMonths(1).ToString("yyyy-MM");
+        await SetOverallAsync(browser, nextMonth, "8000000");
+
+        Assert.Equal(2, await CopiedAsync(await CopyAsync(browser, ThisMonth, LastMonth)));
+        Assert.Equal(1, await CopiedAsync(await CopyAsync(browser, nextMonth, LastMonth)));
+        Assert.Equal("10000000.00", (await MonthAsync(browser, ThisMonth)).Overall!.Budgeted);
+        Assert.Equal("8000000.00", (await MonthAsync(browser, nextMonth)).Overall!.Budgeted);
+    }
+
+    // The pace indicator (BUD-6).
+
+    [Fact]
+    public async Task In_the_current_month_each_budget_and_the_overall_budget_show_their_pace_against_the_share_of_the_month_elapsed()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await SetAsync(browser, ThisMonth, await CategoryAsync(browser, "Food & drink"), "1000000");
+        await SetAsync(browser, ThisMonth, await CategoryAsync(browser, "Transport"), "1000000");
+        await SetOverallAsync(browser, ThisMonth, "1000000");
+        await SpendAsync(browser, everyday, "Food & drink", "1500000", Today);
+
+        var month = await MonthAsync(browser, ThisMonth);
+
+        Assert.Equal([("Food & drink", "aheadOfPace"), ("Transport", "onPace")], month.Items.Select(budget => (budget.Category.Name, budget.Pace!)));
+        Assert.Equal("aheadOfPace", month.Overall!.Pace);
+        Assert.InRange(month.PercentOfMonthElapsed!.Value, 3, 100);
+    }
+
+    [Fact]
+    public async Task A_past_month_shows_its_final_result_with_no_pace()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await SetAsync(browser, LastMonth, await CategoryAsync(browser, "Food & drink"), "1000000");
+        await SetOverallAsync(browser, LastMonth, "1000000");
+        await SpendAsync(browser, everyday, "Food & drink", "1500000", FirstOfThisMonth.AddDays(-1));
+
+        var month = await MonthAsync(browser, LastMonth);
+
+        var food = Assert.Single(month.Items);
+        Assert.Equal(("1500000.00", "over", (string?)null), (food.Spent, food.State, food.Pace));
+        Assert.Equal(("1500000.00", "over", (string?)null), (month.Overall!.Spent, month.Overall.State, month.Overall.Pace));
+        Assert.Null(month.PercentOfMonthElapsed);
+    }
+
     // The base currency locks (rule 12; decision record 0002).
 
     [Fact]
@@ -891,6 +1077,13 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
         return (await response.Content.ReadFromJsonAsync<BudgetBody>())!;
     }
 
+    private static async Task<OverallBody> SetOverallAsync(Browser browser, string month, string amount)
+    {
+        var response = await browser.PutAsync($"{Budgets}/{month}/overall", new { amount });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        return (await response.Content.ReadFromJsonAsync<OverallBody>())!;
+    }
+
     private static Task<HttpResponseMessage> CopyAsync(Browser browser, string month, string sourceMonth) =>
         browser.PostAsync($"{Budgets}/{month}/copy-from/{sourceMonth}");
 
@@ -958,11 +1151,14 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
 
     private sealed record BudgetBody(
         Guid CategoryId, CategoryBody Category, string Budgeted, string Spent, string Remaining, int? PercentSpent, string State, int NotConverted,
-        string RowVersion);
+        string RowVersion, string? Pace = null);
+
+    private sealed record OverallBody(
+        string Budgeted, string Spent, string Remaining, int? PercentSpent, string State, string? Pace, int NotConverted, string RowVersion);
 
     private sealed record CopiedBody(int Copied);
 
     private sealed record TotalsBody(string Budgeted, string Spent, string Remaining, int NotConverted);
 
-    private sealed record MonthBody(string Month, string Currency, int WarningPercent, List<BudgetBody> Items, TotalsBody Totals);
+    private sealed record MonthBody(string Month, string Currency, int WarningPercent, List<BudgetBody> Items, TotalsBody Totals, OverallBody? Overall = null, int? PercentOfMonthElapsed = null);
 }

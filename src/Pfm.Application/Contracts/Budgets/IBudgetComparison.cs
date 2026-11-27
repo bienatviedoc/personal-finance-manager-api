@@ -16,6 +16,12 @@ public interface IBudgetComparison
     /// <param name="to">A day in the last budget month, on or after <paramref name="from"/>.</param>
     /// <param name="accountId">Only the expenses on this account count as spent; on every account when null. Budgets count in full.</param>
     Task<BudgetsComparedWithSpent> CompareAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The overall budget of the budget month <paramref name="day"/> is in against every expense of that month (spec
+    /// BUD-5), with its pace in the current month (spec BUD-6); null when the month has none.
+    /// </summary>
+    Task<OverallBudgetedAndSpent?> OverallAsync(DateOnly day, CancellationToken cancellationToken);
 }
 
 /// <summary>Whether a category's budgets were kept to over the months compared (spec BUD-3), as on the budget screen.</summary>
@@ -30,6 +36,23 @@ public enum ComparedBudgetState
     /// <summary>Spent is above what was budgeted.</summary>
     Over = 3,
 }
+
+/// <summary>Whether a budget is being spent faster than its month is passing (spec BUD-6).</summary>
+public enum ComparedBudgetPace
+{
+    /// <summary>No larger a share of the budget is spent than of the month has passed.</summary>
+    OnPace = 1,
+
+    /// <summary>A larger share of the budget is spent than of the month has passed.</summary>
+    AheadOfPace = 2,
+}
+
+/// <summary>A month's overall budget against every expense of the month, in the base currency.</summary>
+/// <param name="PercentSpent">Spent as whole percent of budgeted, rounded down; null when budgeted is zero.</param>
+/// <param name="Pace">Null unless the month is the current one.</param>
+/// <param name="NotConverted">How many expenses are left out of spent because they are not converted.</param>
+public sealed record OverallBudgetedAndSpent(
+    decimal Budgeted, decimal Spent, decimal Remaining, int? PercentSpent, ComparedBudgetState State, ComparedBudgetPace? Pace, int NotConverted);
 
 /// <summary>The user's budgets over some budget months against what was spent, in the base currency.</summary>
 /// <param name="WarningPercent">The user's warning threshold, which the states were worked out with.</param>

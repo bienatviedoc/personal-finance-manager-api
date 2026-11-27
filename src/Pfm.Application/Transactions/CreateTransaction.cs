@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
@@ -62,7 +63,7 @@ public sealed record CreateTransactionOutcome(TransactionDetails? Recorded)
 /// </summary>
 public sealed class CreateTransactionHandler(
     IValidator<CreateTransactionCommand> validator, ITransactionRepository transactions, TransactionContext context,
-    TransactionConversion conversion, TransactionTags tags, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionConversion conversion, TransactionTags tags, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CreateTransactionCommand, CreateTransactionOutcome>(validator)
 {
     protected override Task<Result<CreateTransactionOutcome>> ExecuteAsync(CreateTransactionCommand command, CancellationToken cancellationToken) =>
@@ -118,6 +119,7 @@ public sealed class CreateTransactionHandler(
             return AlreadyRecorded((await transactions.FindByIdempotencyKeyAsync(request.Key, cancellationToken))!, request);
         }
 
+        await budgetNotifications.CheckAsync([transaction.Date], cancellationToken);
         return new CreateTransactionOutcome(TransactionDetails.Of(transaction));
     }
 

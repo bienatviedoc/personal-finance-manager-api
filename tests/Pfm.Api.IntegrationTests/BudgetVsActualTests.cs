@@ -44,6 +44,23 @@ public class BudgetVsActualTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_overall_budget_is_not_a_category_and_covers_no_categorys_spending()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        await BudgetAsync(browser, "2026-03", "Transport", "500000");
+        (await browser.PutAsync($"/api/v1/budgets/2026-03/overall", new { amount = "10000000" })).EnsureSuccessStatusCode();
+        await SpendAsync(browser, everyday, "Transport", "100000", March);
+        await SpendAsync(browser, everyday, "Coffee", "150000", March);
+
+        var report = await ReportAsync(browser, InMarch);
+
+        Assert.Equal(["Transport"], report.Items.Select(item => item.Category.Name));
+        Assert.Equal(new TotalsBody("500000.00", "100000.00", "400000.00", 0), report.Totals);
+        Assert.Equal(["Coffee"], report.Unbudgeted.Select(item => item.Category.Name));
+    }
+
+    [Fact]
     public async Task Across_a_range_of_months_each_categorys_budgets_and_spent_are_summed()
     {
         var (browser, _) = await api.SignedInAsync();

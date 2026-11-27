@@ -33,7 +33,7 @@ public sealed record GetDashboard
 /// <param name="HasAccounts">Whether the user has an account that is not archived; a new user has none yet.</param>
 /// <param name="Balance">The balance of every account that is not archived, as the accounts screen adds it up.</param>
 /// <param name="ThisMonth">This month's income, expenses and net, as income vs expenses works them out.</param>
-/// <param name="Budgets">This month's budgets against what was spent; null when no budget is set this month.</param>
+/// <param name="Budgets">This month's budgets against what was spent; null when no budget, category or overall, is set this month.</param>
 /// <param name="TopCategories">The top-level categories that spent most this month, at most five, most first, as spending by category ranks them.</param>
 public sealed record DashboardDetails(
     ReportPeriod Month, Currency Currency, bool HasAccounts, BaseCurrencyBalance Balance, IncomeAndExpenses ThisMonth, DashboardBudgetsDetails? Budgets,
@@ -47,9 +47,10 @@ public sealed record DashboardDetails(
 /// <param name="Over">How many are over budget.</param>
 /// <param name="NotConverted">How many expenses are left out of spent because they are not converted, each counted once.</param>
 /// <param name="NeedingAttention">The budgets over, then those at warning, each by percentage spent, most first.</param>
+/// <param name="Overall">This month's overall budget with its pace; null when it has none. The totals and counts are of the category budgets only.</param>
 public sealed record DashboardBudgetsDetails(
     decimal Budgeted, decimal Spent, decimal Remaining, int? PercentSpent, int OnTrack, int Warning, int Over, int NotConverted,
-    IReadOnlyList<BudgetedCategoryDetails> NeedingAttention);
+    IReadOnlyList<BudgetedCategoryDetails> NeedingAttention, OverallBudgetedAndSpent? Overall);
 
 /// <summary>An account as the dashboard names it.</summary>
 public sealed record DashboardAccountDetails(Guid Id, string Name);
@@ -70,7 +71,7 @@ public sealed record DashboardOccurrenceDetails(
 public sealed class GetDashboardHandler(
     IUserCalendar calendar, IBaseCurrency baseCurrency, IAccountLookup accounts, IAccountTotals totals, ICategoryLookup categories,
     IRecentActivity activity, GetIncomeVsExpensesHandler incomeVsExpenses, GetSpendingByCategoryHandler spendingByCategory,
-    GetBudgetVsActualHandler budgetVsActual) : IQueryHandler
+    GetBudgetVsActualHandler budgetVsActual, IBudgetComparison budgetComparison) : IQueryHandler
 {
     public async Task<DashboardDetails> HandleAsync(GetDashboard query, CancellationToken cancellationToken = default)
     {
@@ -91,6 +92,7 @@ public sealed class GetDashboardHandler(
         var spending = await spendingByCategory.HandleAsync(new GetSpendingByCategory(filter), cancellationToken)
             ?? throw new InvalidOperationException("Spending by category without a category to break down is always answered.");
         var budgets = await budgetVsActual.HandleAsync(new GetBudgetVsActual(filter), cancellationToken);
+        var overall = await budgetComparison.OverallAsync(today, cancellationToken);
 
         var recent = (await activity.LatestAsync(GetDashboard.RecentTransactionCount, cancellationToken))
             .Select(transaction => new DashboardTransactionDetails(
@@ -106,13 +108,13 @@ public sealed class GetDashboardHandler(
 
         return new DashboardDetails(
             month, await baseCurrency.OfCurrentUserAsync(cancellationToken), allAccounts.Values.Any(account => !account.IsArchived),
-            await totals.InBaseCurrencyAsync(cancellationToken), income.Report.Total, BudgetsOf(budgets),
+            await totals.InBaseCurrencyAsync(cancellationToken), income.Report.Total, BudgetsOf(budgets, overall),
             [.. spending.Items.Take(GetDashboard.TopCategoryCount)], recent, upcoming);
     }
 
-    private static DashboardBudgetsDetails? BudgetsOf(BudgetVsActualDetails report)
+    private static DashboardBudgetsDetails? BudgetsOf(BudgetVsActualDetails report, OverallBudgetedAndSpent? overall)
     {
-        if (report.Items.Count == 0)
+        if (report.Items.Count == 0 && overall is null)
         {
             return null;
         }
@@ -129,6 +131,6 @@ public sealed class GetDashboardHandler(
         int? percentSpent = totals.Budgeted > 0 ? (int)decimal.Floor(totals.Spent * 100 / totals.Budgeted) : null;
         return new DashboardBudgetsDetails(
             totals.Budgeted, totals.Spent, totals.Remaining, percentSpent, Counted(ComparedBudgetState.OnTrack), Counted(ComparedBudgetState.Warning),
-            Counted(ComparedBudgetState.Over), totals.NotConverted, needingAttention);
+            Counted(ComparedBudgetState.Over), totals.NotConverted, needingAttention, overall);
     }
 }

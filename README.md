@@ -178,6 +178,16 @@ with `IUsers.FindSignedInAsync`; a query that only reads it (`GetTwoFactor`) goe
 leaves lists and pickers (unless they ask for `includeArchived=true`) and stays readable by id, so whatever
 already uses it can still show it. An account can be archived at any balance.
 
+**Merging categories** (spec CAT-3). `POST /categories/{id}/merge` with a `targetId` of the same kind folds the
+category into the target (`MergeCategory`): every transaction line (of deleted transactions too, so they come back
+on the target), recurring rule and budget moves to the target, and where both have a budget in the same month the
+amounts are added (`BudgetMerge`, reached through `IUserBudgets.MergeAsync`). Its subcategories move under the
+target, and the category is archived. It answers what moved: `transactions` (not deleted; a split counts once) and
+`budgets`. `GET /categories/{id}/merge-preview` answers the same counts without changing anything, for the user
+to confirm first. A merge that would make three levels (a category with subcategories into a subcategory), budget a
+category and its parent in the same month (rule 6), or go into a category of the other kind, an archived one or
+one of the merged category's own subcategories is refused as an error on `targetId`, and changes nothing.
+
 ### Accounts and balances
 
 - **A balance is never stored.** `Account.BalanceWith` adds what the account's transactions come to onto its
@@ -504,6 +514,18 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
   will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
   date in the user's time zone; left out, `month` is the month it is now there.
+- **The overall budget** (BUD-5) caps all of a month's spending, independent of the category budgets: a budget on
+  no category (`Budget.SetOverall`, `IsOverall`), at most one a month (a unique index whose nulls are not distinct).
+  `PUT /budgets/{month}/overall` sets it (201 new, 200 changed from its row version, 412 and 428 as above) and
+  `DELETE` on the same address removes it, leaving the category budgets. `GET /budgets` answers it as `overall`
+  (null when the month has none), against every expense of the month whether or not its category has a budget
+  (`BudgetProgress.OfOverall`), with the same states and `notConverted`. It is not one of the `items` nor in
+  their `totals`, nor in budget vs actual, which compares category budgets; the dashboard shows it apart (below). It locks the base
+  currency like any budget, and copying a month copies it too when the month has none.
+- **Pace** (BUD-6): in the current month each budget and the overall budget have a `pace`, `aheadOfPace` when the
+  share spent is larger than the share of the month elapsed, today included, in the user's time zone, otherwise
+  `onPace` (`BudgetProgress.PaceOn`); the month answers that share as `percentOfMonthElapsed`. A past month,
+  and one still to come, has neither (null): it shows its final result.
 - **Roll-up** (rule 6): spending in a subcategory counts toward a budget on its parent, so a category and its
   subcategory cannot both have a budget in the same month (`Budget.EnsureCanBeSetOn`); two subcategories of one
   parent can. Two requests that budget a parent and its subcategory at the same moment cannot see each other
@@ -529,6 +551,22 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   change, or the budget, when the two are saved at the same moment; the use case is then made again.
 - **A budgeted category stays an expense category**: changing the kind of a category that has a budget, or whose
   subcategory has one, is refused, and a second foreign key holds that when the two are saved at the same moment.
+- **Budget notifications** (BUD-7): after any change that affects spent (a transaction recorded, edited, deleted,
+  restored or converted once its rate arrives, a bulk action, a transfer unmarked, a category merged, an occurrence posted) or a budget
+  set or copied, the use case calls `IBudgetNotifications.CheckAsync` (`Pfm.Application.Contracts.Budgets`) with
+  the dates it touched (a merge, every month the category merged into is budgeted in once merged, as its budget may now
+  meet spending it did not, and its subcategories' spending now counts toward it). `BudgetNotifications` reads each of those budget months that is this month or later (a month that has ended
+  raises none, so a late edit or a merge never notifies about budgets that went over before notifications existed) as the budget screen does and
+  raises a `BudgetNotification` for each category budget (the overall budget raises none: BUD-7 is about a category) that moved into `warning` or `over` and has not raised that
+  one in the month (`BudgetNotification.Due`): one warning and one over at most, and no warning after over, even
+  when spent drops back and crosses again. A unique index holds that when two requests raise the same one at once.
+  A notification keeps `budgeted`, `spent` and `percentSpent` as they stood. Each new one is emailed in the
+  user's locale with a link to the budget month, unless `emailBudgetNotifications` (`PATCH /me`, true until
+  switched off) is false; an email that cannot be sent is logged and the notification stays in the app.
+  `GET /budget-notifications` lists them the newest first, a page at a time, with how many are `unread`;
+  `POST /budget-notifications/{id}/read` and `POST /budget-notifications/read` mark one or all read.
+  Lowering the warning threshold (`PATCH /me`) moves no spent but can move a budget into warning, so it checks the
+  current budget month too.
 - Budgets reads categories through `ICategoryLookup` and the threshold through `IBudgetWarningThreshold`;
   Identity and Transactions ask whether budgets exist through `IUserBudgets` (`Pfm.Application.Contracts.Budgets`).
 
@@ -553,7 +591,9 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   archived holds in the base currency, as the accounts list adds it up (`IAccountTotals`: `AccountTotals`, which the accounts list adds up through too),
   with `notConverted` balances named; `thisMonth` is income vs expenses for the month; `budgets` adds up budget vs
   actual for the month, counts the budgets in each state and lists the ones over, then at warning, as
-  `needingAttention` (null when no budget is set this month); `topCategories` is the first five top-level items of
+  `needingAttention`, with this month's `overall` budget and its `pace` beside them (`IBudgetComparison.OverallAsync`;
+  null when it has none). `budgets` is null only when neither a category budget nor an overall budget is set this
+  month; `topCategories` is the first five top-level items of
   spending by category. So each card says what the screen or report behind it says. `recentTransactions` are the
   ten the transaction list starts with, and `upcoming` the first ten occurrences the recurring screen lists for the
   next 30 days (`IRecentActivity`), each with its account and category named. `hasAccounts` is false until the user
@@ -610,6 +650,14 @@ An account is reconciled against a bank statement (spec ACC-7, section 3 rule 11
   with no rate is left out and counted in `notConverted`. With `accountId`, only that account counts. Balances
   belong to no category and the report is not compared with the period before, so it takes no `categoryId` or
   `compare`.
+- **Cash flow** (RPT-4). `GET /reports/cash-flow` answers the running balance at the end of every day of the period,
+  or with `interval=week` at the end of every week (Monday to Sunday) and of the period's last day
+  (`ReportPeriod.ClosingDays`). With `accountId`, it is that account's balance in its own currency, as the account
+  detail page charts it, and 404 when the user has no such account, as on every route about one account; without, it is every account's, archived ones included, in the base currency. The balances
+  come from `IAccountBalances`, as net worth's do (none before an account opened), and across accounts the balances in
+  one currency are added up and converted at the rate of the day shown, or the nearest earlier one, all of a period's
+  rates read at once (`ICurrencyConversion` with dated amounts); a balance with no rate is left out and counted in
+  `notConverted`. Takes no `categoryId` or `compare`.
 - **The monthly summary** (spec section 7, export). `GET /reports/monthly-summary.pdf?month=2026-11` answers one
   calendar month as a PDF file to download (`monthly-summary-2026-11.pdf`): income, expenses, net and savings rate,
   spending by top-level category with shares, and budget vs actual with what was spent unbudgeted. `GetMonthlySummary`

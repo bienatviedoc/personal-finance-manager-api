@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Reports;
+using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Reports;
 
@@ -34,6 +35,9 @@ public static class ReportEndpoints
 
         reports.MapGet("/net-worth", NetWorth).WithName("GetNetWorth")
             .WithDescription("What the user is worth over a period: at each month end in it, and on its last day when it ends inside a month, the balances of the assets (every account but credit cards and loans) and the amount owed on the liabilities (credit cards and loans), and the assets minus the liabilities, in the user's base currency. Archived accounts count; an account counts from its opening date. Each balance is converted at the exchange rate of the day it is shown on, or the nearest earlier one; one with no rate on or before that day is left out and counted in notConverted. Not paged: one item per month.");
+
+        reports.MapGet("/cash-flow", CashFlow).WithName("GetCashFlow")
+            .WithDescription("Cash flow over time: the running balance at the end of every day, or of every week (Monday to Sunday) and of the period's last day, of one account in its own currency, or of all the user's accounts, archived ones included, in the user's base currency. A balance is the account's opening balance plus every transaction dated on or before the day, and nothing before the account opened. Across accounts, the balances in each currency are added up and converted at the exchange rate of the day shown, or the nearest earlier one; those with no rate are left out and counted in notConverted. Not paged: one item per day or week.");
 
         reports.MapGet("/monthly-summary.pdf", MonthlySummary).WithName("GetMonthlySummary").WithTags("Export")
             .Produces(StatusCodes.Status200OK, contentType: "application/pdf")
@@ -78,6 +82,31 @@ public static class ReportEndpoints
         }
 
         return TypedResults.Ok(BudgetVsActualResponse.Of(await handler.HandleAsync(new GetBudgetVsActual(filter), cancellationToken)));
+    }
+
+    /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
+    /// <param name="to">The last day of the period, <c>YYYY-MM-DD</c>; on or after <paramref name="from"/>.</param>
+    /// <param name="accountId">One of the user's accounts: only its balance, in its own currency (404 when the user has no such account). Left out for all accounts in the base currency.</param>
+    /// <param name="interval"><c>day</c> (the default) for the balance at the end of every day; <c>week</c> for the end of every week and of the period.</param>
+    private static async Task<Results<Ok<CashFlowResponse>, NotFound, ValidationProblem>> CashFlow(
+        GetCashFlowHandler handler, CancellationToken cancellationToken, string? from = null, string? to = null, string? accountId = null, string? interval = null)
+    {
+        var parameters = new ReportParameters();
+        var filter = parameters.Filter(from, to, accountId, categoryId: null, compare: false);
+        var every = interval is null ? BalanceInterval.Day : EnumText<BalanceInterval>.Read(interval);
+        if (every is null)
+        {
+            parameters.Refused[nameof(interval)] = [$"Choose one of: {string.Join(", ", EnumText<BalanceInterval>.Names)}."];
+        }
+
+        if (filter is null || every is null)
+        {
+            return TypedResults.ValidationProblem(parameters.Refused);
+        }
+
+        return await handler.HandleAsync(new GetCashFlow(filter, every.Value), cancellationToken) is { } report
+            ? TypedResults.Ok(CashFlowResponse.Of(report))
+            : TypedResults.NotFound();
     }
 
     /// <param name="from">The first day of the period, <c>YYYY-MM-DD</c>.</param>
@@ -458,6 +487,25 @@ public sealed record NetWorthPointResponse(DateOnly Date, string Assets, string 
 {
     public static NetWorthPointResponse From(NetWorthOn point) =>
         new(point.Date, AmountJson.Text(point.Assets), AmountJson.Text(point.Liabilities), AmountJson.Text(point.NetWorth), point.NotConverted);
+}
+
+/// <summary>The running balance at the end of one day.</summary>
+/// <param name="Balance">A decimal string in the report's currency.</param>
+/// <param name="NotConverted">How many balances are left out of the balance because no exchange rate exists on or before the day yet.</param>
+public sealed record CashFlowPointResponse(DateOnly Date, string Balance, int NotConverted)
+{
+    public static CashFlowPointResponse From(BalanceOnDay point) => new(point.Date, AmountJson.Text(point.Balance), point.NotConverted);
+}
+
+/// <summary>Cash flow over a period: the running balance, unpaged.</summary>
+/// <param name="Interval"><c>day</c> or <c>week</c>: how often a balance is shown.</param>
+/// <param name="Currency">What every balance is in: the account's own currency with <c>accountId</c>, otherwise the user's base currency.</param>
+/// <param name="AccountId">The account whose balance this is; null for all accounts.</param>
+/// <param name="Items">The balance at the end of every day, or of every week and of the period's last day, earliest first.</param>
+public sealed record CashFlowResponse(DateOnly From, DateOnly To, BalanceInterval Interval, Currency Currency, Guid? AccountId, IReadOnlyList<CashFlowPointResponse> Items)
+{
+    public static CashFlowResponse Of(CashFlowDetails report) =>
+        new(report.Period.From, report.Period.To, report.Interval, report.Currency, report.AccountId, [.. report.Items.Select(CashFlowPointResponse.From)]);
 }
 
 /// <summary>What the user was worth over a period, unpaged.</summary>

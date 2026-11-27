@@ -136,6 +136,52 @@ public sealed class Category : IUserOwned
         }
     }
 
+    /// <summary>
+    /// Folds this category into <paramref name="target"/> (spec CAT-3): this one is archived, and its
+    /// subcategories move under the target. Moving its transactions and budgets is up to their owners. Only a
+    /// category of the same kind that is not archived can be merged into, and never so as to make three
+    /// levels: a category with subcategories goes only into a top-level one.
+    /// </summary>
+    /// <param name="subcategories">All of this category's subcategories.</param>
+    public void MergeInto(Category target, IReadOnlyCollection<Category> subcategories, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        EnsureOwn(subcategories);
+        if (target.Id == Id)
+        {
+            throw new CategoryRuleViolation(nameof(Id), "Choose another category to merge into.");
+        }
+
+        if (target.Kind != Kind)
+        {
+            throw new CategoryRuleViolation(nameof(Kind), "Only categories of the same kind can be merged.");
+        }
+
+        if (target.IsArchived)
+        {
+            throw new CategoryRuleViolation(nameof(IsArchived), "An archived category takes nothing new: choose one that is not archived.");
+        }
+
+        if (target.ParentId == Id)
+        {
+            throw new CategoryRuleViolation(nameof(ParentId), "A category cannot be merged into its own subcategory.");
+        }
+
+        if (subcategories.Count > 0 && target.ParentId is not null)
+        {
+            throw new CategoryRuleViolation(nameof(ParentId), "Categories can be at most two levels deep: a category with subcategories can only be merged into a top-level category.");
+        }
+
+        foreach (var subcategory in subcategories)
+        {
+            subcategory.ParentId = target.Id;
+            subcategory.UpdatedAt = now;
+        }
+
+        IsArchived = true;
+        UpdatedAt = now;
+    }
+
     private static void EnsureValid(string name, string icon, Color color)
     {
         ArgumentNullException.ThrowIfNull(color);
@@ -156,6 +202,20 @@ public sealed class Category : IUserOwned
         if (subcategories.Any(subcategory => subcategory.ParentId != Id))
         {
             throw new ArgumentException("Only this category's own subcategories can be given.", nameof(subcategories));
+        }
+    }
+
+    /// <summary>
+    /// Two categories one of which is merged into the other, which <see cref="MergeInto"/> has checked: what moves
+    /// with the merge (a transaction's lines, a recurring rule) asks it before moving.
+    /// </summary>
+    internal static void GuardMerge(Category from, Category into)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(into);
+        if (from.Kind != into.Kind || into.IsArchived || from.Id == into.Id)
+        {
+            throw new ArgumentException("Only a category of the same kind that is not archived can be merged into.", nameof(into));
         }
     }
 }

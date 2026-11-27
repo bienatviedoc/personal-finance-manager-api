@@ -459,6 +459,29 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
     }
 
+    /// <summary>
+    /// Moves every line on <paramref name="from"/> onto <paramref name="into"/>, as merging the one category into
+    /// the other does (spec CAT-3). The amounts and notes stay; a deleted transaction moves too, so it comes back on
+    /// the category merged into.
+    /// </summary>
+    public void MoveLines(Category from, Category into, DateTimeOffset now)
+    {
+        Category.GuardMerge(from, into);
+        var moving = _lines.Where(line => line.CategoryId == from.Id).ToList();
+        if (moving.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var line in moving)
+        {
+            line.MoveTo(into);
+        }
+
+        CategoryId = Lines[0].CategoryId;
+        UpdatedAt = now;
+    }
+
     private void GuardNotDeleted()
     {
         if (IsDeleted)

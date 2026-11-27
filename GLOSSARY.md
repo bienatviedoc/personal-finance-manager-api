@@ -68,9 +68,25 @@ _Avoid_: Batch edit, mass update, import batch (which is something else)
 A spending limit for one expense category in one budget month, in the base currency. Spending in a subcategory counts toward a budget on its parent.
 _Avoid_: Limit, allowance, envelope
 
+**Overall budget**:
+A spending limit on all of a budget month's expenses together, in the base currency, whether or not their category has a budget of its own. A month has at most one; it is not a category budget and is not added into the category budgets' totals.
+_Avoid_: Total budget, monthly cap, global budget
+
+**Pace**:
+Whether a budget in the current budget month is being spent faster than the month is passing: ahead of pace when the share of the budget spent is larger than the share of the month elapsed, today included; otherwise on pace. A past month shows only its final result and has no pace.
+_Avoid_: Burn rate, forecast, trajectory
+
+**Budget notification**:
+A message, shown in the app and emailed, that a category's budget moved into warning or over in a budget month. The overall budget raises none, and neither does a month that has ended. Each category raises at most one warning and one over a budget month, and keeps what the budget stood at when it was raised. Email can be switched off in settings; the app always shows it.
+_Avoid_: Alert, reminder (which is a recurring rule's), budget email
+
 **Archive**:
 To hide an institution, account or category from pickers while keeping its history in balances, net worth and reports.
 _Avoid_: Delete, disable, close, deactivate
+
+**Merge**:
+To fold one category into another of the same kind: its transactions, budgets and subcategories move to the other, budgets in the same month are added together, and it is archived.
+_Avoid_: Combine, join, move (for a whole category)
 
 **Amount owed**:
 What a user owes on a credit card or loan account, entered as a positive number and held as a negative balance.
@@ -144,12 +160,20 @@ _Avoid_: Home, overview, summary (which is the monthly summary)
 What a user is worth on a day, in the base currency: the balances of their assets (every account but credit cards and loans) minus the amount owed on their liabilities (credit cards and loans), archived accounts included.
 _Avoid_: Wealth, equity, balance (for the total)
 
+**Cash flow**:
+How a balance moved over a report period: the running balance of one account, in its own currency, or of all of a user's accounts, archived ones included, in the base currency, at the end of every day or of every week.
+_Avoid_: Cash flow statement, balance history, income vs expenses (which is money in and out, not a balance)
+
+**Running balance**:
+An account's balance at the end of a day: its opening balance plus every transaction dated on or before that day, and nothing before the account opened.
+_Avoid_: Cumulative balance, end-of-day total
+
 **Savings rate**:
 Income minus expenses over some dates, as a percentage of that income. There is none when there was no income.
 _Avoid_: Saving ratio, margin
 
 **Unbudgeted**:
-Spent in a budget month where no budget covered its category: none on the category, nor on its parent.
+Spent in a budget month where no budget covered its category: none on the category, nor on its parent. The overall budget covers no category.
 _Avoid_: Over budget (which a budgeted category is), uncategorized
 
 **Export**:
