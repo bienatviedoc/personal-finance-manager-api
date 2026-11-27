@@ -75,7 +75,9 @@ public sealed class ImportedTransactions(
         var transfers = new Dictionary<Guid, Transfer>();
         foreach (var transferId in imported.Select(transaction => transaction.TransferId).OfType<Guid>().Distinct())
         {
-            transfers[transferId] = (await transactions.FindTransferAsync(transferId, deletedToo: false, cancellationToken))!;
+            // A transaction that is not deleted names a transfer whose legs are not deleted either: they are deleted together.
+            transfers[transferId] = await transactions.FindTransferAsync(transferId, deletedToo: false, cancellationToken)
+                ?? throw new InvalidOperationException($"Import batch {importBatchId} has a leg of transfer {transferId}, which was not found: its legs are out of step.");
         }
 
         var reconciled = imported.Count(transaction => transaction.TransferId is { } transferId ? transfers[transferId].IsReconciled : transaction.IsReconciled);
