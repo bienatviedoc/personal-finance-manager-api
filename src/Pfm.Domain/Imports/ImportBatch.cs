@@ -16,6 +16,22 @@ public enum ImportBatchStatus
     Failed = 4,
 }
 
+/// <summary>Why the worker stopped importing a batch: a code the user is shown in their own language.</summary>
+public enum ImportFailure
+{
+    /// <summary>The account was archived after the statement was committed.</summary>
+    AccountArchived = 1,
+
+    /// <summary>A category chosen for the statement was archived after it was committed.</summary>
+    CategoryArchived = 2,
+
+    /// <summary>The account's currency changed after the statement was committed, so its rows no longer read as they did.</summary>
+    AccountCurrencyChanged = 3,
+
+    /// <summary>A row broke a rule every transaction keeps.</summary>
+    TransactionRefused = 4,
+}
+
 /// <summary>An import batch that would break a rule. Names the property at fault.</summary>
 public sealed class ImportRuleViolation(string property, string message) : Exception(message)
 {
@@ -89,7 +105,7 @@ public sealed class ImportBatch : IUserOwned
     public int FailedCount { get; private set; }
 
     /// <summary>Why the worker stopped, when it did.</summary>
-    public string? Failure { get; private set; }
+    public ImportFailure? Failure { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 
@@ -239,7 +255,7 @@ public sealed class ImportBatch : IUserOwned
     }
 
     /// <summary>Stops importing, for a reason the user is shown. What was imported stays; the file is let go.</summary>
-    public void Fail(string reason, DateTimeOffset now)
+    public void Fail(ImportFailure reason, DateTimeOffset now)
     {
         Status = ImportBatchStatus.Failed;
         Failure = reason;

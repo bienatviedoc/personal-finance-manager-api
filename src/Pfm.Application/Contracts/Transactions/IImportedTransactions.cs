@@ -15,15 +15,30 @@ public interface IImportedTransactions
     /// <summary>
     /// Records each as income or an expense on the account, in its currency, belonging to the import batch, by the
     /// rules of any transaction (converted into the base currency at the rate of its date). Nothing is saved: the
-    /// caller saves them together with what it records of the batch, so both are saved or neither. Answers why they
-    /// cannot be recorded (an account or a category archived since, say), with nothing recorded; null once they are.
+    /// caller saves them together with what it records of the batch, so both are saved or neither. Answers
+    /// <see cref="RecordImportOutcome.Recorded"/>, or why they cannot be recorded, with nothing recorded.
     /// </summary>
     /// <param name="expenseCategoryId">The category an expense is recorded on.</param>
     /// <param name="incomeCategoryId">The category income is recorded on.</param>
     /// <param name="today">The user's today the statement was committed on: no transaction is dated after it.</param>
-    Task<string?> RecordAsync(
+    Task<RecordImportOutcome> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> transactions, Guid? expenseCategoryId, Guid? incomeCategoryId,
         DateOnly today, CancellationToken cancellationToken);
+}
+
+/// <summary>What recording a statement's rows came to.</summary>
+public enum RecordImportOutcome
+{
+    Recorded = 1,
+
+    /// <summary>The account has been archived since the statement was committed.</summary>
+    AccountArchived = 2,
+
+    /// <summary>A category chosen for the statement has been archived since.</summary>
+    CategoryArchived = 3,
+
+    /// <summary>A row breaks another rule of transactions.</summary>
+    TransactionRefused = 4,
 }
 
 /// <summary>A transaction already on an account, as a likely duplicate is matched against it.</summary>

@@ -183,13 +183,13 @@ public sealed record MappingResponse(
 /// <param name="ImportedCount">How many of them are transactions now; it reaches selectedCount when the batch is committed.</param>
 /// <param name="DuplicateCount">How many likely duplicates were left out, unticked.</param>
 /// <param name="FailedCount">How many rows could not be read as a transaction, and were not imported.</param>
-/// <param name="Failure">Why the worker stopped, when the batch failed.</param>
+/// <param name="Failure">Why the worker stopped, when the batch failed: <c>accountArchived</c>, <c>categoryArchived</c> (a category chosen for it was archived since it was committed), <c>accountCurrencyChanged</c> or <c>transactionRefused</c> (a row broke another rule of transactions). A code, for the app to say in the user's language.</param>
 /// <param name="CommittedAt">When its last row was imported.</param>
 /// <param name="Mapping">How the file was read when it was committed; null before.</param>
 /// <param name="SuggestedMapping">A first guess at how to read the file (its separator, and the header row after any preamble), while it is uploaded; null after.</param>
 public sealed record ImportBatchResponse(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
-    int FailedCount, string? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
+    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
 {
     public static ImportBatchResponse From(ImportBatchDetails batch) =>
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,

@@ -21,14 +21,14 @@ public sealed class ImportedTransactions(
             .Select(transaction => new AccountTransaction(
                 transaction.Date, transaction.SignedAmount > 0, transaction.Amount, transaction.Payee, !transaction.Type.IsIncomeOrExpense()))];
 
-    public async Task<string?> RecordAsync(
+    public async Task<RecordImportOutcome> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> toImport, Guid? expenseCategoryId, Guid? incomeCategoryId,
         DateOnly today, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(toImport);
         if (await accounts.FindChoosableAsync(accountId, keeps: null, cancellationToken) is not { } account)
         {
-            return "The account has been archived since the statement was committed.";
+            return RecordImportOutcome.AccountArchived;
         }
 
         var expenseCategory = expenseCategoryId is { } expenseId ? await categories.FindAsync(expenseId, cancellationToken) : null;
@@ -41,7 +41,7 @@ public sealed class ImportedTransactions(
             foreach (var row in toImport)
             {
                 var category = (row.IsIncome ? incomeCategory : expenseCategory)
-                    ?? throw new TransactionRuleViolation(nameof(Transaction.CategoryId), "The category chosen for the statement has been deleted.");
+                    ?? throw new TransactionRuleViolation(nameof(Transaction.CategoryId), "The category chosen for the statement is gone.");
                 var transaction = Transaction.Record(
                     row.IsIncome ? TransactionType.Income : TransactionType.Expense, account.Id, account.Currency, row.Amount, row.Date, category, row.Payee,
                     note: null, today, now);
@@ -51,7 +51,7 @@ public sealed class ImportedTransactions(
         }
         catch (TransactionRuleViolation violation)
         {
-            return violation.Message;
+            return violation.Property == nameof(Transaction.CategoryId) ? RecordImportOutcome.CategoryArchived : RecordImportOutcome.TransactionRefused;
         }
 
         foreach (var transaction in recorded)
@@ -60,6 +60,6 @@ public sealed class ImportedTransactions(
             transactions.Add(transaction, request: null);
         }
 
-        return null;
+        return RecordImportOutcome.Recorded;
     }
 }

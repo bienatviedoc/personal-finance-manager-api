@@ -267,6 +267,26 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_batch_whose_category_or_account_is_archived_before_it_is_imported_stops_with_a_code_saying_which()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var categoryGone = await UploadAsync(browser, account, Small);
+        var otherAccount = await AddAccountAsync(browser, "Cash");
+        var accountGone = await UploadAsync(browser, otherAccount, Small);
+        var groceries = await CategoryAsync(browser, "Groceries");
+        (await CommitAsync(browser, categoryGone, SmallMapping, [2], expenseCategoryId: groceries)).EnsureSuccessStatusCode();
+        (await CommitAsync(browser, accountGone, SmallMapping, [2])).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/categories/{groceries}")).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync($"/api/v1/accounts/{otherAccount}")).EnsureSuccessStatusCode();
+
+        await ImportAsync();
+
+        Assert.Equal(("failed", "categoryArchived"), ((await BatchAsync(browser, categoryGone.Id)).Status, (await BatchAsync(browser, categoryGone.Id)).Failure));
+        Assert.Equal(("failed", "accountArchived"), ((await BatchAsync(browser, accountGone.Id)).Status, (await BatchAsync(browser, accountGone.Id)).Failure));
+    }
+
+    [Fact]
     public async Task Only_rows_the_preview_reads_as_transactions_can_be_committed_and_with_a_category_of_the_kind_each_takes()
     {
         var (browser, _) = await api.SignedInAsync();

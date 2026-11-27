@@ -29,7 +29,7 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
         batch.Property(row => row.Id).ValueGeneratedNever();
         batch.Property(row => row.FileName).HasMaxLength(ImportBatch.MaxFileNameLength);
         batch.Property(row => row.Status).HasConversion<string>().HasMaxLength(20);
-        batch.Property(row => row.Failure).HasMaxLength(500);
+        batch.Property(row => row.Failure).HasConversion<string>().HasMaxLength(40);
 
         // How the file was read when it was committed, as the API writes a mapping: for the next import of the account to start from (spec IMP-2).
         batch.Property(row => row.Mapping)

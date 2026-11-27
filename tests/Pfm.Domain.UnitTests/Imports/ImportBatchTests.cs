@@ -121,9 +121,9 @@ public class ImportBatchTests
         batch.Commit(Mapping, statement, [2, 6], new HashSet<int>(), Groceries, null, Today, Now);
         batch.Imported(1, Now);
 
-        batch.Fail("The category was archived.", Now);
+        batch.Fail(ImportFailure.CategoryArchived, Now);
 
-        Assert.Equal((ImportBatchStatus.Failed, 1, "The category was archived."), (batch.Status, batch.ImportedCount, batch.Failure));
+        Assert.Equal((ImportBatchStatus.Failed, 1, ImportFailure.CategoryArchived), (batch.Status, batch.ImportedCount, batch.Failure));
         Assert.Null(batch.Content);
     }
 

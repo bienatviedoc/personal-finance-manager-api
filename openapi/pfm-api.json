@@ -7876,9 +7876,13 @@
             "format": "int32"
           },
           "failure": {
-            "type": [
-              "null",
-              "string"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ImportFailure"
+              }
             ]
           },
           "createdAt": {
@@ -7920,6 +7924,15 @@
           "committing",
           "committed",
           "failed"
+        ]
+      },
+      "ImportFailure": {
+        "enum": [
+          "accountArchived",
+          "categoryArchived",
+          "accountCurrencyChanged",
+          "transactionRefused",
+          null
         ]
       },
       "ImportPreviewResponse": {

@@ -74,18 +74,24 @@ public sealed class ImportCommits(
         {
             chosen = batch.ChosenEntries(account.Currency);
         }
-        catch (ImportRuleViolation violation)
+        catch (ImportRuleViolation)
         {
-            return await FailAsync(batch, violation.Message, [], cancellationToken);
+            return await FailAsync(batch, ImportFailure.AccountCurrencyChanged, [], cancellationToken);
         }
 
         var next = chosen.Skip(batch.ImportedCount).Take(rowsPerSave).ToList();
-        var refusal = await transactions.RecordAsync(
+        var recorded = await transactions.RecordAsync(
             batch.AccountId, batch.Id, [.. next.Select(entry => new TransactionToImport(entry.Date, entry.Type == StatementEntryType.Income, entry.Amount, entry.Description))],
             batch.ExpenseCategoryId, batch.IncomeCategoryId, batch.CommittedOn!.Value, cancellationToken);
-        if (refusal is not null)
+        if (recorded != RecordImportOutcome.Recorded)
         {
-            return await FailAsync(batch, refusal, [.. chosen.Take(batch.ImportedCount).Select(entry => entry.Date)], cancellationToken);
+            var failure = recorded switch
+            {
+                RecordImportOutcome.AccountArchived => ImportFailure.AccountArchived,
+                RecordImportOutcome.CategoryArchived => ImportFailure.CategoryArchived,
+                _ => ImportFailure.TransactionRefused,
+            };
+            return await FailAsync(batch, failure, [.. chosen.Take(batch.ImportedCount).Select(entry => entry.Date)], cancellationToken);
         }
 
         batch.Imported(next.Count, clock.GetUtcNow());
@@ -109,7 +115,7 @@ public sealed class ImportCommits(
     }
 
     /// <summary>Stops the batch with the reason, keeping what it imported, whose budget notifications are then raised.</summary>
-    private async Task<int> FailAsync(ImportBatch batch, string reason, IReadOnlyCollection<DateOnly> importedDates, CancellationToken cancellationToken)
+    private async Task<int> FailAsync(ImportBatch batch, ImportFailure reason, IReadOnlyCollection<DateOnly> importedDates, CancellationToken cancellationToken)
     {
         var batchId = batch.Id;
         unitOfWork.DiscardChanges();
