@@ -388,7 +388,7 @@ one of the merged category's own subcategories is refused as an error on `target
   it is stored and served with. The rules are in `Attachment` (`Pfm.Domain.Transactions`); a file that breaks
   one is a validation problem on `file` saying what can be attached. A request of over 10 MB is cut off before
   it is read: the server answers 413, a problem whose `detail` is the same message as a file found too large
-  (`AttachmentEndpoints.ExplainTooLarge`).
+  (`UploadSizeLimit.ExplainTooLarge`).
 - **Files live in private object storage**, behind `IObjectStorage` (`Pfm.Application.Abstractions`): any
   storage that speaks the S3 API ([decision record 0004](docs/adr/0004-attachments-in-s3-compatible-storage.md)).
   The key is `users/{user}/attachments/{attachment}`, with nothing the user wrote in it. The upload goes
