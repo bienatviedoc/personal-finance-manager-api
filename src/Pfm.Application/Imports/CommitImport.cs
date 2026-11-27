@@ -92,7 +92,8 @@ public sealed class CommitImportHandler(
         var read = await reader.ReadAsync(batch, mapping, cancellationToken);
         if (read.Account.IsArchived)
         {
-            return Result<CommitImportOutcome?>.Invalid(FieldError.On("AccountId", UploadStatementHandler.NotAnAccount));
+            return Result<CommitImportOutcome?>.Invalid(FieldError.On(
+                nameof(command.Id), "The statement's account has been archived: upload it again for one of your accounts that is not."));
         }
 
         try

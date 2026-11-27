@@ -322,6 +322,20 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_statement_whose_account_was_archived_after_it_was_uploaded_cannot_be_committed()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var batch = await UploadAsync(browser, account, Small);
+        (await browser.DeleteAsync($"/api/v1/accounts/{account}")).EnsureSuccessStatusCode();
+
+        var response = await CommitAsync(browser, batch, SmallMapping, [2]);
+
+        Assert.Equal("The statement's account has been archived: upload it again for one of your accounts that is not.", await response.ErrorOnAsync("id"));
+        Assert.Equal("uploaded", (await BatchAsync(browser, batch.Id)).Status);
+    }
+
+    [Fact]
     public async Task A_batch_is_committed_once_and_then_has_no_file_to_preview()
     {
         var (browser, _) = await api.SignedInAsync();
