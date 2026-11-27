@@ -123,27 +123,27 @@ public sealed record MappingRequest(
 /// <summary>The mapping a preview is read with, from its query string; see <see cref="MappingRequest"/> for each.</summary>
 public sealed class MappingParameters
 {
-    [FromQuery] public string? Separator { get; init; }
+    [FromQuery(Name = "separator")] public string? Separator { get; init; }
 
-    [FromQuery] public int? SkipFirstRows { get; init; }
+    [FromQuery(Name = "skipFirstRows")] public int? SkipFirstRows { get; init; }
 
-    [FromQuery] public bool? HasHeaderRow { get; init; }
+    [FromQuery(Name = "hasHeaderRow")] public bool? HasHeaderRow { get; init; }
 
-    [FromQuery] public int? SkipLastRows { get; init; }
+    [FromQuery(Name = "skipLastRows")] public int? SkipLastRows { get; init; }
 
-    [FromQuery] public int? DateColumn { get; init; }
+    [FromQuery(Name = "dateColumn")] public int? DateColumn { get; init; }
 
-    [FromQuery] public int? DescriptionColumn { get; init; }
+    [FromQuery(Name = "descriptionColumn")] public int? DescriptionColumn { get; init; }
 
-    [FromQuery] public int? AmountColumn { get; init; }
+    [FromQuery(Name = "amountColumn")] public int? AmountColumn { get; init; }
 
-    [FromQuery] public int? DebitColumn { get; init; }
+    [FromQuery(Name = "debitColumn")] public int? DebitColumn { get; init; }
 
-    [FromQuery] public int? CreditColumn { get; init; }
+    [FromQuery(Name = "creditColumn")] public int? CreditColumn { get; init; }
 
-    [FromQuery] public string? DateFormat { get; init; }
+    [FromQuery(Name = "dateFormat")] public string? DateFormat { get; init; }
 
-    [FromQuery] public string? DecimalSeparator { get; init; }
+    [FromQuery(Name = "decimalSeparator")] public string? DecimalSeparator { get; init; }
 
     public MappingInput Input() =>
         new(Separator, SkipFirstRows, HasHeaderRow, SkipLastRows, DateColumn, DescriptionColumn, AmountColumn, DebitColumn, CreditColumn, DateFormat,
