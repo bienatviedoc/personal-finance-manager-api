@@ -88,6 +88,21 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_statement_of_more_than_10000_rows_is_refused()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Everyday");
+        var rows = string.Concat(Enumerable.Repeat("02-08-2026;GRAB;-1.000\n", 10_000));
+
+        var atTheLimit = await UploadAsync(browser, account, "statement.csv", Encoding.UTF8.GetBytes(rows));
+        var over = await UploadAsync(browser, account, "statement.csv", Encoding.UTF8.GetBytes("Date;Details;Amount\n" + rows));
+
+        Assert.Equal(HttpStatusCode.Created, atTheLimit.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, over.StatusCode);
+        Assert.Equal("Upload a statement of at most 10,000 rows.", await over.ErrorOnAsync("file"));
+    }
+
+    [Fact]
     public async Task A_file_over_5_MB_is_refused()
     {
         var (browser, _) = await api.SignedInAsync();

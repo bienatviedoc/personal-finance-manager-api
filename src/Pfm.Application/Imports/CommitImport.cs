@@ -18,9 +18,6 @@ public sealed record CommitImportCommand(Guid Id, MappingInput? Mapping, IReadOn
 
 public sealed class CommitImportValidator : AbstractValidator<CommitImportCommand>
 {
-    /// <summary>More rows than a 5 MB file holds.</summary>
-    public const int MaxRows = 200_000;
-
     public CommitImportValidator()
     {
         RuleFor(command => command.Id).Required();
@@ -36,7 +33,7 @@ public sealed class CommitImportValidator : AbstractValidator<CommitImportComman
             }
         });
         RuleFor(command => command.Rows).NotNull().WithMessage("Choose the rows to import.")
-            .Must(rows => rows!.Count <= MaxRows).WithMessage($"Choose at most {MaxRows} rows.");
+            .Must(rows => rows!.Count <= ImportBatch.MaxRows).WithMessage($"Choose at most {ImportBatch.MaxRows} rows.");
     }
 }
 

@@ -30,6 +30,25 @@ public static class StatementText
         return new StatementMapping(separator, SkipFirstRows: first, HasHeaderRow: looksLikeHeader);
     }
 
+    /// <summary>
+    /// The most rows the file can be read as, whatever the separator: its lines, as a line break ends a row unless a
+    /// quoted cell holds it, and a line break at the very end makes no row of its own.
+    /// </summary>
+    public static int MostRows(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var lines = 0;
+        for (var at = 0; at < text.Length; at++)
+        {
+            if (text[at] == '\n' || (text[at] == '\r' && (at + 1 == text.Length || text[at + 1] != '\n')))
+            {
+                lines++;
+            }
+        }
+
+        return text.Length > 0 && text[^1] is not ('\n' or '\r') ? lines + 1 : lines;
+    }
+
     /// <summary>How many rows have the cell count most rows have, when that is more than one cell.</summary>
     private static int Evenness(IReadOnlyList<IReadOnlyList<string>> records)
     {

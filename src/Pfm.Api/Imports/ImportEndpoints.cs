@@ -25,7 +25,7 @@ public static class ImportEndpoints
         var imports = api.MapGroup("/imports").WithTags("Imports").ProducesProblem(StatusCodes.Status401Unauthorized);
 
         imports.MapPost("/", Upload).WithName("UploadStatement")
-            .WithDescription("Uploads a bank statement to import into one of the user's accounts: a CSV file of at most 5 MB, saved as text (UTF-8, or UTF-16 with a byte order mark), sent as the file field of a multipart/form-data body beside accountId. Nothing is imported yet: the answer is the import batch, with a first guess at how to read the file (suggestedMapping) for the user to confirm or change in the preview.")
+            .WithDescription("Uploads a bank statement to import into one of the user's accounts: a CSV file of at most 5 MB and 10,000 rows, saved as text (UTF-8, or UTF-16 with a byte order mark), sent as the file field of a multipart/form-data body beside accountId. Nothing is imported yet: the answer is the import batch, with a first guess at how to read the file (suggestedMapping) for the user to confirm or change in the preview.")
             .WithMetadata(new UploadSizeLimit(MaxRequestSize, ImportBatch.FileSizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
@@ -218,7 +218,10 @@ public sealed record PreviewRowResponse(
 /// <param name="Selected">Ticked to import at first: parsed rows but the likely duplicates.</param>
 public sealed record PreviewCountsResponse(int Parsed, int Failed, int LikelyDuplicates, int Selected);
 
-/// <summary>An uploaded statement read with a mapping. Every row is in it, not a page: a preview is checked whole before committing.</summary>
+/// <summary>
+/// An uploaded statement read with a mapping. Every row is in it, not a page: a preview is checked whole before
+/// committing, and a statement has at most 10,000 rows.
+/// </summary>
 /// <param name="Header">The cells of the header row; none without one.</param>
 /// <param name="ColumnCount">The most cells any row has: the columns there are to map.</param>
 /// <param name="Currency">The account's, which every amount is in.</param>

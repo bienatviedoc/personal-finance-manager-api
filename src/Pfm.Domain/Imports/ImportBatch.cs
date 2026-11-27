@@ -57,6 +57,14 @@ public sealed class ImportBatch : IUserOwned
 
     public const string FileSizeMessage = "Upload a CSV file of at most 5 MB.";
 
+    /// <summary>
+    /// The most rows a statement may have: twice the 5,000 a statement is expected to hold at most (spec section 8), and
+    /// what bounds the preview, which answers every row at once.
+    /// </summary>
+    public const int MaxRows = 10_000;
+
+    public const string RowsMessage = "Upload a statement of at most 10,000 rows.";
+
     private List<int> _selectedRows = [];
 
     /// <summary>For persistence, which sets every property itself.</summary>
@@ -136,10 +144,15 @@ public sealed class ImportBatch : IUserOwned
         return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length <= MaxFileNameLength ? trimmed : trimmed[..MaxFileNameLength];
     }
 
-    /// <param name="content">The file as text (<see cref="StatementText.Decode"/>).</param>
+    /// <param name="content">The file as text, of at most <see cref="MaxRows"/> rows.</param>
     public static ImportBatch Upload(Guid accountId, string fileName, string content, DateTimeOffset now)
     {
         ArgumentException.ThrowIfNullOrEmpty(content);
+        if (StatementText.MostRows(content) > MaxRows)
+        {
+            throw new ArgumentException(RowsMessage, nameof(content));
+        }
+
         return new ImportBatch
         {
             Id = Guid.CreateVersion7(now),

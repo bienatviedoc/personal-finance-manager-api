@@ -23,4 +23,13 @@ public class StatementTextTests
 
         Assert.Equal(new StatementMapping(Separator.Comma), guessed);
     }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("a", 1)]
+    [InlineData("a\n", 1)]
+    [InlineData("a\r\nb\rc\nd", 4)]
+    [InlineData("a\n\n", 2)]
+    public void A_file_is_read_as_at_most_as_many_rows_as_it_has_lines(string text, int rows) =>
+        Assert.Equal(rows, StatementText.MostRows(text));
 }

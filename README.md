@@ -530,7 +530,10 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   or has more decimals than the account's currency, a debit and a credit on one row, too few cells), or `unmapped`
   while the date and amount columns are not chosen. A failed row is shown and never imported. It is one answer,
   not a page: the user checks the whole statement before committing it. 5,000 rows upload and preview in 335 ms in
-  the tests on a developer laptop, against the 5 seconds the spec allows (`ImportTests` generates the file).
+  the tests on a developer laptop, against the 5 seconds the spec allows (`ImportTests` generates the file). A
+  statement has at most 10,000 rows (`ImportBatch.MaxRows`, counted as its lines, the most rows any separator
+  can make of it), twice the 5,000 the spec expects: a longer one is refused on `file` at upload. That bounds the
+  preview, which is not paged (see "Lists" below).
 - **Likely duplicates** (IMP-3; `LikelyDuplicates`): a parsed row with the date, amount, direction (money in or out)
   and description of an income or expense already on the account, the description compared without case, accents or
   extra spaces, or with the date, amount and direction of a transfer leg on it (a transfer out is money going out),
@@ -963,10 +966,12 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Three answers are not paged, and answer all of their `items` in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Four answers are not paged, and answer all of their `items` (or `rows`) in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
-  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts. Reports
+  transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview
+  (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows
+  a statement may have (the SPA pages it on the screen). Reports
   (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
   its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
