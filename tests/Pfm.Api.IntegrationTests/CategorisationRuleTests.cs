@@ -157,6 +157,23 @@ public class CategorisationRuleTests(PfmApi api)
         Assert.Equal(HttpStatusCode.NotFound, (await browser.DeleteAsync($"{Rules}/{rule.Id}")).StatusCode);
     }
 
+    [Fact]
+    public async Task A_rule_edited_while_it_is_being_deleted_is_deleted_as_edited()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"));
+        var path = $"{Rules}/{rule.Id}";
+        var edited = HttpStatusCode.Unused;
+        api.Saves.BeforeNextSaveOf<Pfm.Domain.Transactions.CategorisationRule>(async () =>
+            edited = (await browser.PutAsync(path, new { matchText = "grabfood", matchType = "exactly", categoryId = rule.CategoryId, priority = 3 }, IfMatch(rule))).StatusCode);
+
+        var response = await browser.DeleteAsync(path);
+
+        Assert.Equal(HttpStatusCode.OK, edited);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Empty(await ListAsync(browser));
+    }
+
     [Theory]
     [InlineData("", "contains", 1, "matchText")]
     [InlineData("grab", "endsWith", 1, "matchType")]

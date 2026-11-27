@@ -18,16 +18,18 @@ public sealed class DeleteCategorisationRuleHandler(
     IValidator<DeleteCategorisationRuleCommand> validator, ICategorisationRuleRepository rules, IAuditLog auditLog, IUnitOfWork unitOfWork)
     : CommandHandler<DeleteCategorisationRuleCommand, Done?>(validator)
 {
-    protected override async Task<Result<Done?>> ExecuteAsync(DeleteCategorisationRuleCommand command, CancellationToken cancellationToken)
-    {
-        if (await rules.FindAsync(command.Id, cancellationToken) is not { } rule)
+    /// <summary>A rule edited, reordered or moved by a merge at the same moment is deleted as saved; one deleted by another request is no longer found.</summary>
+    protected override Task<Result<Done?>> ExecuteAsync(DeleteCategorisationRuleCommand command, CancellationToken cancellationToken) =>
+        unitOfWork.RetryOnConcurrentChangeAsync<Result<Done?>>(async () =>
         {
-            return (Done?)null;
-        }
+            if (await rules.FindAsync(command.Id, cancellationToken) is not { } rule)
+            {
+                return (Done?)null;
+            }
 
-        rules.Remove(rule);
-        await auditLog.CategorisationRuleDeletedAsync(rule.Id, rule.MatchText, cancellationToken);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return new Done();
-    }
+            rules.Remove(rule);
+            await auditLog.CategorisationRuleDeletedAsync(rule.Id, rule.MatchText, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return new Done();
+        });
 }
