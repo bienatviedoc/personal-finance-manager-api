@@ -45,6 +45,20 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
                 (left, right) => left!.SequenceEqual(right!), rows => rows.Aggregate(0, HashCode.Combine), rows => rows.ToList()));
         batch.Ignore(row => row.SelectedRows);
 
+        // The categories the user gave chosen rows of their own (spec IMP-4), by row number.
+        batch.Property<Dictionary<int, Guid>>("_rowCategories")
+            .HasColumnName(nameof(ImportBatch.RowCategories))
+            .HasColumnType("jsonb")
+            .HasDefaultValueSql("'{}'::jsonb")
+            .HasConversion(
+                categories => JsonSerializer.Serialize(categories, (JsonSerializerOptions?)null),
+                json => JsonSerializer.Deserialize<Dictionary<int, Guid>>(json, (JsonSerializerOptions?)null) ?? new Dictionary<int, Guid>())
+            .Metadata.SetValueComparer(new ValueComparer<Dictionary<int, Guid>>(
+                (left, right) => left!.Count == right!.Count && !left.Except(right).Any(),
+                categories => categories.Aggregate(0, (hash, row) => HashCode.Combine(hash, row.Key, row.Value)),
+                categories => new Dictionary<int, Guid>(categories)));
+        batch.Ignore(row => row.RowCategories);
+
         // PostgreSQL's own row version (xmin): of two workers importing the same rows, only the first saves them.
         batch.Property(row => row.RowVersion).IsRowVersion();
 

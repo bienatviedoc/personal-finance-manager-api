@@ -15,7 +15,17 @@ namespace Pfm.Application.Imports;
 /// <param name="Rows">The numbers of the rows to import: rows the preview reads as transactions, likely duplicates only when ticked.</param>
 /// <param name="ExpenseCategoryId">The expense category money going out is recorded on; needed when a row chosen takes money out.</param>
 /// <param name="IncomeCategoryId">The income category money coming in is recorded on; needed when a row chosen brings money in.</param>
-public sealed record CommitImportCommand(Guid Id, MappingInput? Mapping, IReadOnlyList<int>? Rows, Guid? ExpenseCategoryId, Guid? IncomeCategoryId);
+/// <param name="RowCategories">
+/// Categories of their own for some of the chosen rows (spec IMP-4), each of the kind its row takes; the batch's
+/// categories are for the rest, so each is needed only for a chosen row without one of its own.
+/// </param>
+public sealed record CommitImportCommand(
+    Guid Id, MappingInput? Mapping, IReadOnlyList<int>? Rows, Guid? ExpenseCategoryId, Guid? IncomeCategoryId,
+    IReadOnlyList<RowCategoryInput>? RowCategories = null);
+
+/// <summary>The category the user gave one chosen row of a statement.</summary>
+/// <param name="Row">The row's number, as the preview numbers it.</param>
+public sealed record RowCategoryInput(int Row, Guid CategoryId);
 
 public sealed class CommitImportValidator : AbstractValidator<CommitImportCommand>
 {
@@ -26,6 +36,8 @@ public sealed class CommitImportValidator : AbstractValidator<CommitImportComman
         RuleFor(command => command.Mapping).MappingInRange(under: $"{nameof(CommitImportCommand.Mapping)}.");
         RuleFor(command => command.Rows).NotNull().WithMessage("Choose the rows to import.")
             .Must(rows => rows!.Count <= ImportBatch.MaxRows).WithMessage($"Choose at most {ImportBatch.MaxRows} rows.");
+        RuleFor(command => command.RowCategories).Must(rows => rows is null || rows.Count <= ImportBatch.MaxRows)
+            .WithMessage($"Give at most {ImportBatch.MaxRows} rows a category.");
     }
 }
 
@@ -98,13 +110,26 @@ public sealed class CommitImportHandler(
                 nameof(command.Id), "The statement's account has been archived: upload it again for one of your accounts that is not."));
         }
 
+        var (rowCategories, problem) = RowCategoriesOf(command, read.Statement, userCategories);
+        if (problem is not null)
+        {
+            return Result<CommitImportOutcome?>.Invalid(FieldError.On(nameof(command.RowCategories), problem));
+        }
+
         try
         {
-            batch.Commit(mapping, read.Statement, command.Rows!, read.LikelyDuplicates, command.ExpenseCategoryId, command.IncomeCategoryId, read.Today, clock.GetUtcNow());
+            batch.Commit(
+                mapping, read.Statement, command.Rows!, read.LikelyDuplicates, command.ExpenseCategoryId, command.IncomeCategoryId, read.Today, clock.GetUtcNow(),
+                rowCategories);
         }
         catch (ImportRuleViolation violation)
         {
-            var property = violation.Property == nameof(ImportBatch.SelectedRows) ? nameof(command.Rows) : violation.Property;
+            var property = violation.Property switch
+            {
+                nameof(ImportBatch.SelectedRows) => nameof(command.Rows),
+                nameof(ImportBatch.RowCategories) => nameof(command.RowCategories),
+                _ => violation.Property,
+            };
             return Result<CommitImportOutcome?>.Invalid(FieldError.On(property, violation.Message));
         }
 
@@ -139,5 +164,37 @@ public sealed class CommitImportHandler(
         }
 
         return new CommitImportOutcome.Committing(ImportBatchDetails.Of(batch));
+    }
+
+    /// <summary>
+    /// The rows' own categories by row number, when each row is given one once, on one of the user's categories that is
+    /// not archived, of the kind the row takes; else the problem. Whether each row is chosen and read as a transaction is
+    /// the batch's to say.
+    /// </summary>
+    private static (Dictionary<int, Guid> Categories, string? Problem) RowCategoriesOf(
+        CommitImportCommand command, Statement statement, IReadOnlyDictionary<Guid, CategorySummary> userCategories)
+    {
+        var entries = statement.Entries.ToDictionary(row => row.Number, row => row.Entry!);
+        var rowCategories = new Dictionary<int, Guid>();
+        foreach (var (row, categoryId) in command.RowCategories ?? [])
+        {
+            if (!rowCategories.TryAdd(row, categoryId))
+            {
+                return (rowCategories, $"Give row {row} one category.");
+            }
+
+            if (!entries.TryGetValue(row, out var entry))
+            {
+                continue;
+            }
+
+            var expense = entry.Type == StatementEntryType.Expense;
+            if (!userCategories.TryGetValue(categoryId, out var category) || category.IsArchived || category.IsExpense != expense)
+            {
+                return (rowCategories, $"Row {row} takes one of your {(expense ? "expense" : "income")} categories that is not archived.");
+            }
+        }
+
+        return (rowCategories, null);
     }
 }
