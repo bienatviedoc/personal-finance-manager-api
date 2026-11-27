@@ -203,6 +203,20 @@ public class CategorisationRuleTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_rule_cannot_be_moved_onto_a_category_that_is_archived()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"));
+        var eatingOut = await CategoryAsync(browser, "Eating out");
+        (await browser.DeleteAsync($"/api/v1/categories/{eatingOut}")).EnsureSuccessStatusCode();
+
+        var response = await browser.PutAsync($"{Rules}/{rule.Id}", new { matchText = "grab", matchType = "contains", categoryId = eatingOut }, IfMatch(rule));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("An archived category takes nothing new: choose one that is not archived.", await response.ErrorOnAsync("categoryId"));
+    }
+
+    [Fact]
     public async Task A_rule_follows_its_category_into_the_one_it_is_merged_into()
     {
         var (browser, _) = await api.SignedInAsync();

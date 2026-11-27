@@ -20,7 +20,7 @@ internal interface ICategorisationRuleCommand
 }
 
 /// <summary>The field rules of a categorisation rule, shared by setting one up and editing it, and taken from the domain's.</summary>
-internal static class CategorisationRuleFields
+internal static class CategorisationRuleRules
 {
     public const string CategoryMessage = "Choose one of your categories that is not archived.";
 
@@ -35,4 +35,8 @@ internal static class CategorisationRuleFields
         validator.RuleFor(command => command.Priority).Must(priority => priority is null || CategorisationRule.IsValidPriority(priority.Value))
             .WithMessage($"Enter a priority from 0 to {CategorisationRule.MaxPriority}.");
     }
+
+    /// <summary>A broken rule of the domain, as errors keyed by the command property at fault.</summary>
+    public static IReadOnlyDictionary<string, string[]> AsErrors(this CategorisationRuleViolation violation) =>
+        FieldError.On(violation.Property, violation.Message);
 }

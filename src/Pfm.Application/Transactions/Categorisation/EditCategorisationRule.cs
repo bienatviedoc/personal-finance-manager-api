@@ -72,16 +72,16 @@ public sealed class EditCategorisationRuleHandler(
 
         if (await categories.FindAsync(command.CategoryId, cancellationToken) is not { } category)
         {
-            return Result<EditCategorisationRuleOutcome?>.Invalid(FieldError.On(nameof(command.CategoryId), CategorisationRuleFields.CategoryMessage));
+            return Result<EditCategorisationRuleOutcome?>.Invalid(FieldError.On(nameof(command.CategoryId), CategorisationRuleRules.CategoryMessage));
         }
 
         try
         {
             rule.Edit(command.MatchText, command.ParsedMatchType!.Value, category, command.Priority ?? rule.Priority, clock.GetUtcNow());
         }
-        catch (CategorisationRuleViolation)
+        catch (CategorisationRuleViolation violation)
         {
-            return Result<EditCategorisationRuleOutcome?>.Invalid(FieldError.On(nameof(command.CategoryId), CategorisationRuleFields.CategoryMessage));
+            return Result<EditCategorisationRuleOutcome?>.Invalid(violation.AsErrors());
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
