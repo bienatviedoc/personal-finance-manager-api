@@ -252,11 +252,13 @@ The browser never touches the database or storage directly, and the worker share
 | --- | --- | --- |
 | `Pfm.Domain` | Entities, value objects (`Money`, `DateRange`), domain rules. No framework references | Nothing |
 | `Pfm.Application` | Use cases per module (commands, queries, validators), interfaces for persistence, storage, email, clock | Domain |
-| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, Identity, storage, email, CSV parsing, exchange-rate provider | Application |
+| `Pfm.Infrastructure` | EF Core `DbContext` and migrations, Identity, storage, email, exchange-rate provider | Application |
 | `Pfm.Api` | Endpoints, auth, OpenAPI, rate limiting, problem details | Application, Infrastructure |
 | `Pfm.Worker` | Hosted background jobs | Application, Infrastructure |
 
 Modules are folders inside each project (`Accounts`, `Transactions`, `Budgets`, `Reports`, `Imports`, `Identity`). A module calls another only through its Application-layer interface, and an architecture test enforces this.
+
+Reading a bank statement's CSV sits in `Pfm.Domain.Imports`, not in Infrastructure: cutting the text into cells, and reading each row's date, amount and description with the user's mapping, are the import's rules (what a row says, which rows fail and why, which are likely duplicates), not a way of reaching something outside the app. It needs nothing but the text, so it is unit-tested against the golden files without a database (decision record 0006).
 
 **Stack**
 

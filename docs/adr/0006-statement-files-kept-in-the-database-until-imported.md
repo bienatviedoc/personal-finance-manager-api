@@ -12,6 +12,11 @@ empty nearly always), reads the file again with the stored mapping and imports t
 transactions and the batch's `ImportedCount` are one save, guarded by the batch's row version. Progress is that count
 against `SelectedCount`, which the SPA reads with `GET /imports/{id}` every second.
 
+Reading the file (cutting it into cells, and each row into a date, an amount and a description with the mapping) is in
+`Pfm.Domain.Imports` (`CsvRecords`, `Statement`), not in Infrastructure as spec section 9 first placed CSV parsing: those
+are the import's rules, which the preview and the worker must apply alike, and they need nothing but the text, so the
+golden-file tests run them with no database or framework.
+
 ## Considered options
 
 - **The file in object storage, as attachments are** (decision record 0004). Rejected: a statement is working
