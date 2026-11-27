@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Imports;
@@ -54,10 +55,11 @@ public abstract record CommitImportOutcome
 /// <see cref="ImportCommits"/>, which the worker runs. One batch at a time is committed into an account: while
 /// another is, committing answers <see cref="CommitImportOutcome.ImportInProgress"/>, so the second statement's
 /// rows are checked against the first's once it is imported, and a statement committed twice is not imported twice.
+/// The commit is recorded in the user's audit log in the same save.
 /// </summary>
 public sealed class CommitImportHandler(
-    IValidator<CommitImportCommand> validator, IImportBatchRepository batches, StatementReader reader, ICategoryLookup categories, IUnitOfWork unitOfWork,
-    TimeProvider clock)
+    IValidator<CommitImportCommand> validator, IImportBatchRepository batches, StatementReader reader, ICategoryLookup categories, IAuditLog auditLog,
+    IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CommitImportCommand, CommitImportOutcome?>(validator)
 {
     protected override Task<Result<CommitImportOutcome?>> ExecuteAsync(CommitImportCommand command, CancellationToken cancellationToken) =>
@@ -112,6 +114,8 @@ public sealed class CommitImportHandler(
             return new CommitImportOutcome.ImportInProgress();
         }
 
+        // Saved with the commit; dropped with it when another statement got in first.
+        await auditLog.ImportCommittedAsync(batch.Id, batch.FileName, batch.SelectedCount, cancellationToken);
         try
         {
             await unitOfWork.SaveChangesAsync(cancellationToken);

@@ -240,6 +240,30 @@ public class AuditLogTests(PfmApi api)
             (await ListAsync(browser)).Items.Take(2).Select(entry => (entry.Action, entry.EntityType, entry.EntityId, entry.Summary)));
     }
 
+    [Fact]
+    public async Task Committing_a_statement_leaves_one_entry_naming_the_batch_and_its_file_and_none_of_its_text()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var upload = await browser.PostFileAsync(
+            "/api/v1/imports", "august.csv", "Date;Details;Amount\n02-08-2026;HIGHLANDS COFFEE;-55.000,00\n06-08-2026;GRABFOOD HCM;-146.000,00\n"u8.ToArray(),
+            new Dictionary<string, string> { ["accountId"] = account.ToString() });
+        var batch = (await upload.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var commit = new
+        {
+            mapping = new { separator = "semicolon", skipFirstRows = 0, hasHeaderRow = true, skipLastRows = 0, dateColumn = 0, descriptionColumn = 1, amountColumn = 2, dateFormat = "dayMonthYear", decimalSeparator = "comma" },
+            rows = new[] { 2, 3 },
+            expenseCategoryId = await CategoryAsync(browser, "Food & drink"),
+        };
+
+        Assert.Equal(HttpStatusCode.Accepted, (await browser.PostAsync($"/api/v1/imports/{batch}/commit", commit)).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await browser.PostAsync($"/api/v1/imports/{batch}/commit", commit)).StatusCode);
+
+        var entries = (await ListAsync(browser)).Items;
+        Assert.Equal(["importCommit", "signIn"], entries.Select(entry => entry.Action));
+        Assert.Equal(("importBatch", (Guid?)batch, "Committed the statement august.csv: 2 rows to import."), (entries[0].EntityType, entries[0].EntityId, entries[0].Summary));
+    }
+
     private static async Task BulkAsync(Browser browser, object request) =>
         (await browser.PostAsync(Bulk, request)).EnsureSuccessStatusCode();
 
