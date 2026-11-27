@@ -256,15 +256,17 @@ public sealed record MappingResponse(
 /// <param name="SuggestedMapping">A first guess at how to read the file (its separator, and the header row after any preamble), while it is uploaded; null after.</param>
 /// <param name="SavedMapping">The mapping saved for the account: the one its last statement was committed with, to start from in place of the suggested one. While the batch is uploaded; null after, or when the account has none.</param>
 /// <param name="UndoneAt">When the user undid the batch, deleting every transaction it created; null unless they did.</param>
+/// <param name="SavedExpenseCategoryId">The expense category the account's last statement that took money out was committed with, saved with its mapping, to start from. While the batch is uploaded; null after, or when the account has none. It may have been archived since.</param>
+/// <param name="SavedIncomeCategoryId">The income category the account's last statement that brought money in was committed with, saved with its mapping, to start from. While the batch is uploaded; null after, or when the account has none. It may have been archived since.</param>
 public sealed record ImportBatchResponse(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
     int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping,
-    MappingResponse? SavedMapping, DateTimeOffset? UndoneAt)
+    MappingResponse? SavedMapping, DateTimeOffset? UndoneAt, Guid? SavedExpenseCategoryId, Guid? SavedIncomeCategoryId)
 {
     public static ImportBatchResponse From(ImportBatchDetails batch) =>
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,
             batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping),
-            MappingResponse.From(batch.SavedMapping), batch.UndoneAt);
+            MappingResponse.From(batch.SavedMapping), batch.UndoneAt, batch.SavedExpenseCategoryId, batch.SavedIncomeCategoryId);
 }
 
 /// <summary>A page of past import batches.</summary>

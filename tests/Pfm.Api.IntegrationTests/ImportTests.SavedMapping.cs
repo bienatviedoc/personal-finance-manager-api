@@ -46,6 +46,42 @@ public partial class ImportTests
     }
 
     [Fact]
+    public async Task The_categories_a_statement_is_committed_with_are_saved_with_its_mapping_and_offered_for_the_next_upload()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var groceries = await CategoryAsync(browser, "Groceries");
+        var salary = await CategoryAsync(browser, "Salary");
+        (await CommitAsync(browser, await UploadAsync(browser, account, Small), SmallMapping, [2, 3], groceries, salary)).EnsureSuccessStatusCode();
+        await ImportAsync();
+
+        var next = await UploadAsync(browser, account, Small);
+        var elsewhere = await UploadAsync(browser, await AddAccountAsync(browser, "Cash"), Small);
+
+        Assert.Equal((groceries, salary), (next.SavedExpenseCategoryId, next.SavedIncomeCategoryId));
+        Assert.Equal((groceries, salary), ((await BatchAsync(browser, next.Id)).SavedExpenseCategoryId, (await BatchAsync(browser, next.Id)).SavedIncomeCategoryId));
+        Assert.Equal((null, null), (elsewhere.SavedExpenseCategoryId, elsewhere.SavedIncomeCategoryId));
+    }
+
+    [Fact]
+    public async Task A_commit_that_needs_no_category_of_one_kind_keeps_the_one_saved_for_it()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var salary = await CategoryAsync(browser, "Salary");
+        (await CommitAsync(browser, await UploadAsync(browser, account, Small), SmallMapping, [2, 3], await CategoryAsync(browser, "Groceries"), salary)).EnsureSuccessStatusCode();
+        await ImportAsync();
+        var transport = await CategoryAsync(browser, "Transport");
+
+        var spendingOnly = await UploadAsync(browser, account, Small);
+        (await browser.PostAsync($"{Imports}/{spendingOnly.Id}/commit", new { mapping = SmallMapping, rows = new[] { 5 }, expenseCategoryId = transport })).EnsureSuccessStatusCode();
+        await ImportAsync();
+
+        var next = await UploadAsync(browser, account, Small);
+        Assert.Equal((transport, salary), (next.SavedExpenseCategoryId, next.SavedIncomeCategoryId));
+    }
+
+    [Fact]
     public async Task A_commit_refused_saves_no_mapping()
     {
         var (browser, _) = await api.SignedInAsync();

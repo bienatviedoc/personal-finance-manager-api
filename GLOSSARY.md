@@ -113,7 +113,7 @@ How the user says a statement file is read: what separates its cells, the rows t
 _Avoid_: Parser, format, template, column map
 
 **Saved mapping**:
-The mapping an account's last statement was committed with, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
+The mapping an account's last statement was committed with, and the expense and income categories its rows were recorded on, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
 _Avoid_: Template, profile, preset
 
 **Undo** (of an import batch):

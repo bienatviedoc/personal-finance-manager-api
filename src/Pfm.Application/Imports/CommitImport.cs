@@ -133,14 +133,14 @@ public sealed class CommitImportHandler(
             return Result<CommitImportOutcome?>.Invalid(FieldError.On(property, violation.Message));
         }
 
-        // Saved for the account with the commit, for its next statement (spec IMP-2).
+        // Saved for the account with the commit, with its categories, for its next statement (spec IMP-2).
         if (await mappings.FindAsync(batch.AccountId, cancellationToken) is { } saved)
         {
-            saved.Change(mapping, clock.GetUtcNow());
+            saved.Change(mapping, command.ExpenseCategoryId, command.IncomeCategoryId, clock.GetUtcNow());
         }
         else
         {
-            mappings.Add(ImportMapping.Save(batch.AccountId, mapping, clock.GetUtcNow()));
+            mappings.Add(ImportMapping.Save(batch.AccountId, mapping, command.ExpenseCategoryId, command.IncomeCategoryId, clock.GetUtcNow()));
         }
 
         if (await batches.IsCommittingIntoAsync(batch.AccountId, cancellationToken))

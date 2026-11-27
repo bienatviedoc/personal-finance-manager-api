@@ -524,6 +524,12 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid?>("ExpenseCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("IncomeCategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Mapping")
                         .IsRequired()
                         .HasColumnType("jsonb");
@@ -538,7 +544,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("AccountId")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasDatabaseName("IX_ImportMappings_AccountId");
 
                     b.ToTable("ImportMappings", (string)null);
                 });

@@ -617,7 +617,12 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   before. An upload, and `GET /imports/{id}` while the batch is uploaded, answer it as `savedMapping` (null when the
   account has none), beside the `suggestedMapping` guessed from the file: the SPA starts from the saved one, so the
   next statement of the same bank is one click, and the user can still change it in the preview; the change is saved
-  when that statement is committed. A commit refused saves nothing.
+  when that statement is committed. A commit refused saves nothing. The expense and income categories the statement
+  was committed with are saved beside the mapping and answered as `savedExpenseCategoryId` and
+  `savedIncomeCategoryId`, for the SPA to start from too (when they are not archived since), so a repeat import needs no
+  choices; a commit that sends no category of a kind (its rows needed none) keeps the one saved. Two first commits
+  into an account that both save its mapping do not fail: the second to save breaks the one-per-account index, which
+  `PfmDbContext` reads as a concurrent change, and is made again on the first's mapping.
 - **Past imports.** `GET /imports` lists the batches the user committed, whatever became of them (`committing`,
   `committed`, `failed` or `undone`), the last uploaded first, a page at a time, with `accountId` to list one
   account's (`ListImportBatches`): each with its `fileName`, `createdAt` (uploaded), `committedAt`, `undoneAt` and

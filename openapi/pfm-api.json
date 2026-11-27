@@ -8500,7 +8500,9 @@
           "mapping",
           "suggestedMapping",
           "savedMapping",
-          "undoneAt"
+          "undoneAt",
+          "savedExpenseCategoryId",
+          "savedIncomeCategoryId"
         ],
         "type": "object",
         "properties": {
@@ -8615,6 +8617,20 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "savedExpenseCategoryId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "savedIncomeCategoryId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

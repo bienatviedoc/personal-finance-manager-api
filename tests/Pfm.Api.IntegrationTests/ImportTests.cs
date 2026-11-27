@@ -597,7 +597,7 @@ public partial class ImportTests(PfmApi api, ITestOutputHelper output)
     private sealed record BatchBody(
         Guid Id, Guid AccountId, string FileName, string Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
         int FailedCount, string? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingBody? Mapping, MappingBody? SuggestedMapping,
-        MappingBody? SavedMapping = null, DateTimeOffset? UndoneAt = null);
+        MappingBody? SavedMapping = null, DateTimeOffset? UndoneAt = null, Guid? SavedExpenseCategoryId = null, Guid? SavedIncomeCategoryId = null);
 
     private sealed record RowBody(
         int Number, string[] Cells, string Kind, string? Date, string? Type, string? Amount, string? Description, string? Problem, bool LikelyDuplicate,
