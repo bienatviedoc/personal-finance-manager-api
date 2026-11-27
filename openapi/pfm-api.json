@@ -2034,7 +2034,7 @@
         "tags": [
           "Transactions"
         ],
-        "description": "What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before.",
+        "description": "What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before, and otherwise the category of the highest-priority categorisation rule the payee matches.",
         "operationId": "GetQuickAdd",
         "parameters": [
           {

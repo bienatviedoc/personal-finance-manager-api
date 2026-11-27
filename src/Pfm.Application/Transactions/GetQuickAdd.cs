@@ -1,4 +1,5 @@
 using Pfm.Application.Contracts.Accounts;
+using Pfm.Application.Transactions.Categorisation;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
 
@@ -17,19 +18,31 @@ public sealed record GetQuickAdd(TransactionType? Type = null, string? Payee = n
 /// </param>
 /// <param name="SuggestedCategoryId">
 /// The category, not archived, most often used on the user's transactions with this payee, and of those used
-/// equally often the one used last; null when the payee was never used.
+/// equally often the one used last; for a payee never used, the category of the highest-priority categorisation
+/// rule it matches (spec IMP-4); null when neither gives one.
 /// </param>
 public sealed record QuickAddDetails(Guid? LastAccountId, Guid? SuggestedCategoryId);
 
-public sealed class GetQuickAddHandler(IQuickAddHistory history, IAccountLookup accounts) : IQueryHandler
+public sealed class GetQuickAddHandler(IQuickAddHistory history, IAccountLookup accounts, UserCategorisation categorisation) : IQueryHandler
 {
     public async Task<QuickAddDetails> HandleAsync(GetQuickAdd query, CancellationToken cancellationToken = default)
     {
-        var suggested = Transaction.Normalised(query.Payee) is { } payee
-            ? await history.MostUsedCategoryAsync(payee, query.Type, cancellationToken)
-            : null;
+        Guid? suggested = null;
+        if (Transaction.Normalised(query.Payee) is { } payee)
+        {
+            suggested = await history.MostUsedCategoryAsync(payee, query.Type, cancellationToken)
+                ?? (await categorisation.CategoriserAsync(cancellationToken)).CategoryFor(payee, KindOf(query.Type));
+        }
+
         return new QuickAddDetails(await LastAccountAsync(cancellationToken), suggested);
     }
+
+    private static CategoryKind? KindOf(TransactionType? type) => type switch
+    {
+        TransactionType.Income => CategoryKind.Income,
+        TransactionType.Expense => CategoryKind.Expense,
+        _ => null,
+    };
 
     /// <summary>An archived account takes no new transactions, so it is passed over for the one used before it.</summary>
     private async Task<Guid?> LastAccountAsync(CancellationToken cancellationToken)

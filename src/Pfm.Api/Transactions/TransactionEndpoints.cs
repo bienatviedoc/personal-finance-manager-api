@@ -21,7 +21,7 @@ public static class TransactionEndpoints
         transactions.MapGet("/", List).WithName("ListTransactions")
             .WithDescription("The user's transactions that pass every filter sent, a page at a time, with the total of all that pass, whichever page is asked for. Newest date first and, within a date, last recorded first, unless sort and order say otherwise. A deleted transaction is never listed or counted. The two legs of a transfer are listed like any transaction, each on its own account, with the transferId they share; the total counts them and adds them to neither income nor expenses.");
         transactions.MapGet("/quick-add", QuickAdd).WithName("GetQuickAdd")
-            .WithDescription("What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before.");
+            .WithDescription("What quick add starts a new transaction from: the account, not archived, that the user recorded a transaction on last, and the category, not archived, they most often gave the payee. Send the payee as typed; it suggests a category once it is, in any case, a payee the user has used before, and otherwise the category of the highest-priority categorisation rule the payee matches.");
         transactions.MapGet("/deleted", ListDeleted).WithName("ListDeletedTransactions")
             .WithDescription("The user's recently deleted transactions: those deleted in the last 30 days, which can still be restored, the last deleted first, a page at a time. Each leg of a deleted transfer is listed. After 30 days a deleted transaction is no longer listed or restorable, and the worker removes it for good.");
         transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
@@ -415,7 +415,7 @@ public sealed record DeletedTransactionListResponse(IReadOnlyList<DeletedTransac
 
 /// <summary>What quick add starts a new transaction from.</summary>
 /// <param name="LastAccountId">The account, not archived, that the user recorded a transaction on last; null when they have recorded none.</param>
-/// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; null when they never used the payee.</param>
+/// <param name="SuggestedCategoryId">The category, not archived, the user most often gave the payee, and of those given equally often the one given last; for a payee never used, the category of the highest-priority categorisation rule it matches, of the kind the type takes; null when neither gives one.</param>
 public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCategoryId);
 
 /// <summary>One action on many transactions (spec TXN-7).</summary>
