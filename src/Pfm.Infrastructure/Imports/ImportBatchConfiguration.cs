@@ -3,17 +3,18 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Pfm.Application.UseCases;
 using Pfm.Domain.Imports;
 
 namespace Pfm.Infrastructure.Imports;
 
 internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
-    private static readonly JsonSerializerOptions MappingJson = new(JsonSerializerDefaults.Web)
+    /// <summary>A mapping as the API writes one: its enums by name, as <see cref="EnumText"/> writes them.</summary>
+    private static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase, allowIntegerValues: false) },
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    });
 
     public void Configure(EntityTypeBuilder<ImportBatch> batch)
     {
@@ -55,5 +56,15 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
 
         // The batches being committed, which the worker asks for every few seconds.
         batch.HasIndex(row => row.UserId).HasFilter("\"Status\" = 'Committing'").HasDatabaseName("IX_ImportBatches_UserId_Committing");
+    }
+
+    private static JsonSerializerOptions WithEnumText(JsonSerializerOptions options)
+    {
+        foreach (var converter in EnumText.JsonConverters())
+        {
+            options.Converters.Add(converter);
+        }
+
+        return options;
     }
 }
