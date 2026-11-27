@@ -32,5 +32,21 @@ internal sealed class ImportBatchRepository(PfmDbContext db) : IImportBatchRepos
             .Distinct()
             .ToListAsync(cancellationToken);
 
+    public async Task<IReadOnlyList<ImportBatch>> ListUploadedBeforeAsync(DateTimeOffset before, CancellationToken cancellationToken) =>
+        await db.Set<ImportBatch>()
+            .Where(batch => batch.Status == ImportBatchStatus.Uploaded && batch.CreatedAt < before)
+            .ToListAsync(cancellationToken);
+
+    /// <summary>Looks past the user filter for the sweep, as <see cref="UsersWithCommittingAsync"/> does for the worker: user ids only.</summary>
+    public async Task<IReadOnlyList<Guid>> UsersWithUploadedBeforeAsync(DateTimeOffset before, CancellationToken cancellationToken) =>
+        await db.Set<ImportBatch>()
+            .IgnoreQueryFilters()
+            .Where(batch => batch.Status == ImportBatchStatus.Uploaded && batch.CreatedAt < before)
+            .Select(batch => batch.UserId)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
     public void Add(ImportBatch batch) => db.Set<ImportBatch>().Add(batch);
+
+    public void Remove(ImportBatch batch) => db.Set<ImportBatch>().Remove(batch);
 }

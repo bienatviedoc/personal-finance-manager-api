@@ -17,5 +17,14 @@ public interface IImportBatchRepository
     /// <summary>Every user, signed in or not, who has a batch being committed: the worker's queue.</summary>
     Task<IReadOnlyList<Guid>> UsersWithCommittingAsync(CancellationToken cancellationToken);
 
+    /// <summary>The user's batches uploaded before <paramref name="before"/> and never committed.</summary>
+    Task<IReadOnlyList<ImportBatch>> ListUploadedBeforeAsync(DateTimeOffset before, CancellationToken cancellationToken);
+
+    /// <summary>Every user, signed in or not, who has a batch uploaded before <paramref name="before"/> and never committed: the sweep's queue.</summary>
+    Task<IReadOnlyList<Guid>> UsersWithUploadedBeforeAsync(DateTimeOffset before, CancellationToken cancellationToken);
+
     void Add(ImportBatch batch);
+
+    /// <summary>Removes a batch never committed, file and all; it has no transactions.</summary>
+    void Remove(ImportBatch batch);
 }

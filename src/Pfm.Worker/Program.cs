@@ -40,5 +40,11 @@ builder.Services.AddOptions<ImportCommitOptions>()
     .Validate(options => options.CommitEvery > TimeSpan.Zero, "Imports:CommitEvery must be longer than zero.")
     .ValidateOnStart();
 builder.Services.AddHostedService<ImportCommitJob>();
+builder.Services.AddOptions<AbandonedUploadSweepOptions>()
+    .BindConfiguration(AbandonedUploadSweepOptions.Section)
+    .Validate(options => options.RunEvery > TimeSpan.Zero, "AbandonedUploadSweep:RunEvery must be longer than zero.")
+    .Validate(options => options.KeepFor > TimeSpan.Zero, "AbandonedUploadSweep:KeepFor must be longer than zero.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<AbandonedUploadSweepJob>();
 
 builder.Build().Run();

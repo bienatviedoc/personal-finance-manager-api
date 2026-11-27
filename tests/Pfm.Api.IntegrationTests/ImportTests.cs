@@ -378,6 +378,32 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
     }
 
     [Fact]
+    public async Task A_statement_uploaded_and_never_committed_is_removed_with_its_file_once_it_is_older_than_the_time_uploads_are_kept()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var abandoned = await UploadAsync(browser, account, Small);
+        var committed = await UploadAsync(browser, account, Small);
+        (await CommitAsync(browser, committed, SmallMapping, [2])).EnsureSuccessStatusCode();
+        await ImportAsync();
+
+        await using (var earlier = api.After(TimeSpan.FromHours(23)).Services.CreateAsyncScope())
+        {
+            await earlier.ServiceProvider.GetRequiredService<AbandonedUploadSweep>().RunAsync(keepFor: TimeSpan.FromHours(24));
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync($"{Imports}/{abandoned.Id}")).StatusCode);
+
+        await using (var later = api.After(TimeSpan.FromHours(25)).Services.CreateAsyncScope())
+        {
+            Assert.True(await later.ServiceProvider.GetRequiredService<AbandonedUploadSweep>().RunAsync(keepFor: TimeSpan.FromHours(24)) >= 1);
+        }
+
+        Assert.Equal(HttpStatusCode.NotFound, (await browser.GetAsync($"{Imports}/{abandoned.Id}")).StatusCode);
+        Assert.Equal("committed", (await BatchAsync(browser, committed.Id)).Status);
+    }
+
+    [Fact]
     public async Task Another_users_batch_is_not_found()
     {
         var (browser, _) = await api.SignedInAsync();

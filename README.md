@@ -511,7 +511,9 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **The file is kept only until its rows are imported**, in the batch's own row (`ImportBatches.Content`), never in
   object storage ([decision record 0006](docs/adr/0006-statement-files-kept-in-the-database-until-imported.md)). A
   statement can hold a full account number, which the app otherwise never stores (spec ACC-8); a check constraint
-  holds that a committed or failed batch keeps no file.
+  holds that a committed or failed batch keeps no file. A statement uploaded and never committed is removed, file and
+  all, once it is 24 hours old (`AbandonedUploadSweepJob`, every hour; `AbandonedUploadSweep__KeepFor` sets the
+  age, `AbandonedUploadSweep__RunEvery` how often it runs).
 - **A mapping** (`StatementMapping`; see the glossary) says how to read the file: the `separator` (`comma`,
   `semicolon`, `tab`, `pipe`), `skipFirstRows` (a preamble), `hasHeaderRow`, `skipLastRows` (a footer, such
   as a total; blank rows at the very end are not counted), the `dateColumn`, the `descriptionColumn` (which becomes
@@ -937,14 +939,15 @@ An entity that implements `Pfm.Domain.IUserOwned` belongs to one user, and `PfmD
 - changing or deleting another user's row fails, even for a row attached without loading it;
 - a row's owner never changes, whether through a tracked change or a bulk update.
 
-`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are five
-exceptions, and `UserOwnedDataTests` fails when a sixth appears: `TransactionRepository.UsersWithNotConvertedAsync`
+`IgnoreQueryFilters()` and raw SQL step outside all of this; don't use them on user-owned data. There are six
+exceptions, and `UserOwnedDataTests` fails when a seventh appears: `TransactionRepository.UsersWithNotConvertedAsync`
 ignores the filter to answer which users have transactions flagged not converted,
 `TransactionRepository.UsersWithTransactionsAsync` which users have any transaction (for the integrity check),
 `TransactionRepository.UsersWithDeletedBeforeAsync` which users have transactions deleted long enough ago to purge,
 `RecurringRuleRepository.UsersWithDueRulesAsync` which users have a recurring rule with an occurrence
-due, and `ImportBatchRepository.UsersWithCommittingAsync` which users have a statement committed and waiting to be
-imported. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
+due, `ImportBatchRepository.UsersWithCommittingAsync` which users have a statement committed and waiting to be
+imported, and `ImportBatchRepository.UsersWithUploadedBeforeAsync` which users have a statement uploaded and never
+committed for long enough to remove. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
 

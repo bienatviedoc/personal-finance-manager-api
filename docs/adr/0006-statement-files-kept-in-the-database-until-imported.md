@@ -34,8 +34,9 @@ against `SelectedCount`, which the SPA reads with `GET /imports/{id}` every seco
 
 ## Consequences
 
-- An uploaded file that is never committed stays in its row. Nothing sweeps those up yet; #23, which lists past
-  batches, is where abandoned uploads can be discarded.
+- An uploaded file that is never committed is removed with its batch once it is older than a set age, 24 hours by
+  default (`AbandonedUploadSweep__KeepFor`), by the worker's `AbandonedUploadSweepJob`, which runs every hour: no
+  statement's text is kept for good (spec ACC-8). A user who comes back to an upload after that uploads it again.
 - The worker reads the file again for every save. At 250 rows a save that is 20 reads of a statement of 5,000 rows,
   each a few milliseconds.
 - A user waits up to two seconds after committing before the first rows go in (`Imports__CommitEvery`).
