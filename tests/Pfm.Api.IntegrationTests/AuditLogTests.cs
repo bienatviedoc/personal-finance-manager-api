@@ -264,6 +264,43 @@ public class AuditLogTests(PfmApi api)
         Assert.Equal(("importBatch", (Guid?)batch, "Committed the statement august.csv: 2 rows to import."), (entries[0].EntityType, entries[0].EntityId, entries[0].Summary));
     }
 
+    [Fact]
+    public async Task Undoing_an_import_leaves_an_entry_naming_the_batch_its_file_and_how_many_transactions_it_deleted()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var batch = await CommitStatementAsync(browser);
+        await using (var scope = api.Services.CreateAsyncScope())
+        {
+            while ((await scope.ServiceProvider.GetRequiredService<Pfm.Application.Imports.ImportCommits>().ImportNextAsync()).Rows > 0)
+            {
+            }
+        }
+
+        Assert.Equal(HttpStatusCode.OK, (await browser.DeleteAsync($"/api/v1/imports/{batch}")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await browser.DeleteAsync($"/api/v1/imports/{batch}")).StatusCode);
+
+        var entries = (await ListAsync(browser)).Items;
+        Assert.Equal(["importUndo", "importCommit", "signIn"], entries.Select(entry => entry.Action));
+        Assert.Equal(("importBatch", (Guid?)batch, "Undid the import of the statement august.csv: 2 transactions removed."), (entries[0].EntityType, entries[0].EntityId, entries[0].Summary));
+    }
+
+    private static async Task<Guid> CommitStatementAsync(Browser browser)
+    {
+        var account = await AddAccountAsync(browser, "Techcombank");
+        var upload = await browser.PostFileAsync(
+            "/api/v1/imports", "august.csv", "Date;Details;Amount\n02-08-2026;HIGHLANDS COFFEE;-55.000,00\n06-08-2026;GRABFOOD HCM;-146.000,00\n"u8.ToArray(),
+            new Dictionary<string, string> { ["accountId"] = account.ToString() });
+        var batch = (await upload.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+        var commit = new
+        {
+            mapping = new { separator = "semicolon", skipFirstRows = 0, hasHeaderRow = true, skipLastRows = 0, dateColumn = 0, descriptionColumn = 1, amountColumn = 2, dateFormat = "dayMonthYear", decimalSeparator = "comma" },
+            rows = new[] { 2, 3 },
+            expenseCategoryId = await CategoryAsync(browser, "Food & drink"),
+        };
+        Assert.Equal(HttpStatusCode.Accepted, (await browser.PostAsync($"/api/v1/imports/{batch}/commit", commit)).StatusCode);
+        return batch;
+    }
+
     private static async Task BulkAsync(Browser browser, object request) =>
         (await browser.PostAsync(Bulk, request)).EnsureSuccessStatusCode();
 
