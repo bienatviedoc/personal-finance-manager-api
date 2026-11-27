@@ -137,6 +137,15 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     /// </summary>
     private void GuardUserOwnedRows()
     {
+        // Checked first: an append-only row is refused whoever it belongs to.
+        foreach (var entry in ChangeTracker.Entries<IAppendOnly>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException($"{entry.Metadata.DisplayName()} rows are append-only: they cannot be {(entry.State == EntityState.Deleted ? "deleted" : "changed")}.");
+            }
+        }
+
         foreach (var entry in ChangeTracker.Entries<IUserOwned>())
         {
             var owner = entry.Property(row => row.UserId);

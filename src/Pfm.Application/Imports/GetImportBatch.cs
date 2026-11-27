@@ -6,11 +6,11 @@ namespace Pfm.Application.Imports;
 public sealed record GetImportBatch(Guid Id);
 
 /// <summary>Answers null when the user has no such batch.</summary>
-public sealed class GetImportBatchHandler(IImportBatchRepository batches) : IQueryHandler
+public sealed class GetImportBatchHandler(IImportBatchRepository batches, IImportMappingRepository mappings) : IQueryHandler
 {
     public async Task<ImportBatchDetails?> HandleAsync(GetImportBatch query, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(query);
-        return await batches.FindAsync(query.Id, cancellationToken) is { } batch ? ImportBatchDetails.Of(batch) : null;
+        return await batches.FindAsync(query.Id, cancellationToken) is { } batch ? await ImportBatchDetails.OfAsync(batch, mappings, cancellationToken) : null;
     }
 }

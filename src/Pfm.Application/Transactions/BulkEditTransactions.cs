@@ -2,6 +2,7 @@ using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Contracts.Accounts;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
@@ -108,7 +109,7 @@ public sealed record RefusedTransaction(Guid TransactionId, BulkRefusal Reason, 
 /// </summary>
 public sealed class BulkEditTransactionsHandler(
     IValidator<BulkEditTransactionsCommand> validator, ITransactionRepository transactions, ICategoryRepository categories, IAccountLookup accounts,
-    TransactionTags tags, ITagRepository tagRepository, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork, TimeProvider clock)
+    TransactionTags tags, ITagRepository tagRepository, IBudgetNotifications budgetNotifications, IAuditLog auditLog, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<BulkEditTransactionsCommand, BulkEditOutcome>(validator)
 {
     protected override Task<Result<BulkEditOutcome>> ExecuteAsync(BulkEditTransactionsCommand command, CancellationToken cancellationToken) =>
@@ -147,6 +148,8 @@ public sealed class BulkEditTransactionsHandler(
             return new BulkEditOutcome.Refused([.. refused.OrderBy(row => order.IndexOf(row.TransactionId))]);
         }
 
+        // In the same save as the action, so the log has it exactly when the transactions took it.
+        await auditLog.BulkActionTakenAsync(acted.Outcome.Action, acted.Outcome.Count, cancellationToken);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         if (command.ParsedAction is not (BulkAction.AddTag or BulkAction.RemoveTag))
         {
@@ -154,15 +157,16 @@ public sealed class BulkEditTransactionsHandler(
             await budgetNotifications.CheckAsync([.. selected.Select(transaction => transaction.Date).Distinct()], cancellationToken);
         }
 
-        return new BulkEditOutcome.Done(acted.Outcome);
+        return new BulkEditOutcome.Done(acted.Outcome.Count);
     }
 
     /// <summary>
     /// Makes the action's change to each selected transaction, adding to <paramref name="refused"/> each that refuses
-    /// it, and says how many transactions took it: a delete of a leg of a transfer deletes the other leg too.
+    /// it, and says how many transactions took it (a delete of a leg of a transfer deletes the other leg too) and what
+    /// it did, as the audit log says it.
     /// Invalid when what the action names (a category, an account) cannot be used at all.
     /// </summary>
-    private async Task<Result<int>> ActOnEachAsync(
+    private async Task<Result<Acted>> ActOnEachAsync(
         BulkEditTransactionsCommand command, IReadOnlyList<Transaction> selected, List<RefusedTransaction> refused, DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -186,16 +190,16 @@ public sealed class BulkEditTransactionsHandler(
             case BulkAction.SetCategory:
                 if (await categories.FindAsync(command.CategoryId!.Value, cancellationToken) is not { IsArchived: false } category)
                 {
-                    return Result<int>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
+                    return Result<Acted>.Invalid(FieldError.On(nameof(command.CategoryId), Choices.NotACategory));
                 }
 
                 Change(selected, transaction => transaction.Recategorise(category, now));
-                break;
+                return new Acted(selected.Count, new AuditedBulkAction.CategorySet(category.Name));
 
             case BulkAction.AddTag:
                 var tag = (await tags.FindOrCreateAsync([command.NormalisedTag!], cancellationToken))[0];
                 Change(selected, transaction => transaction.AddTag(tag, now));
-                break;
+                return new Acted(selected.Count, new AuditedBulkAction.TagAdded(command.NormalisedTag!));
 
             case BulkAction.RemoveTag:
                 var named = await tagRepository.FindByNamesAsync([command.NormalisedTag!], cancellationToken);
@@ -206,16 +210,16 @@ public sealed class BulkEditTransactionsHandler(
                         transaction.RemoveTag(had.Id, now);
                     }
                 });
-                break;
+                return new Acted(selected.Count, new AuditedBulkAction.TagRemoved(command.NormalisedTag!));
 
             case BulkAction.MoveToAccount:
                 if (await accounts.FindChoosableAsync(command.AccountId!.Value, keeps: null, cancellationToken) is not { } account)
                 {
-                    return Result<int>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
+                    return Result<Acted>.Invalid(FieldError.On(nameof(command.AccountId), Choices.NotAnAccount));
                 }
 
                 Change(selected, transaction => transaction.MoveTo(account.Id, account.Currency, now));
-                break;
+                return new Acted(selected.Count, new AuditedBulkAction.MovedToAccount(account.Name));
 
             case BulkAction.Delete:
                 var alone = selected.Where(transaction => !transaction.IsTransferLeg).ToList();
@@ -229,12 +233,13 @@ public sealed class BulkEditTransactionsHandler(
                 }
 
                 // Both legs of each transfer go, whether one or both were selected.
-                return alone.Count + (2 * transfers.Count);
+                return new Acted(alone.Count + (2 * transfers.Count), new AuditedBulkAction.Deleted());
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(command), command.ParsedAction, "Not a bulk action.");
         }
-
-        return selected.Count;
     }
+
+    /// <summary>How many transactions an action took, and what it did to them.</summary>
+    private sealed record Acted(int Count, AuditedBulkAction Action);
 }

@@ -24,6 +24,9 @@ public interface ITransactionRepository
     /// <summary>The account's transactions dated from <paramref name="from"/> to <paramref name="to"/>, both included, read only; a deleted one is in none.</summary>
     Task<IReadOnlyList<Transaction>> ListOnAccountAsync(Guid accountId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
 
+    /// <summary>The user's transactions created from the import batch, legs of transfers they were marked as included; a deleted one is in none.</summary>
+    Task<IReadOnlyList<Transaction>> ListImportedByAsync(Guid importBatchId, CancellationToken cancellationToken);
+
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 

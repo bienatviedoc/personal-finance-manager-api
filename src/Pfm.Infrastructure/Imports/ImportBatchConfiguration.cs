@@ -11,7 +11,7 @@ namespace Pfm.Infrastructure.Imports;
 internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<ImportBatch>
 {
     /// <summary>A mapping as the API writes one: its enums by name, as <see cref="EnumText"/> writes them.</summary>
-    private static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
+    internal static readonly JsonSerializerOptions MappingJson = WithEnumText(new JsonSerializerOptions(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     });
@@ -20,7 +20,7 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
     {
         batch.ToTable("ImportBatches", table =>
         {
-            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed')");
+            table.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed', 'Undone')");
             table.HasCheckConstraint("CK_ImportBatches_ImportedCount_Within_Selected", "\"ImportedCount\" >= 0 AND \"ImportedCount\" <= \"SelectedCount\"");
 
             // The file is kept only until its rows are imported: it can hold a full account number (spec ACC-8).
@@ -44,6 +44,20 @@ internal sealed class ImportBatchConfiguration : IEntityTypeConfiguration<Import
             .Metadata.SetValueComparer(new ValueComparer<List<int>>(
                 (left, right) => left!.SequenceEqual(right!), rows => rows.Aggregate(0, HashCode.Combine), rows => rows.ToList()));
         batch.Ignore(row => row.SelectedRows);
+
+        // The categories the user gave chosen rows of their own (spec IMP-4), by row number.
+        batch.Property<Dictionary<int, Guid>>("_rowCategories")
+            .HasColumnName(nameof(ImportBatch.RowCategories))
+            .HasColumnType("jsonb")
+            .HasDefaultValueSql("'{}'::jsonb")
+            .HasConversion(
+                categories => JsonSerializer.Serialize(categories, (JsonSerializerOptions?)null),
+                json => JsonSerializer.Deserialize<Dictionary<int, Guid>>(json, (JsonSerializerOptions?)null) ?? new Dictionary<int, Guid>())
+            .Metadata.SetValueComparer(new ValueComparer<Dictionary<int, Guid>>(
+                (left, right) => left!.Count == right!.Count && !left.Except(right).Any(),
+                categories => categories.Aggregate(0, (hash, row) => HashCode.Combine(hash, row.Key, row.Value)),
+                categories => new Dictionary<int, Guid>(categories)));
+        batch.Ignore(row => row.RowCategories);
 
         // PostgreSQL's own row version (xmin): of two workers importing the same rows, only the first saves them.
         batch.Property(row => row.RowVersion).IsRowVersion();

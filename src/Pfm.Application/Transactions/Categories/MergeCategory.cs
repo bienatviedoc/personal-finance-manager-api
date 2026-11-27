@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
+using Pfm.Application.Transactions.Categorisation;
 using Pfm.Application.Transactions.Recurring;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Transactions;
@@ -30,7 +31,7 @@ public sealed record CategoryMergeDetails(int Transactions, int Budgets);
 /// Merges a category into another of the same kind: every transaction line and budget moves to the target, where
 /// both have a budget in a month the amounts are added, and the merged category is archived. Its subcategories
 /// move under the target, which must then be a top-level category (two levels at most), and its recurring rules
-/// move to the target too, so they go on posting. Deleted transactions move as well, so they come back on the
+/// move to the target too, so they go on posting, as do its categorisation rules, so they go on categorising. Deleted transactions move as well, so they come back on the
 /// target. Answers null when the user has no category with the id; one they have no target of is an error on
 /// the target, as is every rule the merge would break, and then nothing changes.
 /// </summary>
@@ -41,7 +42,7 @@ public sealed record CategoryMergeDetails(int Transactions, int Budgets);
 /// </remarks>
 public sealed class MergeCategoryHandler(
     IValidator<MergeCategoryCommand> validator, ICategoryRepository categories, ITransactionRepository transactions,
-    IRecurringRuleRepository recurringRules, IUserBudgets budgets, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork,
+    IRecurringRuleRepository recurringRules, ICategorisationRuleRepository categorisationRules, IUserBudgets budgets, IBudgetNotifications budgetNotifications, IUnitOfWork unitOfWork,
     TimeProvider clock)
     : CommandHandler<MergeCategoryCommand, CategoryMergeDetails?>(validator)
 {
@@ -102,6 +103,11 @@ public sealed class MergeCategoryHandler(
         }
 
         foreach (var rule in await recurringRules.ListOnCategoryAsync(merged.Id, cancellationToken))
+        {
+            rule.MoveCategory(merged, target, now);
+        }
+
+        foreach (var rule in await categorisationRules.ListOnCategoryAsync(merged.Id, cancellationToken))
         {
             rule.MoveCategory(merged, target, now);
         }

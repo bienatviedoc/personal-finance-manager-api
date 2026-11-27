@@ -303,12 +303,12 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage. The foreign key to its transaction restricts deletes, so purging a deleted transaction after 30 days (rule 10) must first delete its attachments' files from storage, then their rows |
 | `Budget` | CategoryId?, Month (first day), Amount | Null category means the overall monthly budget. Unique on (UserId, CategoryId, Month) |
 | `RecurringRule` | Template fields, Frequency, Interval, StartDate, EndDate?, NextRunDate, Mode (AutoPost or Remind) |  |
-| `ImportBatch` | AccountId, FileName, Content?, Status, Mapping? (JSON), SelectedRows (JSON), ExpenseCategoryId?, IncomeCategoryId?, RowCount, SelectedCount, ImportedCount, DuplicateCount, FailedCount, FailedAttempts, Failure?, CommittedOn?, CommittedAt?, RowVersion | Content is the statement's text, dropped once it is imported, fails or is abandoned (ACC-8, decision record 0006). One batch per account may be committing at a time. Undo deletes by ImportBatchId |
-| `ImportMapping` | AccountId, ColumnMap (JSON), DateFormat, DecimalSeparator |  |
-| `CategoryRule` | MatchText, MatchType, CategoryId, Priority | Used by import and quick add |
+| `ImportBatch` | AccountId, FileName, Content?, Status, Mapping? (JSON), SelectedRows (JSON), RowCategories (JSON), ExpenseCategoryId?, IncomeCategoryId?, RowCount, SelectedCount, ImportedCount, DuplicateCount, FailedCount, FailedAttempts, Failure?, CommittedOn?, CommittedAt?, UndoneAt?, RowVersion | Content is the statement's text, dropped once it is imported, fails, is undone or is abandoned (ACC-8, decision record 0006). One batch per account may be committing at a time. Undo soft-deletes by ImportBatchId in the same save as the batch, which stops a commit in progress (decision record 0007) |
+| `ImportMapping` | AccountId, Mapping (JSON: columns, separator, rows skipped, date format, decimal separator) | One per account: the mapping its last statement was committed with, offered for the next upload (IMP-2) |
+| `CategoryRule` | MatchText, MatchType, CategoryId, Priority | `CategorisationRule` in code. Used by the import preview and quick add. The highest priority that matches wins; a rule categorises only transactions of its category's kind, and nothing while its category is archived |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
 | `ExchangeRate` | FromCurrency, ToCurrency, Date, Rate | What one unit of FromCurrency was worth in ToCurrency that day. Shared across users; no UserId |
-| `AuditEntry` | Action, EntityType, EntityId, At, Summary | Append only |
+| `AuditEntry` | Action, EntityType, EntityId?, At, Summary | Append only: no endpoint changes or deletes one, persistence refuses to, and a database trigger refuses an `UPDATE`, a `TRUNCATE` and a `DELETE` but of a deactivated user's entries, which erasing them removes with the rest (decision record 0009). Written in the save of the change it records. No `UpdatedAt`: `At` is when it was written. In the full export like all user-owned data |
 
 **Indexes and integrity**
 
@@ -328,7 +328,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Four answers are not paged and return everything at once (the preview's list is its `rows`, the others' their `items`): the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen).
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Five answers are not paged and return everything at once (the preview's list is its `rows`, the others' their `items`): the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen); and the categorisation rules (`GET /category-rules`), a few dozen, listed and reordered whole.
 - Updates send `If-Match` with the row version; a stale version returns `412`. An upsert (`PUT /budgets/{month}/{categoryId}`) needs it only when the budget exists: creating one sends none.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.
@@ -340,6 +340,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
+| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions and deletes. Read only |
 | Auth | `POST /me/deletion` | The user deletes themselves, with their password: signed out and deactivated at once. `POST /auth/login` within 30 days cancels it and says so (`deletionCancelled`) |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |
@@ -355,8 +356,8 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Budgets | `GET /budgets?month=2026-11` | Budgets with spent, remaining and state |
 | Budgets | `PUT /budgets/{month}/{categoryId}`; `DELETE` same; `POST /budgets/{month}/copy-from/{sourceMonth}` | Upsert, remove, copy |
 | Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
-| Imports | `POST /imports` (upload); `GET /imports/{id}`; `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Upload, progress, preview, commit, undo |
-| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}` | Auto-categorisation rules |
+| Imports | `GET /imports?accountId` (past imports); `POST /imports` (upload); `GET /imports/{id}`; `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Past imports, upload (with the account's saved mapping), progress, preview, commit, undo |
+| Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}`; `PUT /category-rules/order` | Auto-categorisation rules, and putting them in the order they are tried |
 | Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expenses`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
 | Export | `GET /export/transactions.csv`; `GET /export/all.zip`; `GET /reports/monthly-summary.pdf` | Data out |
 | System | `GET /health/live`, `/health/ready` | Probes |
@@ -378,7 +379,7 @@ The frontend is a React single-page app in strict TypeScript, organised by featu
 | `/reports/:report` | Reports | Shared filter bar, chart and table toggle, export |
 | `/recurring` | Recurring | Rules list, upcoming 30 days |
 | `/import` | Import wizard | Upload, map columns, preview with duplicates flagged, commit |
-| `/settings/*` | Settings | Profile, categories, rules, security, data export and deleting the user |
+| `/settings/*` | Settings | Profile, categories, rules, security, audit log, data export and deleting the user |
 
 **Design decisions**
 
