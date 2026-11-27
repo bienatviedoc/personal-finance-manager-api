@@ -303,7 +303,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 | `Attachment` | TransactionId, StorageKey, FileName, ContentType, Size | File itself lives in object storage. The foreign key to its transaction restricts deletes, so purging a deleted transaction after 30 days (rule 10) must first delete its attachments' files from storage, then their rows |
 | `Budget` | CategoryId?, Month (first day), Amount | Null category means the overall monthly budget. Unique on (UserId, CategoryId, Month) |
 | `RecurringRule` | Template fields, Frequency, Interval, StartDate, EndDate?, NextRunDate, Mode (AutoPost or Remind) |  |
-| `ImportBatch` | AccountId, FileName, Status, RowCount, ImportedCount, DuplicateCount | Undo deletes by ImportBatchId |
+| `ImportBatch` | AccountId, FileName, Content?, Status, Mapping? (JSON), SelectedRows (JSON), ExpenseCategoryId?, IncomeCategoryId?, RowCount, SelectedCount, ImportedCount, DuplicateCount, FailedCount, FailedAttempts, Failure?, CommittedOn?, CommittedAt?, RowVersion | Content is the statement's text, dropped once it is imported, fails or is abandoned (ACC-8, decision record 0006). One batch per account may be committing at a time. Undo deletes by ImportBatchId |
 | `ImportMapping` | AccountId, ColumnMap (JSON), DateFormat, DecimalSeparator |  |
 | `CategoryRule` | MatchText, MatchType, CategoryId, Priority | Used by import and quick add |
 | `Reconciliation` | AccountId, StatementDate, StatementBalance, CompletedAt |  |
@@ -328,7 +328,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 - Resource-oriented routes, plural nouns, UUIDs in paths.
 - Errors use RFC 9457 Problem Details; validation errors list fields under `errors`.
 - Money fields are decimal strings (`"125000.00"`) alongside a `currency` code. Dates are `YYYY-MM-DD`; timestamps are ISO 8601 UTC.
-- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Four answers are not paged and return all of their `items` at once: the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen).
+- Lists use cursor paging: `?limit=50&cursor=...`, returning `items` and `nextCursor`. Four answers are not paged and return everything at once (the preview's list is its `rows`, the others' their `items`): the category tree (`GET /categories`), because a tree cannot be cut into pages and a user has dozens of categories; a budget month (`GET /budgets`), a report over that tree with totals, at most one budget per category; a transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows a statement may have (the SPA pages it on screen).
 - Updates send `If-Match` with the row version; a stale version returns `412`. An upsert (`PUT /budgets/{month}/{categoryId}`) needs it only when the budget exists: creating one sends none.
 - `POST` endpoints that create money records accept an `Idempotency-Key` header, so a retried request cannot create a duplicate. A key sent again with a different body is refused with 422 and creates nothing.
 - All endpoints require authentication except register, login and password reset.
@@ -355,7 +355,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Budgets | `GET /budgets?month=2026-11` | Budgets with spent, remaining and state |
 | Budgets | `PUT /budgets/{month}/{categoryId}`; `DELETE` same; `POST /budgets/{month}/copy-from/{sourceMonth}` | Upsert, remove, copy |
 | Recurring | `GET, POST /recurring-rules`; `GET, PUT, DELETE /recurring-rules/{id}`; `POST /recurring-rules/{id}/pause`, `/resume`; `GET /recurring-rules/upcoming?days=30` | Rules, pausing and resuming them, and upcoming occurrences |
-| Imports | `POST /imports` (upload); `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Upload, preview, commit, undo |
+| Imports | `POST /imports` (upload); `GET /imports/{id}`; `GET /imports/{id}/preview`; `POST /imports/{id}/commit`; `DELETE /imports/{id}` | Upload, progress, preview, commit, undo |
 | Rules | `GET, POST /category-rules`; `PUT, DELETE /category-rules/{id}` | Auto-categorisation rules |
 | Reports | `GET /reports/dashboard`, `/spending-by-category`, `/income-vs-expenses`, `/cash-flow`, `/net-worth`, `/budget-vs-actual`, `/trends` | Aggregates; all take `from`, `to` and filters |
 | Export | `GET /export/transactions.csv`; `GET /export/all.zip`; `GET /reports/monthly-summary.pdf` | Data out |

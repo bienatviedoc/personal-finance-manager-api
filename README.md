@@ -966,7 +966,7 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Four answers are not paged, and answer all of their `items` (or `rows`) in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Four answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview
