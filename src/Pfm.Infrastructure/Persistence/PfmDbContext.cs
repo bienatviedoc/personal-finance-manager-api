@@ -53,10 +53,11 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
         }
         catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException
         {
-            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation, ConstraintName: Transactions.TagConfiguration.OneTagOfEachName,
+            SqlState: Npgsql.PostgresErrorCodes.UniqueViolation,
+            ConstraintName: Transactions.TagConfiguration.OneTagOfEachName or Imports.ImportMappingConfiguration.OnePerAccount,
         })
         {
-            // Another request created the tag first: the use case is made again and finds it.
+            // Another request created the tag, or saved the account's mapping, first: the use case is made again and finds it.
             throw new ConcurrentChangeException(exception);
         }
         catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation })
@@ -137,6 +138,15 @@ public class PfmDbContext(DbContextOptions<PfmDbContext> options, ICurrentUser c
     /// </summary>
     private void GuardUserOwnedRows()
     {
+        // Checked first: an append-only row is refused whoever it belongs to.
+        foreach (var entry in ChangeTracker.Entries<IAppendOnly>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException($"{entry.Metadata.DisplayName()} rows are append-only: they cannot be {(entry.State == EntityState.Deleted ? "deleted" : "changed")}.");
+            }
+        }
+
         foreach (var entry in ChangeTracker.Entries<IUserOwned>())
         {
             var owner = entry.Property(row => row.UserId);

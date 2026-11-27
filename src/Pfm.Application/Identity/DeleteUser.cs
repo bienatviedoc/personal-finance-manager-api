@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.UseCases;
 
 namespace Pfm.Application.Identity;
@@ -21,10 +22,12 @@ public sealed class DeleteUserValidator : AbstractValidator<DeleteUserCommand>
 /// <summary>
 /// Deactivates the user and ends every session they have, this one included. Nothing is erased yet: signing in
 /// again within 30 days cancels the deletion (<see cref="SignInHandler"/>), and after that
-/// <see cref="EraseDeactivatedUsersHandler"/> erases everything of theirs. Answers null when nobody is signed in.
+/// <see cref="EraseDeactivatedUsersHandler"/> erases everything of theirs. Answers null when nobody is signed in. The
+/// request is recorded in the user's audit log in the transaction that deactivates them.
 /// </summary>
 public sealed class DeleteUserHandler(
-    IValidator<DeleteUserCommand> validator, ICurrentUser currentUser, IUsers users, ISessions sessions, TimeProvider clock)
+    IValidator<DeleteUserCommand> validator, ICurrentUser currentUser, IUsers users, ISessions sessions, IAuditLog auditLog, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<DeleteUserCommand, Done?>(validator)
 {
     protected override async Task<Result<Done?>> ExecuteAsync(DeleteUserCommand command, CancellationToken cancellationToken)
@@ -39,7 +42,14 @@ public sealed class DeleteUserHandler(
             return Result<Done?>.Invalid(PasswordErrors.Incorrect(nameof(command.Password)));
         }
 
-        await users.DeactivateAsync(user.Id, clock.GetUtcNow());
+        await using (var transaction = await unitOfWork.BeginTransactionAsync(cancellationToken))
+        {
+            await users.DeactivateAsync(user.Id, clock.GetUtcNow());
+            await auditLog.DeletionRequestedAsync(user.Id, cancellationToken);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+
         await sessions.SignOutAsync();
         return new Done();
     }

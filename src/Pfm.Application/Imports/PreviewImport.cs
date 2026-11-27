@@ -1,4 +1,5 @@
 using FluentValidation;
+using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.UseCases;
 using Pfm.Domain;
 using Pfm.Domain.Imports;
@@ -55,10 +56,15 @@ public sealed record ImportPreview(IReadOnlyList<string> Header, int ColumnCount
 
 /// <summary>One row of the preview.</summary>
 /// <param name="Selected">Ticked to import at first: read as a transaction and not a likely duplicate.</param>
-public sealed record PreviewRow(StatementRow Row, bool LikelyDuplicate, bool Selected);
+/// <param name="SuggestedCategoryId">
+/// For a row read as a transaction, the category the user's highest-priority categorisation rule its description
+/// matches gives it (spec IMP-4); null when none does.
+/// </param>
+public sealed record PreviewRow(StatementRow Row, bool LikelyDuplicate, bool Selected, Guid? SuggestedCategoryId);
 
 /// <summary>Answers null when the user has no such batch.</summary>
-public sealed class PreviewImportHandler(IValidator<PreviewImportCommand> validator, IImportBatchRepository batches, StatementReader reader)
+public sealed class PreviewImportHandler(
+    IValidator<PreviewImportCommand> validator, IImportBatchRepository batches, StatementReader reader, ICategorisation categorisation)
     : CommandHandler<PreviewImportCommand, PreviewImportOutcome?>(validator)
 {
     protected override async Task<Result<PreviewImportOutcome?>> ExecuteAsync(PreviewImportCommand command, CancellationToken cancellationToken)
@@ -74,11 +80,16 @@ public sealed class PreviewImportHandler(IValidator<PreviewImportCommand> valida
         }
 
         var read = await reader.ReadAsync(batch, command.Mapping!.Read()!, cancellationToken);
+        var entries = read.Statement.Entries.ToList();
+        var categories = (await categorisation.CategoriseAsync(
+                [.. entries.Select(row => new TextToCategorise(row.Entry!.Description, row.Entry.Type == StatementEntryType.Income))], cancellationToken))
+            .Select((category, index) => (entries[index].Number, category))
+            .ToDictionary(row => row.Number, row => row.category);
         var rows = read.Statement.Rows
             .Select(row =>
             {
                 var duplicate = read.LikelyDuplicates.Contains(row.Number);
-                return new PreviewRow(row, duplicate, row.Kind == StatementRowKind.Parsed && !duplicate);
+                return new PreviewRow(row, duplicate, row.Kind == StatementRowKind.Parsed && !duplicate, categories.GetValueOrDefault(row.Number));
             })
             .ToList();
         return new PreviewImportOutcome.Ready(new ImportPreview(read.Statement.Header, read.Statement.ColumnCount, read.Account.Currency, rows));

@@ -18,7 +18,7 @@ namespace Pfm.Api.IntegrationTests;
 /// background. These tests run the worker's job the way it does, and read what the user then sees.
 /// </summary>
 [Collection(ApiCollection.Name)]
-public class ImportTests(PfmApi api, ITestOutputHelper output)
+public partial class ImportTests(PfmApi api, ITestOutputHelper output)
 {
     private const string Imports = "/api/v1/imports";
 
@@ -596,7 +596,8 @@ public class ImportTests(PfmApi api, ITestOutputHelper output)
 
     private sealed record BatchBody(
         Guid Id, Guid AccountId, string FileName, string Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
-        int FailedCount, string? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingBody? Mapping, MappingBody? SuggestedMapping);
+        int FailedCount, string? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingBody? Mapping, MappingBody? SuggestedMapping,
+        MappingBody? SavedMapping = null, DateTimeOffset? UndoneAt = null, Guid? SavedExpenseCategoryId = null, Guid? SavedIncomeCategoryId = null);
 
     private sealed record RowBody(
         int Number, string[] Cells, string Kind, string? Date, string? Type, string? Amount, string? Description, string? Problem, bool LikelyDuplicate,

@@ -74,6 +74,14 @@ CI runs the same tests through `scripts/test-with-coverage.sh`, which merges cov
 project and fails when line coverage of `Pfm.Domain` and `Pfm.Application` is below 85%. Run it locally
 the same way; the report lands in `TestResults/coverage/`.
 
+### End-to-end and accessibility tests
+
+The Playwright journey and the axe checks of spec section 13 live in the SPA repository: `npm run e2e` there starts this
+repository's `compose.yaml` with the SPA's image on top, under a Compose project of its own (`pfm-e2e`), and the
+SPA's CI runs it against this repository's `main` ([decision record 0010](docs/adr/0010-end-to-end-tests-live-in-the-spa-and-run-against-the-apis-compose-stack.md)).
+So keep `compose.yaml` working without its published ports, and keep `seed` and the synthetic statements in
+`tests/statements/synthetic-stand-ins`, which the journey imports.
+
 ### Load test
 
 `tests/load/load-test.js` is a [k6](https://k6.io) test of the speed targets (spec section 8): every list and
@@ -357,7 +365,9 @@ one of the merged category's own subcategories is refused as an error on `target
   payee have, in any case but never part of one, and of those used equally often the one used last. Each line of
   a split is a use of its category. Refunds, deleted transactions and archived accounts and categories are passed
   over. It reads through its own port,
-  `IQuickAddHistory`. Category rules (spec section 9) will take part when they exist.
+  `IQuickAddHistory`. A payee with no such history takes the category of the highest-priority
+  [categorisation rule](#categorisation-rules) it matches, of the kind the `type` takes. `suggestedBy` says which
+  (`history` or `rule`), so the SPA can say why.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
@@ -446,6 +456,30 @@ one of the merged category's own subcategories is refused as an error on `target
   One due today is listed until the worker posts it, and not at all when it is a reminder already.
   The domain works the dates out (`RecurringRule.Upcoming`); nothing is stored for an occurrence before it is settled.
 - Skipping or editing one occurrence (REC-4) is still to come.
+
+### Categorisation rules
+
+A user's rules for picking a transaction's category from its payee, or a statement row's description (spec IMP-4,
+`CategorisationRule` in `Pfm.Domain.Transactions`; the spec's data model calls the table `CategoryRule`, a name the
+code keeps for a category's own rules, `CategoryRules` and `CategoryRuleViolation`).
+
+- **A rule** is a `matchText` (at most 100 characters), a `matchType` (`contains`, `startsWith` or `exactly`), a
+  `categoryId` and a `priority` (0 to 1,000,000). Text is compared as `ComparableText` has it: without case, accents
+  or extra spaces, as likely duplicates are, so `Phở Hòa` matches `PHO HOA PASTEUR`.
+- **Which wins** (`Categoriser`): of the rules that match, on a category of the kind the transaction takes (an expense
+  rule never categorises income) that is not archived, the highest priority; of equal ones, the one set up first.
+- **Endpoints**: `GET, POST /category-rules`, `PUT, DELETE /category-rules/{id}`, and `PUT /category-rules/order`
+  with every rule's id once, the one to try first first, which gives them priorities from their places (the last 0),
+  so a reorder is one save. An edit names the rule's `rowVersion` in `If-Match` like every edit (412 when stale, 428
+  when missing), and a reorder sends each rule's `rowVersion` with its id: an order made before a rule was set up,
+  edited or deleted answers 412 and saves nothing, so it never puts a rule the user has not seen in a place they did
+  not choose. A rule named twice is a validation problem on `rules`. The list is unpaged and in the order rules are tried. A new rule left without a
+  `priority` goes one above the highest. Rules are deleted, not archived: they are settings, not money.
+- **Archived categories.** A rule is set up only on a category that is not archived. Once its category is archived it
+  stays listed and categorises nothing; it can be edited keeping that category, or moved to another. Merging a category
+  moves its rules to the target with its transactions (`MergeCategory`).
+- **Where rules apply**: quick add, for a payee with no history (see Transactions), and the import preview (see
+  Imports). Nothing already recorded is recategorised.
 
 ### Integrity check
 
@@ -540,9 +574,16 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   whatever its description, as a leg has no payee, is `likelyDuplicate` and not `selected`. Each existing transaction accounts for one row, so two
   coffees on one day against one recorded flag one. Imports asks Transactions for the account's transactions over the
   statement's dates through `IImportedTransactions` (`Pfm.Application.Contracts.Transactions`).
+- **Categories from rules** (IMP-4). The preview gives each parsed row a `suggestedCategoryId`: the category of the
+  highest-priority [categorisation rule](#categorisation-rules) its description matches, of the row's kind (Imports
+  asks through `ICategorisation`). It is a suggestion: the commit records what it is sent, and applies no rule itself
+  ([decision record 0008](docs/adr/0008-categorisation-rules-suggest-and-the-commit-records-each-rows-category.md)).
 - **Commit.** `POST /imports/{id}/commit` sends the `mapping` the user previewed with, the `rows` to import (by
-  number), and the `expenseCategoryId` and `incomeCategoryId` money going out and coming in is recorded on
-  (`CommitImport`). The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
+  number), `rowCategories` (`[{ row, categoryId }]`: a category of its own for any chosen row, of the kind the row
+  takes, such as the preview's suggestion or the one the user changed it to; kept on the batch as `RowCategories`),
+  and the `expenseCategoryId` and `incomeCategoryId` the rows left without one are recorded on, each needed only
+  when such a row goes that way (`CommitImport`). A row category of the wrong kind, archived, not the user's, given
+  twice or for a row not chosen is refused on `rowCategories`. The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
   not parsed is refused on `rows`, and a batch whose account was archived after the upload on `id`. The batch keeps the mapping, the rows and the counts (`rowCount`, `selectedCount`,
   `duplicateCount`: likely duplicates left out, `failedCount`) and the user's today it was read as of
   (`CommittedOn`), becomes `committing`, and the answer is 202. The worker reads the rows, and records their
@@ -570,9 +611,37 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **What the spec leaves as it is.** An imported row is income or an expense on the account, in its currency; a row
   that is one leg of a move between the user's own accounts is joined with the other leg afterwards by
   [mark as transfer](#transactions) (IMP-7: nothing is matched automatically). A row may be dated in a period already
-  reconciled, as a transaction a user records may; it is not reconciled itself.- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), auto-categorisation
-  rules that pick each row's category in the preview (IMP-4, #24), and an audit entry for each commit (#45). The batch
-  keeps the mapping it was committed with and every transaction its `importBatchId` for them.
+  reconciled, as a transaction a user records may; it is not reconciled itself.
+- **The mapping is saved per account** (IMP-2; `ImportMapping`, table `ImportMappings`, one per account). Committing a
+  statement saves the mapping it was committed with for the account, in the same save, in place of the one saved
+  before. An upload, and `GET /imports/{id}` while the batch is uploaded, answer it as `savedMapping` (null when the
+  account has none), beside the `suggestedMapping` guessed from the file: the SPA starts from the saved one, so the
+  next statement of the same bank is one click, and the user can still change it in the preview; the change is saved
+  when that statement is committed. A commit refused saves nothing. The expense and income categories the statement
+  was committed with are saved beside the mapping and answered as `savedExpenseCategoryId` and
+  `savedIncomeCategoryId`, for the SPA to start from too (when they are not archived since), so a repeat import needs no
+  choices; a commit that sends no category of a kind (its rows needed none) keeps the one saved. Two first commits
+  into an account that both save its mapping do not fail: the second to save breaks the one-per-account index, which
+  `PfmDbContext` reads as a concurrent change, and is made again on the first's mapping.
+- **Past imports.** `GET /imports` lists the batches the user committed, whatever became of them (`committing`,
+  `committed`, `failed` or `undone`), the last uploaded first, a page at a time, with `accountId` to list one
+  account's (`ListImportBatches`): each with its `fileName`, `createdAt` (uploaded), `committedAt`, `undoneAt` and
+  counts. A statement uploaded and not committed is not listed.
+- **Undo** (IMP-5; `DELETE /imports/{id}`, `UndoImport`;
+  [decision record 0007](docs/adr/0007-undoing-an-import-deletes-its-transactions-in-one-save-with-the-batch.md)). Every
+  transaction the batch created and not deleted already, edited or not, is deleted softly
+  (`IImportedTransactions.DeleteAsync`): it is listed as recently deleted and restorable for 30 days, one by one, like
+  any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it, as
+  deleting that leg does. The batch becomes `undone` with `undoneAt`, keeps its counts, lets go of its file if it still
+  had it, and answers 200. The budget notifications of the dates deleted are checked, as a delete does. While any of
+  its transactions, or the other leg of a transfer one of them is a leg of, is reconciled, the undo answers 409
+  `urn:pfm:problem:import-reconciled`, with how many in `reconciledCount`, and changes nothing. A statement never
+  committed answers 409 `urn:pfm:problem:import-not-committed`; one undone already answers as it is. A batch still
+  being committed is undone too, which stops it: the deletes and the batch are one save guarded by its row version,
+  so of an undo and the worker saving the next rows at the same moment, one goes first and the other is made again
+  (the undo, deleting those rows too) or saves nothing (the worker). The mapping saved for the account stays.
+- The batch keeps the mapping it was committed with and every transaction its `importBatchId`; an undo is one call to
+  `UndoImportHandler`. Each commit and undo leaves an entry in the [audit log](#audit-log), in its own save.
 
 ### Budgets
 
@@ -773,7 +842,7 @@ the browser never holds a token a script could read.
 
 The use cases (register, verify email, resend verification, sign in, sign out, request a password reset,
 reset the password, change the password, set up, turn on, turn off and get recovery codes for two-factor
-sign-in, export the user's data, delete the user and erase deactivated users) are in
+sign-in, export the user's data, delete the user, erase deactivated users and list the audit log) are in
 `Pfm.Application.Identity`, one file each; `IdentityEndpoints` maps them to `/api/v1/auth/...` and
 `SecurityEndpoints` maps the signed-in user's own (`/api/v1/me/password`, `/api/v1/me/two-factor/...`). They reach
 Identity through ports: `IUsers` (users, passwords, email confirmation tokens, lockout), `ITwoFactor` (authenticator
@@ -888,6 +957,38 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   database (a file in object storage) needs its own step in `ExportDataHandler` and `EraseDeactivatedUsersHandler`,
   as attachments have.
 
+## Audit log
+
+Spec section 8 (Auditability): sensitive actions leave a trace the user can review, and nobody can change.
+
+- **What is recorded:** each sign-in that gets through (saying which second factor, and whether it cancelled the
+  user's deletion), each statement committed, each import undone, each bulk action (one entry for all the
+  transactions it took, `bulkEdit` or `bulkDelete`), each `delete` of a transaction, a transfer, an attachment, a
+  budget (overall or of a category), a recurring rule or a categorisation rule, and the user asking to be deleted
+  (`deletionRequest`, saved in the transaction that deactivates them; signing in again cancels it, which the sign-in's
+  entry says). An
+  `AuditEntry` (`Pfm.Domain.Identity`) keeps the `action`, the `entityType` and `entityId` it affected (none for
+  a bulk action), `at` and a short `summary`, written by `AuditSummaries` in the user's locale at the time (English
+  when they have none). A summary names a file, a category, a tag, an account, an amount or a count; never a
+  password, a code, a token or a statement's text. A refused action records nothing.
+- **In the same transaction as the action:** other modules record through `IAuditLog`
+  (`Pfm.Application.Contracts.Identity`), whose methods add the entry to the use case's unsaved changes; the use case
+  then saves both together. Call it just before `SaveChangesAsync`. A use case made again after a concurrent change
+  records again, as `DiscardChanges` dropped the first entry with everything else. Signing in records in the
+  transaction that clears the failed attempts and cancels a deletion, before the session cookie is issued.
+- **Undoing an import** records with `IAuditLog.ImportUndoneAsync(batchId, fileName, transactions)` in `UndoImport`, in
+  the save that deletes the batch's transactions. Undoing a batch undone already records nothing.
+- **Reading it:** `GET /api/v1/me/audit-log` answers the signed-in user's entries, the newest first, a page at a time
+  (`limit` and `cursor`, as every list). The SPA shows it under Settings.
+- **Append only** (decision record 0009): there is no endpoint that changes or deletes an entry. `PfmDbContext`
+  refuses to save a change or delete of any `IAppendOnly` entity, and the database's
+  `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` while
+  the entry's user still has a row in `Users`, deactivated or not. Erasing a user after their 30 days (spec section 8,
+  Privacy) leaves their entries out of `IUserData.EraseEverythingAsync` (they are `IAppendOnly`) and deletes the user's
+  row last; the `AuditEntries` foreign key to `Users` then deletes their entries with it, on delete cascade, and
+  nothing else can. The full export has them as
+  `audit-entries.csv`, like all user-owned data.
+
 ## Hardening
 
 - **Security headers** go on every answer, errors and refusals included (`SecurityHeaders`):
@@ -966,18 +1067,19 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Four answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. These answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview
   (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows
-  a statement may have (the SPA pages it on the screen). Reports
+  a statement may have (the SPA pages it on the screen); and the categorisation rules (`GET /category-rules`), a few
+  dozen, listed and reordered whole, in the order they are tried. Reports
   (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
   its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
-  recurring rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
+  recurring rule, a categorisation rule or a budget is PostgreSQL's `xmin`, also sent as the `ETag` of every response that answers one
   of them. `PUT /accounts/{id}`, `PUT /transactions/{id}`, `PUT /transfers/{id}` and
-  `PUT /recurring-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
+  `PUT /recurring-rules/{id}` and `PUT /category-rules/{id}` must name it in `If-Match` (`If-Match: "1234"`): a version that is no longer the row's
   answers 412 and saves nothing, and leaving the header out answers 428. `IUnitOfWork.SaveChangesAsync` throws
   `ConcurrentChangeException` when the row changed between reading and saving, which the use case answers as
   stale too. A change that names no row version (deleting a transaction, archiving an account, `PATCH /me`) has

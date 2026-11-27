@@ -1,5 +1,6 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
+using Pfm.Application.Contracts.Identity;
 using Pfm.Application.UseCases;
 using Pfm.Domain.Budgets;
 
@@ -18,8 +19,9 @@ public sealed class RemoveOverallBudgetValidator : AbstractValidator<RemoveOvera
     public RemoveOverallBudgetValidator() => RuleFor(command => command.Month).IsBudgetMonth(command => command.ParsedMonth);
 }
 
-/// <summary>Answers null when the month has no overall budget.</summary>
-public sealed class RemoveOverallBudgetHandler(IValidator<RemoveOverallBudgetCommand> validator, IBudgetRepository budgets, IUnitOfWork unitOfWork)
+/// <summary>Answers null when the month has no overall budget. The removal is recorded in the user's audit log in the same save.</summary>
+public sealed class RemoveOverallBudgetHandler(
+    IValidator<RemoveOverallBudgetCommand> validator, IBudgetRepository budgets, IAuditLog auditLog, IUnitOfWork unitOfWork)
     : CommandHandler<RemoveOverallBudgetCommand, Done?>(validator)
 {
     /// <summary>Removing names no row version, so an overall budget whose amount is changed at the same moment is removed all the same.</summary>
@@ -33,6 +35,7 @@ public sealed class RemoveOverallBudgetHandler(IValidator<RemoveOverallBudgetCom
             }
 
             budgets.Remove(budget);
+            await auditLog.BudgetRemovedAsync(budget.Id, category: null, budget.Amount, budget.Currency, budget.Month.ToString(), cancellationToken);
             await unitOfWork.SaveChangesAsync(cancellationToken);
             return new Done();
         });

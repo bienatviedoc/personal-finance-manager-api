@@ -126,6 +126,9 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             transaction.Amount > after.Amount || (transaction.Amount == after.Amount && transaction.Id > after.Id)),
     };
 
+    public async Task<IReadOnlyList<Transaction>> ListImportedByAsync(Guid importBatchId, CancellationToken cancellationToken) =>
+        await db.Set<Transaction>().Where(transaction => transaction.ImportBatchId == importBatchId && transaction.DeletedAt == null).ToListAsync(cancellationToken);
+
     public Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken) =>
         db.Set<Transaction>().SingleOrDefaultAsync(transaction => transaction.Id == id && transaction.DeletedAt == null, cancellationToken);
 

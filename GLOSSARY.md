@@ -112,6 +112,14 @@ _Avoid_: Bank file, export (which is the app's own file out), CSV (for the thing
 How the user says a statement file is read: what separates its cells, the rows to skip before and after the transactions, whether a header row names the columns, which column holds the date, the description, and either one signed amount or a debit and a credit, and how dates and amounts are written. No bank's layout is built in; each is mapped.
 _Avoid_: Parser, format, template, column map
 
+**Saved mapping**:
+The mapping an account's last statement was committed with, and the expense and income categories its rows were recorded on, kept for the account and offered for its next statement, which the user can still change before committing; the change is then saved in its place. One per account.
+_Avoid_: Template, profile, preset
+
+**Undo** (of an import batch):
+Deleting every transaction an import batch created, edited or not, in one action. They stay recoverable for 30 days like any deleted transaction; the batch stays, undone, in the list of past imports. Refused while any of them is reconciled; a batch still being imported is stopped.
+_Avoid_: Rollback, revert, delete (for the batch)
+
 **Preview**:
 A statement file read with a mapping before anything is saved: every row, the transaction each says, the rows that cannot be read and why, and the likely duplicates, unticked. The user chooses there which rows to commit.
 _Avoid_: Dry run, draft
@@ -119,6 +127,14 @@ _Avoid_: Dry run, draft
 **Likely duplicate**:
 A row of a statement file that matches a transaction already on the account on date, amount, which way the money went, and description compared without case, accents or extra spaces; or a transfer leg on the account on date, amount and which way the money went, as a leg has no description. Each existing transaction matches one row at most. It is shown, unticked, and skipped unless the user ticks it; never dropped silently.
 _Avoid_: Dupe, conflict
+
+**Categorisation rule**:
+A user's rule that a payee or statement row description containing, starting with or exactly matching some text takes a category, compared without case, accents or extra spaces. It categorises only transactions of its category's kind, and nothing while that category is archived. Of several that match, the one of highest priority wins. It suggests: the import preview and quick add start from its category, and the user may change it.
+_Avoid_: Category rule (a rule a category itself keeps, such as its depth), auto-category, filter
+
+**Priority**:
+A categorisation rule's rank: of several rules that match, the highest wins, and of equal ones the one set up first. Reordering the rules sets every rule's priority from its place.
+_Avoid_: Order number, weight
 
 **Reconciliation**:
 Matching an account's transactions against a statement's closing balance until the difference is exactly zero, which then locks those transactions.
@@ -135,6 +151,14 @@ _Avoid_: Backup code, scratch code
 **Deactivated user**:
 A user who has asked to be deleted and is within the 30 days before permanent erasure; signing in again cancels the deletion.
 _Avoid_: Deleted user, suspended user
+
+**Audit log**:
+The record of the sensitive things a user did, read in their settings, the newest first: each sign-in, statement committed, import undone, bulk action, delete (of a transaction, a transfer, an attachment, a budget, a recurring rule or a categorisation rule) and request to delete the user. Only the app writes to it, and nothing in it is ever changed or removed, until the user is erased with everything else of theirs.
+_Avoid_: History, activity (the dashboard's recent activity is something else), event log
+
+**Audit entry**:
+One line of the audit log: what the user did, the kind of thing and the one thing it affected (none for a bulk action), when, and a short summary in words, written in the user's locale at the time. A summary never holds a password, a code or a statement's text.
+_Avoid_: Event, log line, record
 
 **Base currency**:
 The single currency a user chooses for totals, budgets and reports across accounts in different currencies.
@@ -194,7 +218,7 @@ _Avoid_: Download (for the file itself), backup, report (for the file)
 
 **Integrity check**:
 The nightly job that verifies a user's saved transactions still add up: each transaction's lines sum to its amount, each transfer has its two matching legs, and each account's balance is what its transactions come to. It reports what it finds and corrects nothing.
-_Avoid_: Reconciliation (which the user does against a statement), audit, validation
+_Avoid_: Reconciliation (which the user does against a statement), audit (the audit log is something else), validation
 
 **Drift**:
 Something the integrity check finds that does not add up in what was saved, such as a transfer missing a leg. It is logged for a person to look into, never corrected automatically.

@@ -10,6 +10,9 @@ public class ImportBatchTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 27, 9, 0, 0, TimeSpan.Zero);
     private static readonly DateOnly Today = new(2026, 11, 27);
+
+    /// <summary>No chosen row has a category of its own: each takes the batch's category of its kind.</summary>
+    private static readonly IReadOnlyDictionary<int, Guid> NoRowCategories = new Dictionary<int, Guid>();
     private static readonly Guid Account = Guid.CreateVersion7();
     private static readonly Guid Groceries = Guid.CreateVersion7();
     private static readonly Guid Salary = Guid.CreateVersion7();
@@ -39,7 +42,7 @@ public class ImportBatchTests
     {
         var (batch, statement) = Uploaded();
 
-        batch.Commit(Mapping, statement, [2, 5, 6], likelyDuplicates: new HashSet<int> { 3 }, Groceries, Salary, Today, Now);
+        batch.Commit(Mapping, statement, [2, 5, 6], likelyDuplicates: new HashSet<int> { 3 }, Groceries, Salary, Today, Now, NoRowCategories);
 
         Assert.Equal(ImportBatchStatus.Committing, batch.Status);
         Assert.Equal((5, 3, 0, 1, 1), (batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount, batch.FailedCount));
@@ -51,7 +54,7 @@ public class ImportBatchTests
     {
         var (batch, statement) = Uploaded();
 
-        batch.Commit(Mapping, statement, [2, 3], likelyDuplicates: new HashSet<int> { 3 }, Groceries, null, Today, Now);
+        batch.Commit(Mapping, statement, [2, 3], likelyDuplicates: new HashSet<int> { 3 }, Groceries, null, Today, Now, NoRowCategories);
 
         Assert.Equal((2, 0), (batch.SelectedCount, batch.DuplicateCount));
     }
@@ -68,7 +71,7 @@ public class ImportBatchTests
     {
         var (batch, statement) = Uploaded();
 
-        var violation = Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, rows, new HashSet<int>(), Groceries, Salary, Today, Now));
+        var violation = Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, rows, new HashSet<int>(), Groceries, Salary, Today, Now, NoRowCategories));
 
         Assert.Equal(nameof(ImportBatch.SelectedRows), violation.Property);
         Assert.Equal(ImportBatchStatus.Uploaded, batch.Status);
@@ -79,24 +82,24 @@ public class ImportBatchTests
     {
         var (batch, statement) = Uploaded();
 
-        Assert.Equal("IncomeCategoryId", Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [5], new HashSet<int>(), Groceries, null, Today, Now)).Property);
-        Assert.Equal("ExpenseCategoryId", Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [2], new HashSet<int>(), null, Salary, Today, Now)).Property);
+        Assert.Equal("IncomeCategoryId", Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [5], new HashSet<int>(), Groceries, null, Today, Now, NoRowCategories)).Property);
+        Assert.Equal("ExpenseCategoryId", Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [2], new HashSet<int>(), null, Salary, Today, Now, NoRowCategories)).Property);
     }
 
     [Fact]
     public void A_batch_is_committed_once()
     {
         var (batch, statement) = Uploaded();
-        batch.Commit(Mapping, statement, [2], new HashSet<int>(), Groceries, null, Today, Now);
+        batch.Commit(Mapping, statement, [2], new HashSet<int>(), Groceries, null, Today, Now, NoRowCategories);
 
-        Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [2], new HashSet<int>(), Groceries, null, Today, Now));
+        Assert.Throws<ImportRuleViolation>(() => batch.Commit(Mapping, statement, [2], new HashSet<int>(), Groceries, null, Today, Now, NoRowCategories));
     }
 
     [Fact]
     public void The_chosen_rows_are_imported_a_few_at_a_time_in_file_order_and_once_all_are_the_file_is_let_go()
     {
         var (batch, statement) = Uploaded();
-        batch.Commit(Mapping, statement, [6, 2, 5], new HashSet<int>(), Groceries, Salary, Today, Now);
+        batch.Commit(Mapping, statement, [6, 2, 5], new HashSet<int>(), Groceries, Salary, Today, Now, NoRowCategories);
 
         Assert.Equal(["A", "SALARY", "D"], batch.ChosenEntries(Currency.VND).Select(entry => entry.Description));
         batch.Imported(2, Now);
@@ -111,7 +114,7 @@ public class ImportBatchTests
     public void Committing_keeps_the_users_today_and_the_chosen_rows_are_read_as_of_it_until_they_are_imported()
     {
         var batch = ImportBatch.Upload(Account, "statement.csv", "Date,Details,Amount\n27/11/2026,A,-1000\n", Now);
-        batch.Commit(Mapping, batch.Read(Mapping, Currency.VND, Today), [2], new HashSet<int>(), Groceries, null, Today, Now);
+        batch.Commit(Mapping, batch.Read(Mapping, Currency.VND, Today), [2], new HashSet<int>(), Groceries, null, Today, Now, NoRowCategories);
 
         Assert.Equal(Today, batch.CommittedOn);
         Assert.Equal(["A"], batch.ChosenEntries(Currency.VND).Select(entry => entry.Description));
@@ -121,7 +124,7 @@ public class ImportBatchTests
     public void A_batch_whose_rows_cannot_be_imported_stops_with_the_reason_and_keeps_what_it_imported()
     {
         var (batch, statement) = Uploaded();
-        batch.Commit(Mapping, statement, [2, 6], new HashSet<int>(), Groceries, null, Today, Now);
+        batch.Commit(Mapping, statement, [2, 6], new HashSet<int>(), Groceries, null, Today, Now, NoRowCategories);
         batch.Imported(1, Now);
 
         batch.Fail(ImportFailure.CategoryArchived, Now);

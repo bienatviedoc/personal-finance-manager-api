@@ -47,9 +47,13 @@ internal sealed class UserData(PfmDbContext db) : IUserData
         return [.. tables.OrderBy(table => table.Name, StringComparer.Ordinal)];
     }
 
+    /// <summary>
+    /// Leaves what is append only (the audit log): the database deletes it with the user's own row, which Identity
+    /// erases after, and refuses to delete it any other way.
+    /// </summary>
     public async Task EraseEverythingAsync(CancellationToken cancellationToken)
     {
-        foreach (var entity in ReferencingFirst(UserOwnedEntities(db.Model)))
+        foreach (var entity in ReferencingFirst([.. UserOwnedEntities(db.Model).Where(entity => !typeof(IAppendOnly).IsAssignableFrom(entity.ClrType))]))
         {
             await (Task)EraseMethod.MakeGenericMethod(entity.ClrType).Invoke(this, [cancellationToken])!;
         }

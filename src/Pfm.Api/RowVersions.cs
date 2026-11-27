@@ -21,12 +21,19 @@ public static class RowVersions
         refused = ifMatch switch
         {
             null => Required(what),
-            ['"', .. var number, '"'] when uint.TryParse(number, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion) => null,
+            ['"', .. var number, '"'] when TryParse(number, out rowVersion) => null,
             _ => Stale(what),
         };
 
         return refused is null;
     }
+
+    /// <summary>
+    /// Reads a row version sent bare, as in a request body that names several rows: the number, unquoted.
+    /// Anything else is not a version the API gave out.
+    /// </summary>
+    public static bool TryParse(string? text, out uint rowVersion) =>
+        uint.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out rowVersion);
 
     /// <summary>
     /// Reads the <c>If-Match</c> of a request that sets something which may not exist yet, so has no row

@@ -24,11 +24,13 @@ public sealed class UploadStatementValidator : AbstractValidator<UploadStatement
 }
 
 /// <summary>
-/// Keeps the file as an import batch on the account, to preview and commit. Nothing is imported yet. The file
+/// Keeps the file as an import batch on the account, to preview and commit, with the mapping saved for the account if
+/// one is (spec IMP-2). Nothing is imported yet. The file
 /// must be text: UTF-8, with or without a byte order mark, or UTF-16 with one; a spreadsheet saved as such is refused.
 /// </summary>
 public sealed class UploadStatementHandler(
-    IValidator<UploadStatementCommand> validator, IAccountLookup accounts, IImportBatchRepository batches, IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<UploadStatementCommand> validator, IAccountLookup accounts, IImportBatchRepository batches, IImportMappingRepository mappings, IUnitOfWork unitOfWork,
+    TimeProvider clock)
     : CommandHandler<UploadStatementCommand, ImportBatchDetails>(validator)
 {
     public const string NotAnAccount = "Choose one of your accounts that is not archived.";
@@ -57,6 +59,6 @@ public sealed class UploadStatementHandler(
         var batch = ImportBatch.Upload(account.Id, file.Name!, text, clock.GetUtcNow());
         batches.Add(batch);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return ImportBatchDetails.Of(batch);
+        return ImportBatchDetails.Of(batch, await mappings.FindAsync(batch.AccountId, cancellationToken));
     }
 }

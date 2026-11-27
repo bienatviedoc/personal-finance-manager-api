@@ -8,8 +8,8 @@ namespace Pfm.Application.Transactions;
 
 /// <summary>
 /// Transactions as Imports reads and records them. An imported transaction is recorded by the same rules as one a
-/// user records (<see cref="Transaction.Record"/>), on a category the user chose for the batch, with the row's
-/// description as its payee.
+/// user records (<see cref="Transaction.Record"/>), on the category the user gave the row, or else the one they chose
+/// for the batch, with the row's description as its payee.
 /// </summary>
 public sealed class ImportedTransactions(
     ITransactionRepository transactions, IAccountLookup accounts, ICategoryRepository categories, IBaseCurrency baseCurrency,
@@ -34,13 +34,19 @@ public sealed class ImportedTransactions(
         var expenseCategory = expenseCategoryId is { } expenseId ? await categories.FindAsync(expenseId, cancellationToken) : null;
         var incomeCategory = incomeCategoryId is { } incomeId ? await categories.FindAsync(incomeId, cancellationToken) : null;
         var currency = await baseCurrency.OfCurrentUserAsync(cancellationToken);
+        var own = new Dictionary<Guid, Category?>();
+        foreach (var categoryId in toImport.Select(row => row.CategoryId).OfType<Guid>().Distinct())
+        {
+            own[categoryId] = await categories.FindAsync(categoryId, cancellationToken);
+        }
+
         var now = clock.GetUtcNow();
         var recorded = new List<Transaction>(toImport.Count);
         try
         {
             foreach (var row in toImport)
             {
-                var category = (row.IsIncome ? incomeCategory : expenseCategory)
+                var category = (row.CategoryId is { } ownId ? own[ownId] : row.IsIncome ? incomeCategory : expenseCategory)
                     ?? throw new TransactionRuleViolation(nameof(Transaction.CategoryId), "The category chosen for the statement is gone.");
                 var transaction = Transaction.Record(
                     row.IsIncome ? TransactionType.Income : TransactionType.Expense, account.Id, account.Currency, row.Amount, row.Date, category, row.Payee,
@@ -61,5 +67,37 @@ public sealed class ImportedTransactions(
         }
 
         return RecordImportOutcome.Recorded;
+    }
+
+    public async Task<DeleteImportedOutcome> DeleteAsync(Guid importBatchId, CancellationToken cancellationToken)
+    {
+        var imported = await transactions.ListImportedByAsync(importBatchId, cancellationToken);
+        var transfers = new Dictionary<Guid, Transfer>();
+        foreach (var transferId in imported.Select(transaction => transaction.TransferId).OfType<Guid>().Distinct())
+        {
+            // A transaction that is not deleted names a transfer whose legs are not deleted either: they are deleted together.
+            transfers[transferId] = await transactions.FindTransferAsync(transferId, deletedToo: false, cancellationToken)
+                ?? throw new InvalidOperationException($"Import batch {importBatchId} has a leg of transfer {transferId}, which was not found: its legs are out of step.");
+        }
+
+        var reconciled = imported.Count(transaction => transaction.TransferId is { } transferId ? transfers[transferId].IsReconciled : transaction.IsReconciled);
+        if (reconciled > 0)
+        {
+            return new DeleteImportedOutcome.Reconciled(reconciled);
+        }
+
+        var now = clock.GetUtcNow();
+        foreach (var transfer in transfers.Values)
+        {
+            transfer.Delete(now);
+        }
+
+        var incomeAndExpenses = imported.Where(transaction => transaction.TransferId is null).ToList();
+        foreach (var transaction in incomeAndExpenses)
+        {
+            transaction.Delete(now);
+        }
+
+        return new DeleteImportedOutcome.Deleted(incomeAndExpenses.Count + (2 * transfers.Count), [.. incomeAndExpenses.Select(transaction => transaction.Date).Distinct()]);
     }
 }

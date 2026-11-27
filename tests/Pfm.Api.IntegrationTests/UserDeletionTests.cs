@@ -245,7 +245,8 @@ public class UserDeletionTests(PfmApi api)
 
         await api.EraseDeactivatedUsersAsync(after: TimeSpan.FromDays(30) - TimeSpan.FromMinutes(1));
 
-        Assert.Equal(owned, await api.RowsOwnedByAsync(userId));
+        // Asking to be deleted left one more entry in their audit log.
+        Assert.Equal(new Dictionary<string, int>(owned) { ["AuditEntries"] = owned["AuditEntries"] + 1 }, await api.RowsOwnedByAsync(userId));
         Assert.Equal(HttpStatusCode.OK, (await SignInAsync(api.CreateBrowser(), email)).StatusCode);
     }
 

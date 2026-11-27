@@ -364,6 +364,43 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("ExchangeRates", (string)null);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Identity.AuditEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("EntityId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Summary")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "Id");
+
+                    b.ToTable("AuditEntries", (string)null);
+                });
+
             modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>
                 {
                     b.Property<Guid>("Id")
@@ -431,12 +468,22 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<DateTimeOffset?>("UndoneAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<Guid>("UserId")
                         .IsConcurrencyToken()
                         .HasColumnType("uuid");
+
+                    b.Property<string>("_rowCategories")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("RowCategories")
+                        .HasDefaultValueSql("'{}'::jsonb");
 
                     b.PrimitiveCollection<List<int>>("_selectedRows")
                         .IsRequired()
@@ -462,8 +509,45 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("CK_ImportBatches_ImportedCount_Within_Selected", "\"ImportedCount\" >= 0 AND \"ImportedCount\" <= \"SelectedCount\"");
 
-                            t.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed')");
+                            t.HasCheckConstraint("CK_ImportBatches_Status", "\"Status\" IN ('Uploaded', 'Committing', 'Committed', 'Failed', 'Undone')");
                         });
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Imports.ImportMapping", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ExpenseCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("IncomeCategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Mapping")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AccountId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ImportMappings_AccountId");
+
+                    b.ToTable("ImportMappings", (string)null);
                 });
 
             modelBuilder.Entity("Pfm.Domain.Transactions.Attachment", b =>
@@ -514,6 +598,57 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.ToTable("Attachments", null, t =>
                         {
                             t.HasCheckConstraint("CK_Attachments_Size", "\"Size\" > 0 AND \"Size\" <= 5242880");
+                        });
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Transactions.CategorisationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("MatchText")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("MatchType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<uint>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CategoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("CategorisationRules", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_CategorisationRules_MatchType", "\"MatchType\" IN ('Contains', 'StartsWith', 'Exactly')");
+
+                            t.HasCheckConstraint("CK_CategorisationRules_Priority_Not_Negative", "\"Priority\" >= 0");
                         });
                 });
 
@@ -1052,7 +1187,25 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("Pfm.Domain.Identity.AuditEntry", b =>
+                {
+                    b.HasOne("Pfm.Infrastructure.Identity.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Pfm.Domain.Imports.ImportBatch", b =>
+                {
+                    b.HasOne("Pfm.Domain.Accounts.Account", null)
+                        .WithMany()
+                        .HasForeignKey("AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Imports.ImportMapping", b =>
                 {
                     b.HasOne("Pfm.Domain.Accounts.Account", null)
                         .WithMany()
@@ -1066,6 +1219,15 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                     b.HasOne("Pfm.Domain.Transactions.Transaction", null)
                         .WithMany()
                         .HasForeignKey("TransactionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Pfm.Domain.Transactions.CategorisationRule", b =>
+                {
+                    b.HasOne("Pfm.Domain.Transactions.Category", null)
+                        .WithMany()
+                        .HasForeignKey("CategoryId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
