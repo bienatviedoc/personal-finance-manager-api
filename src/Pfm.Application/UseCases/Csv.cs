@@ -53,6 +53,7 @@ public static class Csv
         DateTime moment => Moment(new DateTimeOffset(moment.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(moment, DateTimeKind.Utc) : moment)),
         DateTimeOffset moment => Moment(moment),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
+        System.Collections.IEnumerable items => string.Join("; ", items.Cast<object?>().Select(Text)),
         _ => value.ToString() ?? "",
     };
 

@@ -21,6 +21,9 @@ public interface ITransactionRepository
     /// <summary>Every expense, refunds included, that passes <paramref name="filter"/>, with its lines.</summary>
     Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
+    /// <summary>The account's transactions dated from <paramref name="from"/> to <paramref name="to"/>, both included, read only; a deleted one is in none.</summary>
+    Task<IReadOnlyList<Transaction>> ListOnAccountAsync(Guid accountId, DateOnly from, DateOnly to, CancellationToken cancellationToken);
+
     /// <summary>The user's transaction with this id; null when they have none, or deleted it.</summary>
     Task<Transaction?> FindAsync(Guid id, CancellationToken cancellationToken);
 

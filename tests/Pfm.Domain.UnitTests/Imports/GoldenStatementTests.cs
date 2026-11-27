@@ -37,8 +37,8 @@ public class GoldenStatementTests
     {
         var path = Path.Combine(StatementsFolder(), statement);
         var choices = JsonSerializer.Deserialize<Choices>(File.ReadAllText(Path.ChangeExtension(path, ".mapping.json")), Json)!;
-        var text = StatementText.Decode(File.ReadAllBytes(path));
-        Assert.NotNull(text);
+        // As the API reads an upload: UTF-8, its byte order mark (if any) left out.
+        var text = File.ReadAllText(path, System.Text.Encoding.UTF8);
 
         var read = Statement.Read(text, choices.Mapping, choices.Currency, choices.Today);
 

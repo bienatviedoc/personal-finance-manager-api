@@ -3,6 +3,7 @@ using Pfm.Infrastructure;
 using Pfm.Infrastructure.Observability;
 using Pfm.Worker.ExchangeRates;
 using Pfm.Worker.Identity;
+using Pfm.Worker.Imports;
 using Pfm.Worker.Recurring;
 using Pfm.Worker.Transactions;
 
@@ -34,5 +35,10 @@ builder.Services.AddOptions<DeletedTransactionPurgeOptions>()
     .Validate(options => options.RunEvery > TimeSpan.Zero, "DeletedTransactionPurge:RunEvery must be longer than zero.")
     .ValidateOnStart();
 builder.Services.AddHostedService<DeletedTransactionPurgeJob>();
+builder.Services.AddOptions<ImportCommitOptions>()
+    .BindConfiguration(ImportCommitOptions.Section)
+    .Validate(options => options.CommitEvery > TimeSpan.Zero, "Imports:CommitEvery must be longer than zero.")
+    .ValidateOnStart();
+builder.Services.AddHostedService<ImportCommitJob>();
 
 builder.Build().Run();

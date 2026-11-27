@@ -191,15 +191,21 @@ public sealed class ImportBatch : IUserOwned
     /// <summary>The next chosen rows to import, at most <paramref name="max"/>, in the order of the file; none once all are imported.</summary>
     /// <param name="currency">The currency of <see cref="AccountId"/>.</param>
     /// <param name="today">Today in the user's time zone.</param>
-    public IReadOnlyList<StatementEntry> NextToImport(Currency currency, DateOnly today, int max)
-    {
-        if (Status != ImportBatchStatus.Committing)
-        {
-            return [];
-        }
+    public IReadOnlyList<StatementEntry> NextToImport(Currency currency, DateOnly today, int max) =>
+        Status == ImportBatchStatus.Committing ? [.. ChosenEntries(currency, today).Skip(ImportedCount).Take(max)] : [];
 
-        var entries = Read(Mapping!, currency, today).Entries.ToDictionary(row => row.Number, row => row.Entry!);
-        return [.. _selectedRows.Skip(ImportedCount).Take(max).Select(row => entries[row])];
+    /// <summary>
+    /// Every chosen row as it is imported, in the order of the file, while the file is kept. A chosen row the file
+    /// no longer reads as a transaction (its account has changed currency) cannot be imported.
+    /// </summary>
+    /// <exception cref="ImportRuleViolation">A chosen row is no longer read as a transaction.</exception>
+    public IReadOnlyList<StatementEntry> ChosenEntries(Currency currency, DateOnly today)
+    {
+        var entries = Read(Mapping ?? throw new InvalidOperationException("The batch is not committed."), currency, today).Entries
+            .ToDictionary(row => row.Number, row => row.Entry!);
+        return [.. _selectedRows.Select(row => entries.TryGetValue(row, out var entry)
+            ? entry
+            : throw new ImportRuleViolation(nameof(SelectedRows), $"Row {row} can no longer be imported: the account's currency has changed."))];
     }
 
     /// <summary>

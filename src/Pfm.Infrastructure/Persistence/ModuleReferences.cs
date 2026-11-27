@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Pfm.Domain.Accounts;
 using Pfm.Domain.Budgets;
+using Pfm.Domain.Imports;
 using Pfm.Domain.Transactions;
 using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Transactions;
@@ -58,6 +59,15 @@ internal static class ModuleReferences
         // An account with reconciliations is archived, never deleted.
         modelBuilder.Entity<Reconciliation>()
             .HasOne<Account>().WithMany().HasForeignKey(reconciliation => reconciliation.AccountId).OnDelete(DeleteBehavior.Restrict);
+
+        // An account a statement was imported into is archived, never deleted.
+        modelBuilder.Entity<ImportBatch>()
+            .HasOne<Account>().WithMany().HasForeignKey(batch => batch.AccountId).OnDelete(DeleteBehavior.Restrict);
+
+        // A transaction belongs to the import batch it was created from; undoing a batch removes its transactions first (spec IMP-5).
+        modelBuilder.Entity<Transaction>()
+            .HasOne<ImportBatch>().WithMany().HasForeignKey(transaction => transaction.ImportBatchId).OnDelete(DeleteBehavior.Restrict);
+        modelBuilder.Entity<Transaction>().HasIndex(transaction => transaction.ImportBatchId).HasFilter("\"ImportBatchId\" IS NOT NULL");
 
         // What the foreign keys named above point at (a category's id and kind are indexed by its own configuration). The keys themselves are in the migration that adds them:
         // the model cannot hold a foreign key to columns that change, or one checked at commit.
