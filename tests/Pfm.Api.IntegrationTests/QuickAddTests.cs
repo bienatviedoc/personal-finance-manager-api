@@ -86,7 +86,7 @@ public class QuickAddTests(PfmApi api)
         var everyday = await AddAccountAsync(browser, "Everyday");
         await RecordAsync(browser, everyday, await CategoryAsync(browser, "Groceries"), payee: "Co.opmart");
 
-        Assert.Null((await QuickAddAsync(browser, "?type=expense&payee=Big%20C")).SuggestedCategoryId);
+        Assert.Equal((null, null), await SuggestionAsync(browser, "?type=expense&payee=Big%20C"));
         Assert.Null((await QuickAddAsync(browser, "?type=expense&payee=Co")).SuggestedCategoryId);
         // The characters a pattern would read as "anything" are only themselves.
         Assert.Null((await QuickAddAsync(browser, "?type=expense&payee=Co%25")).SuggestedCategoryId);
@@ -181,6 +181,48 @@ public class QuickAddTests(PfmApi api)
     }
 
     [Fact]
+    public async Task A_payee_never_used_takes_the_category_of_the_highest_priority_rule_it_matches()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var transport = await CategoryAsync(browser, "Transport");
+        var eatingOut = await CategoryAsync(browser, "Eating out");
+        await CategorisationRuleTests.AddAsync(browser, "grab", "contains", transport, priority: 1);
+        await CategorisationRuleTests.AddAsync(browser, "grabfood", "startsWith", eatingOut, priority: 2);
+
+        Assert.Equal((transport, "rule"), await SuggestionAsync(browser, "?type=expense&payee=Grab%20bike"));
+        Assert.Equal(eatingOut, (await QuickAddAsync(browser, "?type=expense&payee=GRABFOOD%20HCM")).SuggestedCategoryId);
+        Assert.Null((await QuickAddAsync(browser, "?type=expense&payee=Highlands")).SuggestedCategoryId);
+    }
+
+    [Fact]
+    public async Task A_payee_used_before_takes_the_category_it_usually_has_rather_than_a_rules()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var taxi = await CategoryAsync(browser, "Taxi & ride-hailing");
+        await RecordAsync(browser, everyday, taxi, payee: "Grab");
+        await CategorisationRuleTests.AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"));
+
+        Assert.Equal((taxi, "history"), await SuggestionAsync(browser, "?type=expense&payee=Grab"));
+    }
+
+    [Fact]
+    public async Task A_rule_applies_only_to_the_type_its_category_takes_and_not_while_its_category_is_archived()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var salary = await CategoryAsync(browser, "Salary");
+        var transport = await CategoryAsync(browser, "Transport");
+        var shopping = await CategoryAsync(browser, "Shopping");
+        await CategorisationRuleTests.AddAsync(browser, "acme", "contains", salary, priority: 1);
+        await CategorisationRuleTests.AddAsync(browser, "acme", "contains", shopping, priority: 2);
+        await CategorisationRuleTests.AddAsync(browser, "acme", "contains", transport, priority: 3);
+        (await browser.DeleteAsync($"/api/v1/categories/{transport}")).EnsureSuccessStatusCode();
+
+        Assert.Equal(salary, (await QuickAddAsync(browser, "?type=income&payee=Acme")).SuggestedCategoryId);
+        Assert.Equal(shopping, (await QuickAddAsync(browser, "?type=expense&payee=Acme")).SuggestedCategoryId);
+    }
+
+    [Fact]
     public async Task What_another_user_recorded_is_never_suggested()
     {
         var (alice, _) = await api.SignedInAsync();
@@ -213,6 +255,13 @@ public class QuickAddTests(PfmApi api)
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
+    /// <summary>The category suggested, and what suggested it.</summary>
+    private static async Task<(Guid?, string?)> SuggestionAsync(Browser browser, string query)
+    {
+        var body = await QuickAddAsync(browser, query);
+        return (body.SuggestedCategoryId, body.SuggestedBy);
+    }
+
     private static async Task<QuickAddBody> QuickAddAsync(Browser browser, string query = "")
     {
         var response = await browser.GetAsync(QuickAdd + query);
@@ -243,5 +292,5 @@ public class QuickAddTests(PfmApi api)
 
     private sealed record Identified(Guid Id);
 
-    private sealed record QuickAddBody(Guid? LastAccountId, Guid? SuggestedCategoryId);
+    private sealed record QuickAddBody(Guid? LastAccountId, Guid? SuggestedCategoryId, string? SuggestedBy = null);
 }

@@ -43,7 +43,7 @@ public static class ImportEndpoints
             .WithDescription("The uploaded statement read with a mapping, before anything is saved: every row with its cells, what it is (header, skipped, blank, parsed, failed or unmapped), for a parsed row the transaction it says, and for a failed row what is wrong with it. A row with the date, amount, direction and description (compared without case, accents or extra spaces) of a transaction already on the account is a likely duplicate, unticked (selected false). Without a date column and an amount (or a debit and a credit) column the rows are only cut into cells, for the user to map. A committed batch keeps no file: 409 with the problem type urn:pfm:problem:import-committed.")
             .ProducesProblem(StatusCodes.Status409Conflict);
         imports.MapPost("/{id:guid}/commit", Commit).WithName("CommitImport")
-            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
+            .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income or expenses on the batch's account, each on the category rowCategories gives it, or else on incomeCategoryId or expenseCategoryId, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
         imports.MapDelete("/{id:guid}", Undo).WithName("UndoImport")
@@ -137,7 +137,10 @@ public static class ImportEndpoints
         Guid id, CommitImportRequest request, CommitImportHandler handler, CancellationToken cancellationToken)
     {
         var result = await handler.HandleAsync(
-            new CommitImportCommand(id, request.Mapping?.Input(), request.Rows, request.ExpenseCategoryId, request.IncomeCategoryId), cancellationToken);
+            new CommitImportCommand(
+                id, request.Mapping?.Input(), request.Rows, request.ExpenseCategoryId, request.IncomeCategoryId,
+                request.RowCategories?.Select(row => new RowCategoryInput(row.Row, row.CategoryId)).ToList()),
+            cancellationToken);
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
@@ -216,9 +219,16 @@ public sealed class MappingParameters
 /// <summary>What to import of an uploaded statement.</summary>
 /// <param name="Mapping">The mapping the statement was previewed with.</param>
 /// <param name="Rows">The numbers of the rows to import, as the preview numbers them.</param>
-/// <param name="ExpenseCategoryId">The expense category money going out is recorded on; needed when a chosen row takes money out.</param>
-/// <param name="IncomeCategoryId">The income category money coming in is recorded on; needed when a chosen row brings money in.</param>
-public sealed record CommitImportRequest(MappingRequest? Mapping, IReadOnlyList<int>? Rows, Guid? ExpenseCategoryId, Guid? IncomeCategoryId);
+/// <param name="ExpenseCategoryId">The expense category money going out is recorded on; needed when a chosen row without a category of its own takes money out.</param>
+/// <param name="IncomeCategoryId">The income category money coming in is recorded on; needed when a chosen row without a category of its own brings money in.</param>
+/// <param name="RowCategories">Categories of their own for some of the chosen rows, each of the kind its row takes, such as the preview's suggestedCategoryId or one the user picked instead; the rows left out are recorded on expenseCategoryId or incomeCategoryId.</param>
+public sealed record CommitImportRequest(
+    MappingRequest? Mapping, IReadOnlyList<int>? Rows, Guid? ExpenseCategoryId, Guid? IncomeCategoryId, IReadOnlyList<RowCategoryRequest>? RowCategories = null);
+
+/// <summary>The category the user gave one chosen row of a statement.</summary>
+/// <param name="Row">The row's number, as the preview numbers it.</param>
+/// <param name="CategoryId">One of the user's categories that is not archived, of the kind the row takes: an expense category for money going out, an income one for money coming in.</param>
+public sealed record RowCategoryRequest(int Row, Guid CategoryId);
 
 /// <summary>How a statement is read, as it was committed or as it is first guessed. Columns are counted from 0.</summary>
 public sealed record MappingResponse(
@@ -272,9 +282,10 @@ public sealed record ImportBatchListResponse(IReadOnlyList<ImportBatchResponse> 
 /// <param name="Problem">For a failed row, why it cannot be imported.</param>
 /// <param name="LikelyDuplicate">Whether it matches a transaction already on the account.</param>
 /// <param name="Selected">Ticked to import at first: parsed and not a likely duplicate.</param>
+/// <param name="SuggestedCategoryId">For a parsed row, the category the user's highest-priority categorisation rule its description matches gives it, of the kind the row takes and not archived; null when no rule matches. The user may change it before committing.</param>
 public sealed record PreviewRowResponse(
     int Number, IReadOnlyList<string> Cells, StatementRowKind Kind, DateOnly? Date, StatementEntryType? Type, string? Amount, string? Description,
-    RowProblem? Problem, bool LikelyDuplicate, bool Selected);
+    RowProblem? Problem, bool LikelyDuplicate, bool Selected, Guid? SuggestedCategoryId);
 
 /// <summary>How many rows of the preview are of each kind that matters before committing.</summary>
 /// <param name="Parsed">Read as transactions.</param>
@@ -298,6 +309,6 @@ public sealed record ImportPreviewResponse(
             [.. preview.Rows.Select(row => new PreviewRowResponse(
                 row.Row.Number, row.Row.Cells, row.Row.Kind, row.Row.Entry?.Date, row.Row.Entry?.Type,
                 row.Row.Entry is { } entry ? AmountJson.Text(entry.Amount) : null, row.Row.Entry?.Description, row.Row.Problem, row.LikelyDuplicate,
-                row.Selected))],
+                row.Selected, row.SuggestedCategoryId))],
             new PreviewCountsResponse(preview.Parsed, preview.Failed, preview.LikelyDuplicates, preview.Selected));
 }

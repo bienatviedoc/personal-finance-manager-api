@@ -14,6 +14,7 @@ using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
 using Pfm.Application.Transactions.Reconciliations;
+using Pfm.Application.Transactions.Categorisation;
 using Pfm.Application.Transactions.Recurring;
 using Pfm.Application.Transactions.Tags;
 using Pfm.Application.Transactions.Transfers;
@@ -67,6 +68,8 @@ public static class ApplicationServices
         services.AddScoped<IAttachmentFiles, AttachmentFiles>();
         services.AddScoped<IBudgetWarningThreshold, CurrentUserBudgetWarningThreshold>();
         services.AddScoped<ICategoryLookup, CategoryLookup>();
+        services.AddScoped<UserCategorisation>();
+        services.AddScoped<ICategorisation>(provider => provider.GetRequiredService<UserCategorisation>());
         services.AddScoped<IUserBudgets, UserBudgets>();
         services.AddScoped<IBudgetComparison, BudgetComparer>();
         services.AddScoped<BudgetMonthReader>();

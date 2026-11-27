@@ -128,6 +128,14 @@ _Avoid_: Dry run, draft
 A row of a statement file that matches a transaction already on the account on date, amount, which way the money went, and description compared without case, accents or extra spaces; or a transfer leg on the account on date, amount and which way the money went, as a leg has no description. Each existing transaction matches one row at most. It is shown, unticked, and skipped unless the user ticks it; never dropped silently.
 _Avoid_: Dupe, conflict
 
+**Categorisation rule**:
+A user's rule that a payee or statement row description containing, starting with or exactly matching some text takes a category, compared without case, accents or extra spaces. It categorises only transactions of its category's kind, and nothing while that category is archived. Of several that match, the one of highest priority wins. It suggests: the import preview and quick add start from its category, and the user may change it.
+_Avoid_: Category rule (a rule a category itself keeps, such as its depth), auto-category, filter
+
+**Priority**:
+A categorisation rule's rank: of several rules that match, the highest wins, and of equal ones the one set up first. Reordering the rules sets every rule's priority from its place.
+_Avoid_: Order number, weight
+
 **Reconciliation**:
 Matching an account's transactions against a statement's closing balance until the difference is exactly zero, which then locks those transactions.
 _Avoid_: Balancing, verification, closing

@@ -146,8 +146,10 @@ public sealed class ImportCommits(
         }
 
         var next = chosen.Skip(batch.ImportedCount).Take(rowsPerSave).ToList();
+        var numbers = batch.SelectedRows.Skip(batch.ImportedCount).Take(rowsPerSave);
         var recorded = await transactions.RecordAsync(
-            batch.AccountId, batch.Id, [.. next.Select(entry => new TransactionToImport(entry.Date, entry.Type == StatementEntryType.Income, entry.Amount, entry.Description))],
+            batch.AccountId, batch.Id,
+            [.. next.Zip(numbers, (entry, row) => new TransactionToImport(entry.Date, entry.Type == StatementEntryType.Income, entry.Amount, entry.Description, batch.CategoryOf(row)))],
             batch.ExpenseCategoryId, batch.IncomeCategoryId, batch.CommittedOn!.Value, cancellationToken);
         if (recorded != RecordImportOutcome.Recorded)
         {

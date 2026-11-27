@@ -357,7 +357,9 @@ one of the merged category's own subcategories is refused as an error on `target
   payee have, in any case but never part of one, and of those used equally often the one used last. Each line of
   a split is a use of its category. Refunds, deleted transactions and archived accounts and categories are passed
   over. It reads through its own port,
-  `IQuickAddHistory`. Category rules (spec section 9) will take part when they exist.
+  `IQuickAddHistory`. A payee with no such history takes the category of the highest-priority
+  [categorisation rule](#categorisation-rules) it matches, of the kind the `type` takes. `suggestedBy` says which
+  (`history` or `rule`), so the SPA can say why.
 - **Archived accounts and categories** take no new transactions; a transaction already on one can be edited
   and keeps it.
 - **A foreign key to another module's table** (a transaction's account) is configured in
@@ -446,6 +448,27 @@ one of the merged category's own subcategories is refused as an error on `target
   One due today is listed until the worker posts it, and not at all when it is a reminder already.
   The domain works the dates out (`RecurringRule.Upcoming`); nothing is stored for an occurrence before it is settled.
 - Skipping or editing one occurrence (REC-4) is still to come.
+
+### Categorisation rules
+
+A user's rules for picking a transaction's category from its payee, or a statement row's description (spec IMP-4,
+`CategorisationRule` in `Pfm.Domain.Transactions`; the spec's data model calls the table `CategoryRule`, a name the
+code keeps for a category's own rules, `CategoryRules` and `CategoryRuleViolation`).
+
+- **A rule** is a `matchText` (at most 100 characters), a `matchType` (`contains`, `startsWith` or `exactly`), a
+  `categoryId` and a `priority` (0 to 1,000,000). Text is compared as `ComparableText` has it: without case, accents
+  or extra spaces, as likely duplicates are, so `Phở Hòa` matches `PHO HOA PASTEUR`.
+- **Which wins** (`Categoriser`): of the rules that match, on a category of the kind the transaction takes (an expense
+  rule never categorises income) that is not archived, the highest priority; of equal ones, the one set up first.
+- **Endpoints**: `GET, POST /category-rules`, `PUT, DELETE /category-rules/{id}`, and `PUT /category-rules/order`
+  with every rule's id once, the one to try first first, which gives them priorities from their places (the last 0),
+  so a reorder is one save. The list is unpaged and in the order rules are tried. A new rule left without a
+  `priority` goes one above the highest. Rules are deleted, not archived: they are settings, not money.
+- **Archived categories.** A rule is set up only on a category that is not archived. Once its category is archived it
+  stays listed and categorises nothing; it can be edited keeping that category, or moved to another. Merging a category
+  moves its rules to the target with its transactions (`MergeCategory`).
+- **Where rules apply**: quick add, for a payee with no history (see Transactions), and the import preview (see
+  Imports). Nothing already recorded is recategorised.
 
 ### Integrity check
 
@@ -540,9 +563,16 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   whatever its description, as a leg has no payee, is `likelyDuplicate` and not `selected`. Each existing transaction accounts for one row, so two
   coffees on one day against one recorded flag one. Imports asks Transactions for the account's transactions over the
   statement's dates through `IImportedTransactions` (`Pfm.Application.Contracts.Transactions`).
+- **Categories from rules** (IMP-4). The preview gives each parsed row a `suggestedCategoryId`: the category of the
+  highest-priority [categorisation rule](#categorisation-rules) its description matches, of the row's kind (Imports
+  asks through `ICategorisation`). It is a suggestion: the commit records what it is sent, and applies no rule itself
+  ([decision record 0008](docs/adr/0008-categorisation-rules-suggest-and-the-commit-records-each-rows-category.md)).
 - **Commit.** `POST /imports/{id}/commit` sends the `mapping` the user previewed with, the `rows` to import (by
-  number), and the `expenseCategoryId` and `incomeCategoryId` money going out and coming in is recorded on
-  (`CommitImport`). The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
+  number), `rowCategories` (`[{ row, categoryId }]`: a category of its own for any chosen row, of the kind the row
+  takes, such as the preview's suggestion or the one the user changed it to; kept on the batch as `RowCategories`),
+  and the `expenseCategoryId` and `incomeCategoryId` the rows left without one are recorded on, each needed only
+  when such a row goes that way (`CommitImport`). A row category of the wrong kind, archived, not the user's, given
+  twice or for a row not chosen is refused on `rowCategories`. The file is read again with the mapping, so the rows chosen are the rows previewed; a row that is
   not parsed is refused on `rows`, and a batch whose account was archived after the upload on `id`. The batch keeps the mapping, the rows and the counts (`rowCount`, `selectedCount`,
   `duplicateCount`: likely duplicates left out, `failedCount`) and the user's today it was read as of
   (`CommittedOn`), becomes `committing`, and the answer is 202. The worker reads the rows, and records their
@@ -594,8 +624,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   being committed is undone too, which stops it: the deletes and the batch are one save guarded by its row version,
   so of an undo and the worker saving the next rows at the same moment, one goes first and the other is made again
   (the undo, deleting those rows too) or saves nothing (the worker). The mapping saved for the account stays.
-- **Still to come**: auto-categorisation rules that pick each row's category in the preview (IMP-4, #24), and an audit
-  entry for each commit and undo (#45). The batch keeps the mapping it was committed with and every transaction its
+- **Still to come**: an audit entry for each commit and undo (#45). The batch keeps the mapping it was committed with and every transaction its
   `importBatchId` for them; an undo is one call to `UndoImportHandler`.
 
 ### Budgets
@@ -990,12 +1019,13 @@ Registration uses it to create the new user's default categories.
 - **Lists** answer an object with their `items`, a page at a time (spec section 11): `?limit=` (1 to 100, 50 when
   left out) and `?cursor=`, the `nextCursor` of the page before, which is null on the last page. A wrong `limit`
   or `cursor` answers a validation problem naming it. Lists of things a user names are in `NameOrder`, and
-  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Four answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
+  `Paging.PageByName` cuts their pages. A cursor is opaque Base64Url text, written and read by `CursorText`. Five answers are not paged, and answer all of their `items` (the preview, its `rows`) in one go: the category tree
   (`GET /categories`), since a tree cannot be cut into pages and a user has dozens of categories, not thousands; a
   budget month (`GET /budgets`), a report over that tree with its totals, at most one budget per category; and a
   transaction's attachments (`GET /transactions/{id}/attachments`), a handful of receipts; and a statement's preview
   (`GET /imports/{id}/preview`), one parsed file the user checks whole before committing, bounded by the 10,000 rows
-  a statement may have (the SPA pages it on the screen). Reports
+  a statement may have (the SPA pages it on the screen); and the categorisation rules (`GET /category-rules`), a few
+  dozen, listed and reordered whole, in the order they are tried. Reports
   (`GET /reports/...`) are not lists and are not paged either: each answers one row per category or per month of
   its period, with totals over them.
 - **Optimistic concurrency** (spec section 11): the `rowVersion` of an account, a transaction, a transfer, a
