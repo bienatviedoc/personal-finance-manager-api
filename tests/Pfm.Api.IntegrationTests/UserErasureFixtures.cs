@@ -81,6 +81,10 @@ public static class UserErasureFixtures
         (await browser.PostAsync("/api/v1/transfers", new { fromAccountId = accountId, toAccountId = savingsId, amount = "200000", date = "2026-11-04", note = "For Tet" }))
             .EnsureSuccessStatusCode();
 
+        // A statement uploaded and not yet committed: the batch keeps its file until its rows are imported.
+        (await browser.PostFileAsync("/api/v1/imports", "statement.csv", "Date,Details,Amount\n02/11/2026,Highlands,-55000\n"u8.ToArray(), new Dictionary<string, string> { ["accountId"] = accountId.ToString() }))
+            .EnsureSuccessStatusCode();
+
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
@@ -89,6 +93,7 @@ public static class UserErasureFixtures
             ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
+            ["ImportBatches"] = 1,
             ["Institutions"] = 1,
             ["Reconciliations"] = 1,
             ["RecurringRules"] = 1,

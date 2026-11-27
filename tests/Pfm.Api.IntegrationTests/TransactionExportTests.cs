@@ -79,6 +79,24 @@ public class TransactionExportTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Text_a_spreadsheet_would_run_as_a_formula_is_exported_as_text_behind_a_quote_and_amounts_stay_numbers()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "@Everyday");
+        foreach (var (payee, day) in new[] { ("=HYPERLINK(\"http://evil.example\")", 0), ("+1+2", 1), ("-2+3", 2), ("@SUM(A1)", 3), ("Phở = good", 4) })
+        {
+            await RecordAsync(browser, "expense", account, "Groceries", "1000", Day.AddDays(-day), payee: payee);
+        }
+
+        var rows = await RowsAsync(browser, "");
+
+        Assert.Equal(
+            ["'=HYPERLINK(\"http://evil.example\")", "'+1+2", "'-2+3", "'@SUM(A1)", "Phở = good"],
+            rows.Select(row => row["payee"]));
+        Assert.All(rows, row => Assert.Equal(("'@Everyday", "1000.00"), (row["account"], row["amount"])));
+    }
+
+    [Fact]
     public async Task Both_legs_of_a_transfer_are_exported_with_no_category()
     {
         var (browser, _) = await api.SignedInAsync();

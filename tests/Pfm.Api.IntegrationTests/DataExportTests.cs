@@ -26,7 +26,7 @@ public class DataExportTests(PfmApi api)
         Assert.Matches(@"^personal-finance-manager-\d{4}-\d{2}-\d{2}\.zip$", response.Content.Headers.ContentDisposition?.FileName);
         var files = await FilesAsync(response);
         Assert.Equal(
-            ["README.txt", "accounts.csv", "attachments.csv", "budget-notifications.csv", "budgets.csv", "categories.csv", "institutions.csv", "profile.json", "reconciliations.csv", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
+            ["README.txt", "accounts.csv", "attachments.csv", "budget-notifications.csv", "budgets.csv", "categories.csv", "import-batches.csv", "institutions.csv", "profile.json", "reconciliations.csv", "recurring-rules.csv", "tags.csv", "transaction-lines.csv", "transaction-tags.csv", "transactions.csv"],
             files.Keys.Where(file => !file.StartsWith("attachments/", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
         // Every row the user owns is there, under one line of column names.
         Assert.Equal(
@@ -142,6 +142,18 @@ public class DataExportTests(PfmApi api)
         Assert.Equal("current", account["type"]);
         Assert.Equal(Row(CsvFiles.Read(files["institutions.csv"]), 1)["id"], account["institutionId"]);
         Assert.Contains(CsvFiles.Read(files["categories.csv"]).Skip(1), category => category.Contains(kept["categoryId"]) && category.Contains("Street food"));
+    }
+
+    [Fact]
+    public async Task Text_a_spreadsheet_would_run_as_a_formula_is_exported_as_text_and_a_negative_amount_stays_a_number()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        await BrowserFixtures.AddAccountAsync(browser, "=1+2", openingBalance: "-500000");
+
+        var files = await FilesAsync(await browser.GetAsync(Export));
+
+        var account = Row(CsvFiles.Read(files["accounts.csv"]), 1);
+        Assert.Equal(("'=1+2", "-500000.00"), (account["name"], account["openingBalance"].TrimEnd('0').TrimEnd('.') + ".00"));
     }
 
     [Fact]

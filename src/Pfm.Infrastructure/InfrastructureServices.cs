@@ -24,6 +24,8 @@ using Pfm.Infrastructure.Persistence;
 using Pfm.Infrastructure.Printing;
 using Pfm.Infrastructure.Storage;
 using Pfm.Infrastructure.Transactions;
+using Pfm.Application.Imports;
+using Pfm.Infrastructure.Imports;
 
 namespace Pfm.Infrastructure;
 
@@ -78,6 +80,7 @@ public static class InfrastructureServices
         services.AddScoped<IReconciliationRepository, ReconciliationRepository>();
         services.AddScoped<IQuickAddHistory, QuickAddHistory>();
         services.AddScoped<IAttachmentRepository, AttachmentRepository>();
+        services.AddScoped<IImportBatchRepository, ImportBatchRepository>();
 
         // Like the SPA's address: a host fails at start-up, not at the first upload.
         services.AddObjectStorage(validateOnStart: !IsGeneratingOpenApiDocument);

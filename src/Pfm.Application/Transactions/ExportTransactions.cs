@@ -70,7 +70,7 @@ public sealed class ExportTransactionsHandler(
         transaction.Payee,
         transaction.Note,
         string.Join("; ", transaction.Tags.Select(tag => tag.Name)),
-        AmountText.Of(transaction.Amount),
+        new Csv.Number(AmountText.Of(transaction.Amount)),
         transaction.Currency.ToString(),
     ];
 }

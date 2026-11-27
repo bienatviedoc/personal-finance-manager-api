@@ -42,6 +42,19 @@ public sealed class Browser(HttpClient http)
         return ChangeAsync(HttpMethod.Post, path, new MultipartFormDataContent { { file, "file", fileName } }, traceparent: null);
     }
 
+    /// <summary>Posts one file as the <c>file</c> field of a form, beside other fields, the way a browser uploads a form.</summary>
+    public Task<HttpResponseMessage> PostFileAsync(string path, string fileName, byte[] content, Dictionary<string, string> fields)
+    {
+        var form = new MultipartFormDataContent();
+        foreach (var (name, value) in fields)
+        {
+            form.Add(new StringContent(value), name);
+        }
+
+        form.Add(new ByteArrayContent(content), "file", fileName);
+        return ChangeAsync(HttpMethod.Post, path, form, traceparent: null);
+    }
+
     /// <summary>Posts a form's fields, with no file among them.</summary>
     public Task<HttpResponseMessage> PostFormAsync(string path, Dictionary<string, string> fields)
     {

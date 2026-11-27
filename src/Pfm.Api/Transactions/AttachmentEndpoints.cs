@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Http.HttpResults;
-using Microsoft.AspNetCore.Http.Metadata;
+using Pfm.Application.Abstractions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Domain.Transactions;
 
@@ -14,20 +14,6 @@ public static class AttachmentEndpoints
     /// </summary>
     private const long MaxRequestSize = 2 * Attachment.MaxSize;
 
-    /// <summary>
-    /// An upload over <see cref="MaxRequestSize"/> is cut off by the server with a bare 413 before the endpoint
-    /// reads it: this gives that problem the same message as a file that was read and found too large.
-    /// </summary>
-    public static void ExplainTooLarge(ProblemDetailsContext context)
-    {
-        ArgumentNullException.ThrowIfNull(context);
-        if (context.ProblemDetails.Status == StatusCodes.Status413PayloadTooLarge
-            && context.HttpContext.GetEndpoint()?.Metadata.GetMetadata<IRequestSizeLimitMetadata>() is not null)
-        {
-            context.ProblemDetails.Detail = Attachment.SizeMessage;
-        }
-    }
-
     public static IEndpointRouteBuilder MapAttachmentEndpoints(this IEndpointRouteBuilder api)
     {
         var ofTransaction = api.MapGroup("/transactions/{id:guid}/attachments").WithTags("Attachments").ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -37,7 +23,7 @@ public static class AttachmentEndpoints
             .WithDescription("The receipts attached to a transaction, the first attached first.");
         ofTransaction.MapPost("/", Add).WithName("AddAttachment")
             .WithDescription("Attaches a receipt to a transaction: one JPEG, PNG or PDF file of at most 5 MB, sent as the file field of a multipart/form-data body. What the file is, is read from the file itself, not from its name.")
-            .WithMetadata(new RequestSizeLimitMetadata(MaxRequestSize))
+            .WithMetadata(new UploadSizeLimit(MaxRequestSize, Attachment.SizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
         attachments.MapGet("/{id:guid}", GetUrl).WithName("GetAttachmentUrl")
@@ -87,11 +73,6 @@ public static class AttachmentEndpoints
         }
 
         return result.Outcome is null ? TypedResults.NotFound() : TypedResults.NoContent();
-    }
-
-    private sealed class RequestSizeLimitMetadata(long maxRequestBodySize) : IRequestSizeLimitMetadata
-    {
-        public long? MaxRequestBodySize => maxRequestBodySize;
     }
 }
 

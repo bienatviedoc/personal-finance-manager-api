@@ -5,6 +5,7 @@ using Pfm.Api;
 using Pfm.Api.Accounts;
 using Pfm.Api.Budgets;
 using Pfm.Api.Identity;
+using Pfm.Api.Imports;
 using Pfm.Api.Reports;
 using Pfm.Api.Transactions;
 using Pfm.Application;
@@ -29,7 +30,7 @@ builder.Services.AddPfmAuthentication(cookies);
 builder.Services.AddPfmAntiforgery(cookies);
 builder.Services.AddAuthRateLimit();
 builder.Services.AddPfmJson();
-builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = AttachmentEndpoints.ExplainTooLarge);
+builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = UploadSizeLimit.ExplainTooLarge);
 builder.Services.AddOpenApi("v1");
 
 var app = builder.Build();
@@ -121,6 +122,7 @@ app.MapGroup("/api/v1")
     .MapRecurringRuleEndpoints()
     .MapBudgetEndpoints()
     .MapBudgetNotificationEndpoints()
+    .MapImportEndpoints()
     .MapReportEndpoints();
 
 app.Run();

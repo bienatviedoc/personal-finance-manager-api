@@ -106,6 +106,9 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public Guid? RecurringRuleId { get; private set; }
 
+    /// <summary>The import batch the transaction was created from (spec section 3); null for one a user recorded or a rule posted.</summary>
+    public Guid? ImportBatchId { get; private set; }
+
     /// <summary>
     /// The reconciliation the transaction is ticked in; null while it is in none. It stays ticked when the
     /// reconciliation completes, which locks it (&lt;see cref="IsReconciled"/&gt;).
@@ -514,6 +517,22 @@ public sealed class Transaction : IUserOwned
         {
             throw new TransactionRuleViolation(nameof(Type), "A transfer is recorded as a transfer, both legs together.");
         }
+    }
+
+    /// <summary>Marks the transaction as created from an import batch, which it belongs to from then on.</summary>
+    public void ImportedBy(Guid importBatchId)
+    {
+        if (IsTransferLeg || RecurringRuleId is not null)
+        {
+            throw new InvalidOperationException("An import creates income and expenses of its own, never a leg of a transfer or an occurrence of a rule.");
+        }
+
+        if (importBatchId == Guid.Empty)
+        {
+            throw new ArgumentException("An import batch has an id.", nameof(importBatchId));
+        }
+
+        ImportBatchId = importBatchId;
     }
 
     /// <summary>Says which recurring rule posted the transaction, once: it is the occurrence of that rule due on its date.</summary>

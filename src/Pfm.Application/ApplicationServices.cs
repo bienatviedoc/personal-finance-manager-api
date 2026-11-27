@@ -9,6 +9,7 @@ using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.ExchangeRates;
 using Pfm.Application.Identity;
+using Pfm.Application.Imports;
 using Pfm.Application.Transactions;
 using Pfm.Application.Transactions.Attachments;
 using Pfm.Application.Transactions.Categories;
@@ -53,6 +54,10 @@ public static class ApplicationServices
         services.AddScoped<RecurringRuleContext>();
         services.AddScoped<ReconciliationContext>();
         services.AddScoped<RecurringPosting>();
+        services.AddScoped<IImportedTransactions, ImportedTransactions>();
+        services.AddScoped<StatementReader>();
+        services.AddScoped<ImportCommits>();
+        services.AddScoped<AbandonedUploadSweep>();
         services.AddScoped<TransactionConversion>();
         services.AddScoped<IntegrityCheck>();
         services.AddScoped<DeletedTransactionPurge>();

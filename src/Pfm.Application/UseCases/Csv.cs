@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Globalization;
 using System.Text;
 
@@ -8,6 +9,12 @@ namespace Pfm.Application.UseCases;
 /// line, and quotes around a field that holds a comma, a quote or a line break. Values are written the same
 /// in every locale, as the API's JSON writes them: a decimal point, <c>2026-11-02</c> for a date and ISO 8601
 /// in UTC for a moment.
+/// <para>
+/// Text is written so that a spreadsheet opening the file shows it rather than runs it (OWASP, CSV injection): text
+/// that starts with <c>=</c>, <c>+</c>, <c>-</c>, <c>@</c>, a tab or a carriage return gets a single quote before
+/// it. Only text: a number (a <see cref="decimal"/>, or an amount written as <see cref="Number"/>) is written as it
+/// is, so a negative amount stays a number. A list is its items, each written so, separated by <c>"; "</c>.
+/// </para>
 /// </summary>
 public static class Csv
 {
@@ -44,16 +51,27 @@ public static class Csv
     private static string Quoted(string field) =>
         field.AsSpan().IndexOfAny(",\"\r\n") >= 0 ? $"\"{field.Replace("\"", "\"\"", StringComparison.Ordinal)}\"" : field;
 
+    /// <summary>A number already written as text (an amount by <see cref="AmountText"/>), to be written as a number, never as text.</summary>
+    public readonly record struct Number(string Text);
+
+    private static readonly SearchValues<char> FormulaStarts = SearchValues.Create("=+-@\t\r");
+
+    /// <summary>Text as a spreadsheet shows it: behind a single quote when it starts as a formula would.</summary>
+    private static string Neutralised(string text) => text.Length > 0 && FormulaStarts.Contains(text[0]) ? $"'{text}" : text;
+
     private static string Text(object? value) => value switch
     {
         null => "",
-        string text => text,
+        string text => Neutralised(text),
+        Number number => number.Text,
         bool flag => flag ? "true" : "false",
         DateOnly date => DateText.Of(date),
         DateTime moment => Moment(new DateTimeOffset(moment.Kind == DateTimeKind.Unspecified ? DateTime.SpecifyKind(moment, DateTimeKind.Utc) : moment)),
         DateTimeOffset moment => Moment(moment),
         IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
-        _ => value.ToString() ?? "",
+        byte[] bytes => Convert.ToBase64String(bytes),
+        System.Collections.IEnumerable items => string.Join("; ", items.Cast<object?>().Select(Text)),
+        _ => Neutralised(value.ToString() ?? ""),
     };
 
     private static string Moment(DateTimeOffset moment) =>
