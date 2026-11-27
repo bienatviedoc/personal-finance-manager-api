@@ -77,4 +77,4 @@ public sealed record AccountTransaction(DateOnly Date, bool MoneyIn, decimal Amo
 /// <param name="Amount">Greater than zero, in the account's currency.</param>
 /// <param name="Payee">The row's description.</param>
 /// <param name="CategoryId">The category the user gave the row of its own; null for the batch's category of its kind.</param>
-public sealed record TransactionToImport(DateOnly Date, bool IsIncome, decimal Amount, string? Payee, Guid? CategoryId = null);
+public sealed record TransactionToImport(DateOnly Date, bool IsIncome, decimal Amount, string? Payee, Guid? CategoryId);

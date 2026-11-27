@@ -28,8 +28,7 @@ public abstract record UndoImportOutcome
     }
 
     /// <summary>The batch is undone, now or before, and its transactions deleted.</summary>
-    /// <param name="Transactions">How many transactions this undo deleted: none when the batch was undone already.</param>
-    public sealed record Undone(ImportBatchDetails Batch, int Transactions) : UndoImportOutcome;
+    public sealed record Undone(ImportBatchDetails Batch) : UndoImportOutcome;
 
     /// <summary>Nothing changed: these many of its transactions are reconciled, so locked (spec section 3, rule 11). Reopen their reconciliation first.</summary>
     public sealed record Reconciled(int Transactions) : UndoImportOutcome;
@@ -65,7 +64,7 @@ public sealed class UndoImportHandler(
             case ImportBatchStatus.Uploaded:
                 return new UndoImportOutcome.NotCommitted();
             case ImportBatchStatus.Undone:
-                return new UndoImportOutcome.Undone(ImportBatchDetails.Of(batch), 0);
+                return new UndoImportOutcome.Undone(ImportBatchDetails.Of(batch));
         }
 
         var deleted = await transactions.DeleteAsync(batch.Id, cancellationToken);
@@ -81,6 +80,6 @@ public sealed class UndoImportHandler(
 
         // A refund deleted raises spent again, as deleting one transaction does.
         await budgetNotifications.CheckAsync(dates, cancellationToken);
-        return new UndoImportOutcome.Undone(ImportBatchDetails.Of(batch), count);
+        return new UndoImportOutcome.Undone(ImportBatchDetails.Of(batch));
     }
 }

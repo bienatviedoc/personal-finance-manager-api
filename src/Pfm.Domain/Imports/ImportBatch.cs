@@ -198,12 +198,12 @@ public sealed class ImportBatch : IUserOwned
     /// </param>
     public void Commit(
         StatementMapping mapping, Statement statement, IReadOnlyCollection<int> rows, IReadOnlySet<int> likelyDuplicates,
-        Guid? expenseCategoryId, Guid? incomeCategoryId, DateOnly today, DateTimeOffset now, IReadOnlyDictionary<int, Guid>? rowCategories = null)
+        Guid? expenseCategoryId, Guid? incomeCategoryId, DateOnly today, DateTimeOffset now, IReadOnlyDictionary<int, Guid> rowCategories)
     {
-        rowCategories ??= new Dictionary<int, Guid>();
         ArgumentNullException.ThrowIfNull(statement);
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(likelyDuplicates);
+        ArgumentNullException.ThrowIfNull(rowCategories);
         if (Status != ImportBatchStatus.Uploaded)
         {
             throw new ImportRuleViolation(nameof(Status), "This statement has been committed already.");

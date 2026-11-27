@@ -12,7 +12,7 @@ namespace Pfm.Application.Imports;
 public sealed record ImportBatchDetails(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
     int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, StatementMapping? Mapping, StatementMapping? SuggestedMapping,
-    StatementMapping? SavedMapping = null, DateTimeOffset? UndoneAt = null, Guid? SavedExpenseCategoryId = null, Guid? SavedIncomeCategoryId = null)
+    StatementMapping? SavedMapping, DateTimeOffset? UndoneAt, Guid? SavedExpenseCategoryId, Guid? SavedIncomeCategoryId)
 {
     /// <param name="saved">The mapping saved for the batch's account, if any: answered only while the batch is uploaded.</param>
     public static ImportBatchDetails Of(ImportBatch batch, ImportMapping? saved = null)
@@ -23,8 +23,4 @@ public sealed record ImportBatchDetails(
             batch is { Status: ImportBatchStatus.Uploaded, Content: { } content } ? StatementText.SuggestMapping(content) : null,
             offered?.Mapping, batch.UndoneAt, offered?.ExpenseCategoryId, offered?.IncomeCategoryId);
     }
-
-    /// <summary>The batch with the mapping saved for its account, while it is uploaded and the user maps it.</summary>
-    public static async Task<ImportBatchDetails> OfAsync(ImportBatch batch, IImportMappingRepository mappings, CancellationToken cancellationToken) =>
-        Of(batch, batch.Status == ImportBatchStatus.Uploaded ? await mappings.FindAsync(batch.AccountId, cancellationToken) : null);
 }

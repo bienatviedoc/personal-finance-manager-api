@@ -12,13 +12,16 @@ public class ImportBatchUndoTests
     private static readonly DateTimeOffset Later = Now.AddHours(2);
     private static readonly DateOnly Today = new(2026, 11, 27);
 
+    /// <summary>No chosen row has a category of its own: each takes the batch's category of its kind.</summary>
+    private static readonly IReadOnlyDictionary<int, Guid> NoRowCategories = new Dictionary<int, Guid>();
+
     private static readonly StatementMapping Mapping = new(
         Separator.Comma, HasHeaderRow: true, DateColumn: 0, DescriptionColumn: 1, AmountColumn: 2, DateFormat: DateFormat.DayMonthYear);
 
     private static ImportBatch Committing()
     {
         var batch = ImportBatch.Upload(Guid.CreateVersion7(), "statement.csv", "Date,Details,Amount\n02/08/2026,A,-1000\n03/08/2026,B,-2000\n", Now);
-        batch.Commit(Mapping, batch.Read(Mapping, Currency.VND, Today), [2, 3], new HashSet<int>(), Guid.CreateVersion7(), null, Today, Now);
+        batch.Commit(Mapping, batch.Read(Mapping, Currency.VND, Today), [2, 3], new HashSet<int>(), Guid.CreateVersion7(), null, Today, Now, NoRowCategories);
         return batch;
     }
 

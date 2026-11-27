@@ -21,7 +21,7 @@ namespace Pfm.Application.Imports;
 /// </param>
 public sealed record CommitImportCommand(
     Guid Id, MappingInput? Mapping, IReadOnlyList<int>? Rows, Guid? ExpenseCategoryId, Guid? IncomeCategoryId,
-    IReadOnlyList<RowCategoryInput>? RowCategories = null);
+    IReadOnlyList<RowCategoryInput>? RowCategories);
 
 /// <summary>The category the user gave one chosen row of a statement.</summary>
 /// <param name="Row">The row's number, as the preview numbers it.</param>

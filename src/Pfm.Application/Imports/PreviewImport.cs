@@ -60,7 +60,7 @@ public sealed record ImportPreview(IReadOnlyList<string> Header, int ColumnCount
 /// For a row read as a transaction, the category the user's highest-priority categorisation rule its description
 /// matches gives it (spec IMP-4); null when none does.
 /// </param>
-public sealed record PreviewRow(StatementRow Row, bool LikelyDuplicate, bool Selected, Guid? SuggestedCategoryId = null);
+public sealed record PreviewRow(StatementRow Row, bool LikelyDuplicate, bool Selected, Guid? SuggestedCategoryId);
 
 /// <summary>Answers null when the user has no such batch.</summary>
 public sealed class PreviewImportHandler(

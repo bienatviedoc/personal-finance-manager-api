@@ -56,9 +56,6 @@ public static class LikelyDuplicates
         return true;
     }
 
-    /// <summary>A description as it is compared: as <see cref="ComparableText"/> has it.</summary>
-    public static string Normalise(string? description) => ComparableText.Of(description);
-
     private static (DateOnly, StatementEntryType, decimal, string) Key(DateOnly date, StatementEntryType type, decimal amount, string? description) =>
-        (date, type, amount, Normalise(description));
+        (date, type, amount, ComparableText.Of(description));
 }

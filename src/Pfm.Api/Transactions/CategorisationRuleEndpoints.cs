@@ -12,9 +12,6 @@ public static class CategorisationRuleEndpoints
     /// <summary>What these endpoints edit, as a problem about its row version names it.</summary>
     private const string What = "categorisation rule";
 
-    /// <summary>What a reorder made from rules that changed since they were read is refused as.</summary>
-    private const string TheRules = "rules";
-
     public static IEndpointRouteBuilder MapCategorisationRuleEndpoints(this IEndpointRouteBuilder api)
     {
         var rules = api.MapGroup("/category-rules").WithTags("Categorisation rules").ProducesProblem(StatusCodes.Status401Unauthorized);
@@ -84,7 +81,7 @@ public static class CategorisationRuleEndpoints
             foreach (var rule in sent)
             {
                 // A row version the API never gave out matches no rule, as a stale one does.
-                if (!uint.TryParse(rule.RowVersion, NumberStyles.None, CultureInfo.InvariantCulture, out var rowVersion))
+                if (!RowVersions.TryParse(rule.RowVersion, out var rowVersion))
                 {
                     return StaleOrder();
                 }
@@ -107,7 +104,7 @@ public static class CategorisationRuleEndpoints
     private static ProblemHttpResult StaleOrder() =>
         TypedResults.Problem(
             statusCode: StatusCodes.Status412PreconditionFailed,
-            title: $"The {TheRules} have changed since they were read. Read them again, then reorder them.");
+            title: "The rules have changed since they were read. Read them again, then reorder them.");
 
     private static CategorisationRuleResponse Versioned(HttpContext http, CategorisationRuleResponse rule)
     {

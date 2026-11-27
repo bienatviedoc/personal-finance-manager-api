@@ -59,6 +59,6 @@ public sealed class UploadStatementHandler(
         var batch = ImportBatch.Upload(account.Id, file.Name!, text, clock.GetUtcNow());
         batches.Add(batch);
         await unitOfWork.SaveChangesAsync(cancellationToken);
-        return await ImportBatchDetails.OfAsync(batch, mappings, cancellationToken);
+        return ImportBatchDetails.Of(batch, await mappings.FindAsync(batch.AccountId, cancellationToken));
     }
 }
