@@ -202,7 +202,7 @@ public sealed class ImportBatch : IUserOwned
             throw new ImportRuleViolation(nameof(SelectedRows), "Choose at least one row to import.");
         }
 
-        if (chosen.FirstOrDefault(row => !entries.ContainsKey(row)) is var notRead and not 0)
+        if (chosen.Where(row => !entries.ContainsKey(row)).Select(row => (int?)row).FirstOrDefault() is { } notRead)
         {
             throw new ImportRuleViolation(nameof(SelectedRows), $"Row {notRead} is not a transaction that can be imported.");
         }

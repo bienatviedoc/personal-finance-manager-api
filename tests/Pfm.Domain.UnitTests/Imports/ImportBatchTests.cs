@@ -60,6 +60,9 @@ public class ImportBatchTests
     [InlineData(new[] { 4 })]
     [InlineData(new[] { 1 })]
     [InlineData(new[] { 99 })]
+    [InlineData(new[] { 0 })]
+    [InlineData(new[] { 0, 2 })]
+    [InlineData(new[] { -1 })]
     [InlineData(new int[0])]
     public void Only_rows_that_were_read_can_be_chosen_and_at_least_one(int[] rows)
     {
