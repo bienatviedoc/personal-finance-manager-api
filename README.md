@@ -570,10 +570,33 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **What the spec leaves as it is.** An imported row is income or an expense on the account, in its currency; a row
   that is one leg of a move between the user's own accounts is joined with the other leg afterwards by
   [mark as transfer](#transactions) (IMP-7: nothing is matched automatically). A row may be dated in a period already
-  reconciled, as a transaction a user records may; it is not reconciled itself.- **Still to come**: the mapping saved per account and undoing a batch (IMP-2, IMP-5, #23), auto-categorisation
-  rules that pick each row's category in the preview (IMP-4, #24). Each commit leaves an entry in the
-  [audit log](#audit-log). The batch
-  keeps the mapping it was committed with and every transaction its `importBatchId` for them.
+  reconciled, as a transaction a user records may; it is not reconciled itself.
+- **The mapping is saved per account** (IMP-2; `ImportMapping`, table `ImportMappings`, one per account). Committing a
+  statement saves the mapping it was committed with for the account, in the same save, in place of the one saved
+  before. An upload, and `GET /imports/{id}` while the batch is uploaded, answer it as `savedMapping` (null when the
+  account has none), beside the `suggestedMapping` guessed from the file: the SPA starts from the saved one, so the
+  next statement of the same bank is one click, and the user can still change it in the preview; the change is saved
+  when that statement is committed. A commit refused saves nothing.
+- **Past imports.** `GET /imports` lists the batches the user committed, whatever became of them (`committing`,
+  `committed`, `failed` or `undone`), the last uploaded first, a page at a time, with `accountId` to list one
+  account's (`ListImportBatches`): each with its `fileName`, `createdAt` (uploaded), `committedAt`, `undoneAt` and
+  counts. A statement uploaded and not committed is not listed.
+- **Undo** (IMP-5; `DELETE /imports/{id}`, `UndoImport`;
+  [decision record 0007](docs/adr/0007-undoing-an-import-deletes-its-transactions-in-one-save-with-the-batch.md)). Every
+  transaction the batch created and not deleted already, edited or not, is deleted softly
+  (`IImportedTransactions.DeleteAsync`): it is listed as recently deleted and restorable for 30 days, one by one, like
+  any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it, as
+  deleting that leg does. The batch becomes `undone` with `undoneAt`, keeps its counts, lets go of its file if it still
+  had it, and answers 200. The budget notifications of the dates deleted are checked, as a delete does. While any of
+  its transactions, or the other leg of a transfer one of them is a leg of, is reconciled, the undo answers 409
+  `urn:pfm:problem:import-reconciled`, with how many in `reconciledCount`, and changes nothing. A statement never
+  committed answers 409 `urn:pfm:problem:import-not-committed`; one undone already answers as it is. A batch still
+  being committed is undone too, which stops it: the deletes and the batch are one save guarded by its row version,
+  so of an undo and the worker saving the next rows at the same moment, one goes first and the other is made again
+  (the undo, deleting those rows too) or saves nothing (the worker). The mapping saved for the account stays.
+- **Still to come**: auto-categorisation rules that pick each row's category in the preview (IMP-4, #24). The batch
+  keeps the mapping it was committed with and every transaction its `importBatchId` for them. Each commit and undo
+  leaves an entry in the [audit log](#audit-log), in its own save.
 
 ### Budgets
 
@@ -905,11 +928,11 @@ Spec section 8 (Auditability): sensitive actions leave a trace the user can revi
   then saves both together. Call it just before `SaveChangesAsync`. A use case made again after a concurrent change
   records again, as `DiscardChanges` dropped the first entry with everything else. Signing in records in the
   transaction that clears the failed attempts and cancels a deletion, before the session cookie is issued.
-- **Undoing an import** (#23) records with `IAuditLog.ImportUndoneAsync(batchId, fileName, transactions)`, in the save
-  that removes the batch's transactions.
+- **Undoing an import** records with `IAuditLog.ImportUndoneAsync(batchId, fileName, transactions)` in `UndoImport`, in
+  the save that deletes the batch's transactions. Undoing a batch undone already records nothing.
 - **Reading it:** `GET /api/v1/me/audit-log` answers the signed-in user's entries, the newest first, a page at a time
   (`limit` and `cursor`, as every list). The SPA shows it under Settings.
-- **Append only** (decision record 0007): there is no endpoint that changes or deletes an entry. `PfmDbContext`
+- **Append only** (decision record 0008): there is no endpoint that changes or deletes an entry. `PfmDbContext`
   refuses to save a change or delete of any `IAppendOnly` entity, and the database's
   `TR_AuditEntries_AppendOnly` trigger refuses an `UPDATE` or `TRUNCATE` of `AuditEntries`, and a `DELETE` but of
   the entries of a deactivated user (or one already gone): erasing a user after their 30 days removes their entries

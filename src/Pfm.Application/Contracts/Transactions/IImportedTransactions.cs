@@ -24,6 +24,31 @@ public interface IImportedTransactions
     Task<RecordImportOutcome> RecordAsync(
         Guid accountId, Guid importBatchId, IReadOnlyList<TransactionToImport> transactions, Guid? expenseCategoryId, Guid? incomeCategoryId,
         DateOnly today, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Deletes every transaction of the import batch not deleted already, edited or not, softly: each stays recoverable
+    /// for 30 days like any deleted transaction (spec IMP-5, section 3 rule 10). One marked as a leg of a transfer since
+    /// it was imported deletes the transfer, the other leg with it (rule 3). Nothing is saved: the caller saves them
+    /// together with what it records of the batch. Refused, with nothing deleted, while any of them, or the other leg
+    /// of a transfer one of them is a leg of, is reconciled (rule 11).
+    /// </summary>
+    Task<DeleteImportedOutcome> DeleteAsync(Guid importBatchId, CancellationToken cancellationToken);
+}
+
+/// <summary>What deleting an import batch's transactions came to.</summary>
+public abstract record DeleteImportedOutcome
+{
+    private DeleteImportedOutcome()
+    {
+    }
+
+    /// <summary>Deleted, to be saved.</summary>
+    /// <param name="Transactions">How many were deleted, the other legs of transfers included.</param>
+    /// <param name="Dates">The dates of the income and expenses deleted, whose budget notifications may now be due.</param>
+    public sealed record Deleted(int Transactions, IReadOnlyCollection<DateOnly> Dates) : DeleteImportedOutcome;
+
+    /// <summary>Nothing deleted: these many of them are reconciled, or legs of a transfer with a reconciled leg.</summary>
+    public sealed record Reconciled(int Transactions) : DeleteImportedOutcome;
 }
 
 /// <summary>What recording a statement's rows came to.</summary>

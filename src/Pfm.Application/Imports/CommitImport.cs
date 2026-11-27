@@ -58,8 +58,8 @@ public abstract record CommitImportOutcome
 /// The commit is recorded in the user's audit log in the same save.
 /// </summary>
 public sealed class CommitImportHandler(
-    IValidator<CommitImportCommand> validator, IImportBatchRepository batches, StatementReader reader, ICategoryLookup categories, IAuditLog auditLog,
-    IUnitOfWork unitOfWork, TimeProvider clock)
+    IValidator<CommitImportCommand> validator, IImportBatchRepository batches, IImportMappingRepository mappings, StatementReader reader, ICategoryLookup categories,
+    IAuditLog auditLog, IUnitOfWork unitOfWork, TimeProvider clock)
     : CommandHandler<CommitImportCommand, CommitImportOutcome?>(validator)
 {
     protected override Task<Result<CommitImportOutcome?>> ExecuteAsync(CommitImportCommand command, CancellationToken cancellationToken) =>
@@ -108,6 +108,16 @@ public sealed class CommitImportHandler(
             return Result<CommitImportOutcome?>.Invalid(FieldError.On(property, violation.Message));
         }
 
+        // Saved for the account with the commit, for its next statement (spec IMP-2).
+        if (await mappings.FindAsync(batch.AccountId, cancellationToken) is { } saved)
+        {
+            saved.Change(mapping, clock.GetUtcNow());
+        }
+        else
+        {
+            mappings.Add(ImportMapping.Save(batch.AccountId, mapping, clock.GetUtcNow()));
+        }
+
         if (await batches.IsCommittingIntoAsync(batch.AccountId, cancellationToken))
         {
             unitOfWork.DiscardChanges();
@@ -122,7 +132,8 @@ public sealed class CommitImportHandler(
         }
         catch (AlreadyExistsException)
         {
-            // Another statement was committed into the account meanwhile: one batch at a time is.
+            // Another statement was committed into the account meanwhile: one batch at a time is. (Or, the first time
+            // statements are committed into it, another saved its mapping first, which is as rare and as safe to retry.)
             unitOfWork.DiscardChanges();
             return new CommitImportOutcome.ImportInProgress();
         }
