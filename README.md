@@ -963,7 +963,10 @@ Spec section 8 (Auditability): sensitive actions leave a trace the user can revi
 
 - **What is recorded:** each sign-in that gets through (saying which second factor, and whether it cancelled the
   user's deletion), each statement committed, each import undone, each bulk action (one entry for all the
-  transactions it took, `bulkEdit` or `bulkDelete`), and each delete of a transaction or a transfer. An
+  transactions it took, `bulkEdit` or `bulkDelete`), each `delete` of a transaction, a transfer, an attachment, a
+  budget (overall or of a category), a recurring rule or a categorisation rule, and the user asking to be deleted
+  (`deletionRequest`, saved in the transaction that deactivates them; signing in again cancels it, which the sign-in's
+  entry says). An
   `AuditEntry` (`Pfm.Domain.Identity`) keeps the `action`, the `entityType` and `entityId` it affected (none for
   a bulk action), `at` and a short `summary`, written by `AuditSummaries` in the user's locale at the time (English
   when they have none). A summary names a file, a category, a tag, an account, an amount or a count; never a

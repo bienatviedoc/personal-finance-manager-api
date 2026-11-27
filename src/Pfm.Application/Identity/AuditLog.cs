@@ -43,6 +43,23 @@ public sealed class AuditLog(IAuditEntryRepository entries, IUserLocale locale, 
     public Task TransferDeletedAsync(Guid transferId, decimal amount, Currency currency, DateOnly date, CancellationToken cancellationToken) =>
         RecordAsync(AuditAction.Delete, AuditEntityType.Transfer, transferId, language => AuditSummaries.TransferDeleted(language, amount, currency, date), cancellationToken);
 
+    public Task AttachmentRemovedAsync(Guid attachmentId, string fileName, CancellationToken cancellationToken) =>
+        RecordAsync(AuditAction.Delete, AuditEntityType.Attachment, attachmentId, language => AuditSummaries.AttachmentRemoved(language, fileName), cancellationToken);
+
+    public Task BudgetRemovedAsync(Guid budgetId, string? category, decimal amount, Currency currency, string month, CancellationToken cancellationToken) =>
+        RecordAsync(AuditAction.Delete, AuditEntityType.Budget, budgetId, language => AuditSummaries.BudgetRemoved(language, category, amount, currency, month), cancellationToken);
+
+    public Task RecurringRuleDeletedAsync(Guid ruleId, bool income, decimal amount, Currency currency, string? payee, CancellationToken cancellationToken) =>
+        RecordAsync(
+            AuditAction.Delete, AuditEntityType.RecurringRule, ruleId, language => AuditSummaries.RecurringRuleDeleted(language, income, amount, currency, payee),
+            cancellationToken);
+
+    public Task CategorisationRuleDeletedAsync(Guid ruleId, string matchText, CancellationToken cancellationToken) =>
+        RecordAsync(AuditAction.Delete, AuditEntityType.CategorisationRule, ruleId, language => AuditSummaries.CategorisationRuleDeleted(language, matchText), cancellationToken);
+
+    public Task DeletionRequestedAsync(Guid userId, CancellationToken cancellationToken) =>
+        RecordAsync(AuditAction.DeletionRequest, AuditEntityType.User, userId, AuditSummaries.DeletionRequested, cancellationToken);
+
     private async Task RecordAsync(AuditAction action, AuditEntityType entityType, Guid? entityId, Func<Locale, string> summary, CancellationToken cancellationToken)
     {
         var language = await locale.OfCurrentUserAsync(cancellationToken) ?? Locale.En;

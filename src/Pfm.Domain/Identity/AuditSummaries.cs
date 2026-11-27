@@ -62,6 +62,36 @@ public static class AuditSummaries
         ? $"Đã xóa một chuyển khoản {locale.WriteAmount(amount, currency)} ngày {Date(date)}."
         : $"Deleted a transfer of {locale.WriteAmount(amount, currency)} dated {Date(date)}.";
 
+    public static string AttachmentRemoved(Locale locale, string fileName) => locale == Locale.Vi
+        ? $"Đã gỡ tệp đính kèm {fileName} khỏi một giao dịch."
+        : $"Removed the attachment {fileName} from a transaction.";
+
+    /// <param name="category">The category the budget was on; null for an overall budget.</param>
+    /// <param name="month">The budget month, as <c>2026-11</c>.</param>
+    public static string BudgetRemoved(Locale locale, string? category, decimal amount, Currency currency, string month) => (locale, category) switch
+    {
+        (Locale.Vi, null) => $"Đã xóa ngân sách tổng {locale.WriteAmount(amount, currency)} của tháng {month}.",
+        (Locale.Vi, _) => $"Đã xóa ngân sách {locale.WriteAmount(amount, currency)} cho danh mục {category} của tháng {month}.",
+        (_, null) => $"Removed the overall budget of {locale.WriteAmount(amount, currency)} for {month}.",
+        _ => $"Removed the budget of {locale.WriteAmount(amount, currency)} on {category} for {month}.",
+    };
+
+    public static string RecurringRuleDeleted(Locale locale, bool income, decimal amount, Currency currency, string? payee)
+    {
+        var who = string.IsNullOrWhiteSpace(payee) ? "" : $" ({payee})";
+        return locale == Locale.Vi
+            ? $"Đã xóa một khoản {(income ? "thu" : "chi")} định kỳ {locale.WriteAmount(amount, currency)}{who}."
+            : $"Deleted a recurring {(income ? "income" : "expense")} of {locale.WriteAmount(amount, currency)}{who}.";
+    }
+
+    public static string CategorisationRuleDeleted(Locale locale, string matchText) => locale == Locale.Vi
+        ? $"Đã xóa quy tắc phân loại cho \"{matchText}\"."
+        : $"Deleted the categorisation rule for \"{matchText}\".";
+
+    public static string DeletionRequested(Locale locale) => locale == Locale.Vi
+        ? "Đã yêu cầu xóa hồ sơ: mọi dữ liệu sẽ bị xóa sau 30 ngày nếu không đăng nhập lại."
+        : "Asked for their user to be deleted: everything of theirs is erased after 30 days unless they sign in again.";
+
     private static string Count(int count, string noun) => count == 1 ? $"1 {noun}" : $"{count} {noun}s";
 
     private static string Date(DateOnly date) => date.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);

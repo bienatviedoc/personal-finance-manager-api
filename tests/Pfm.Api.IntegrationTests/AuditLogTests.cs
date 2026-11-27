@@ -305,6 +305,96 @@ public class AuditLogTests(PfmApi api)
         Assert.Equal(("importBatch", (Guid?)batch, "Undid the import of the statement august.csv: 2 transactions removed."), (entries[0].EntityType, entries[0].EntityId, entries[0].Summary));
     }
 
+    [Fact]
+    public async Task Removing_an_attachment_leaves_an_entry_naming_it_and_its_file()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var lunch = await SpendAsync(browser, await AddAccountAsync(browser, "Everyday"), "Groceries", "45000", November2);
+        var added = await browser.PostFileAsync($"/api/v1/transactions/{lunch}/attachments", "receipt.pdf", "%PDF-1.7\n% a receipt\n"u8.ToArray(), "application/pdf");
+        var attachment = (await added.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        (await browser.DeleteAsync($"/api/v1/attachments/{attachment}")).EnsureSuccessStatusCode();
+
+        var entry = (await ListAsync(browser)).Items[0];
+        Assert.Equal(("delete", "attachment", (Guid?)attachment, "Removed the attachment receipt.pdf from a transaction."), (entry.Action, entry.EntityType, entry.EntityId, entry.Summary));
+    }
+
+    [Fact]
+    public async Task Removing_a_budget_or_an_overall_budget_leaves_an_entry_naming_its_month_and_amount()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var groceries = await CategoryAsync(browser, "Groceries");
+        (await browser.PutAsync($"/api/v1/budgets/2026-11/{groceries}", new { amount = "300000" })).EnsureSuccessStatusCode();
+        (await browser.PutAsync("/api/v1/budgets/2026-11/overall", new { amount = "5000000" })).EnsureSuccessStatusCode();
+
+        (await browser.DeleteAsync($"/api/v1/budgets/2026-11/{groceries}")).EnsureSuccessStatusCode();
+        (await browser.DeleteAsync("/api/v1/budgets/2026-11/overall")).EnsureSuccessStatusCode();
+
+        var entries = (await ListAsync(browser)).Items.Take(2).ToList();
+        Assert.All(entries, entry => Assert.Equal(("delete", "budget"), (entry.Action, entry.EntityType)));
+        Assert.All(entries, entry => Assert.NotNull(entry.EntityId));
+        Assert.Equal(
+            ["Removed the overall budget of ₫5,000,000 for 2026-11.", "Removed the budget of ₫300,000 on Groceries for 2026-11."],
+            entries.Select(entry => entry.Summary));
+    }
+
+    [Fact]
+    public async Task Deleting_a_recurring_rule_leaves_an_entry_naming_it_with_its_amount_and_payee()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var accountId = await AddAccountAsync(browser, "Everyday");
+        var created = await browser.PostAsync("/api/v1/recurring-rules", new
+        {
+            type = "expense", accountId, amount = "9000000", categoryId = await CategoryAsync(browser, "Rent"), payee = "Landlord", frequency = "monthly",
+            startDate = "2099-01-31",
+        });
+        var rule = (await created.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetGuid();
+
+        (await browser.DeleteAsync($"/api/v1/recurring-rules/{rule}")).EnsureSuccessStatusCode();
+
+        var entry = (await ListAsync(browser)).Items[0];
+        Assert.Equal(("delete", "recurringRule", (Guid?)rule, "Deleted a recurring expense of ₫9,000,000 (Landlord)."), (entry.Action, entry.EntityType, entry.EntityId, entry.Summary));
+    }
+
+    [Fact]
+    public async Task Deleting_a_categorisation_rule_leaves_an_entry_naming_what_it_matched()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var rule = await CategorisationRuleTests.AddAsync(browser, "grab", "contains", await CategoryAsync(browser, "Transport"));
+        (await browser.PatchAsync("/api/v1/me", new { locale = "vi" })).EnsureSuccessStatusCode();
+
+        (await browser.DeleteAsync($"/api/v1/category-rules/{rule.Id}")).EnsureSuccessStatusCode();
+
+        var entry = (await ListAsync(browser)).Items[0];
+        Assert.Equal(("delete", "categorisationRule", (Guid?)rule.Id, "Đã xóa quy tắc phân loại cho \"grab\"."), (entry.Action, entry.EntityType, entry.EntityId, entry.Summary));
+    }
+
+    [Fact]
+    public async Task Asking_to_delete_the_user_leaves_an_entry_saved_with_the_deactivation()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        var userId = (await browser.Http.GetFromJsonAsync<JsonElement>("/api/v1/me")).GetProperty("id").GetGuid();
+
+        (await browser.PostAsync("/api/v1/me/deletion", new { password = PfmApi.Password })).EnsureSuccessStatusCode();
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+
+        var entries = (await ListAsync(browser)).Items;
+        Assert.Equal(["signIn", "deletionRequest", "signIn"], entries.Select(entry => entry.Action));
+        Assert.Equal(
+            ("user", (Guid?)userId, "Asked for their user to be deleted: everything of theirs is erased after 30 days unless they sign in again."),
+            (entries[1].EntityType, entries[1].EntityId, entries[1].Summary));
+    }
+
+    [Fact]
+    public async Task Asking_to_delete_the_user_with_the_wrong_password_leaves_no_entry()
+    {
+        var (browser, _) = await api.SignedInAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await browser.PostAsync("/api/v1/me/deletion", new { password = "not the right password" })).StatusCode);
+
+        Assert.Equal(["signIn"], (await ListAsync(browser)).Items.Select(entry => entry.Action));
+    }
+
     private static async Task<Guid> CommitStatementAsync(Browser browser)
     {
         var account = await AddAccountAsync(browser, "Techcombank");

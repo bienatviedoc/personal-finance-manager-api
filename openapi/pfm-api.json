@@ -6608,7 +6608,8 @@
           "importUndo",
           "bulkEdit",
           "bulkDelete",
-          "delete"
+          "delete",
+          "deletionRequest"
         ]
       },
       "AuditEntityType": {
@@ -6616,7 +6617,11 @@
           "user",
           "importBatch",
           "transaction",
-          "transfer"
+          "transfer",
+          "attachment",
+          "budget",
+          "recurringRule",
+          "categorisationRule"
         ]
       },
       "AuditEntryResponse": {

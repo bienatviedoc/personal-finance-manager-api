@@ -231,7 +231,7 @@ Financial data is sensitive even without real money moving, so security and data
 | Privacy | User can export all their data and delete their user. On deletion the user is signed out and deactivated at once; signing in again within 30 days cancels it, and after 30 days all data is erased. No third-party analytics on financial content |
 | Performance | API p95 under 300 ms for lists and under 1 s for reports at 50,000 transactions; first load under 2.5 s on 4G; transaction list virtualised |
 | Reliability | Daily automated backups with point-in-time recovery, restore tested quarterly; 99.5% availability target |
-| Auditability | Created and updated timestamps on every row; an audit log for sign-ins, imports, bulk edits and deletes |
+| Auditability | Created and updated timestamps on every row; an audit log for sign-ins, imports, bulk edits and deletes (of transactions, transfers, attachments, budgets and rules, and of the user, when they ask for it) |
 | Accessibility | WCAG 2.1 AA: keyboard operable, screen-reader labels, colour never the only signal for budget state |
 | Internationalisation | English and Vietnamese; locale-aware number, currency and date formats (VND shows no decimals) |
 | Responsiveness | Usable from 360 px width up; installable PWA. Offline entry is out of scope for v1 |
@@ -340,7 +340,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/logout`, `/auth/forgot-password`, `/auth/reset-password` | Account lifecycle |
 | Auth | `GET /me`, `PATCH /me` | Profile, base currency (and whether it is locked), time zone, locale, budget warning threshold |
 | Auth | `POST /me/password`; `GET /me/two-factor`; `POST /me/two-factor/setup`, `/enable`, `/disable`, `/recovery-codes` | Password change; two-factor sign-in with an authenticator app and recovery codes. `POST /auth/login` takes the code |
-| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions and deletes. Read only |
+| Auth | `GET /me/audit-log` | The user's audit log, paged, the newest entry first: sign-ins, statements committed, imports undone, bulk actions, deletes and the user asking to be deleted. Read only |
 | Auth | `POST /me/deletion` | The user deletes themselves, with their password: signed out and deactivated at once. `POST /auth/login` within 30 days cancels it and says so (`deletionCancelled`) |
 | Institutions | `GET, POST /institutions`; `GET, PUT, DELETE /institutions/{id}` | CRUD; delete archives |
 | Accounts | `GET, POST /accounts`; `GET, PUT, DELETE /accounts/{id}` | CRUD with computed balance |

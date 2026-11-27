@@ -29,6 +29,26 @@ public interface IAuditLog
     /// <summary>The user deleted a transfer, both its legs.</summary>
     /// <param name="amount">What left the account it was from, in that account's currency.</param>
     Task TransferDeletedAsync(Guid transferId, decimal amount, Currency currency, DateOnly date, CancellationToken cancellationToken);
+
+    /// <summary>The user removed an attachment from its transaction.</summary>
+    /// <param name="fileName">The file's name, as it was attached.</param>
+    Task AttachmentRemovedAsync(Guid attachmentId, string fileName, CancellationToken cancellationToken);
+
+    /// <summary>The user removed a budget.</summary>
+    /// <param name="category">The name of the category it was on; null for an overall budget.</param>
+    /// <param name="month">The budget month, as <c>2026-11</c>.</param>
+    Task BudgetRemovedAsync(Guid budgetId, string? category, decimal amount, Currency currency, string month, CancellationToken cancellationToken);
+
+    /// <summary>The user deleted a recurring rule.</summary>
+    /// <param name="income">Whether it was income, or else an expense.</param>
+    /// <param name="currency">The currency of the rule's account.</param>
+    Task RecurringRuleDeletedAsync(Guid ruleId, bool income, decimal amount, Currency currency, string? payee, CancellationToken cancellationToken);
+
+    /// <summary>The user deleted a categorisation rule.</summary>
+    Task CategorisationRuleDeletedAsync(Guid ruleId, string matchText, CancellationToken cancellationToken);
+
+    /// <summary>The user asked to be deleted (spec section 8, Privacy): erased after 30 days unless they sign in again.</summary>
+    Task DeletionRequestedAsync(Guid userId, CancellationToken cancellationToken);
 }
 
 /// <summary>What a bulk action did to every transaction it took, as the audit log says it.</summary>
