@@ -17,6 +17,12 @@ public static class ImportEndpoints
     /// <summary>Another statement is being imported into the account: one is committed into an account at a time.</summary>
     public const string ImportInProgress = "urn:pfm:problem:import-in-progress";
 
+    /// <summary>A statement uploaded and never committed has nothing to undo.</summary>
+    public const string ImportNotCommitted = "urn:pfm:problem:import-not-committed";
+
+    /// <summary>A statement any of whose transactions is reconciled cannot be undone until the reconciliation is reopened.</summary>
+    public const string ImportReconciled = "urn:pfm:problem:import-reconciled";
+
     /// <summary>Room for a file somewhat over the 5 MB a statement may be, so that one gets the answer that says so.</summary>
     private const long MaxRequestSize = 2 * ImportBatch.MaxFileSize;
 
@@ -29,6 +35,8 @@ public static class ImportEndpoints
             .WithMetadata(new UploadSizeLimit(MaxRequestSize, ImportBatch.FileSizeMessage))
             // The X-XSRF-TOKEN header is checked for every request under /api (UseApiAntiforgery); a form needs no second check of its own.
             .DisableAntiforgery();
+        imports.MapGet("/", List).WithName("ListImportBatches")
+            .WithDescription("The user's past import batches: every statement committed, whatever became of it since (committing, committed, failed or undone), with its file name, when it was uploaded and its counts, the last uploaded first, a page at a time. accountId lists one account's. A statement uploaded and not committed is not listed.");
         imports.MapGet("/{id:guid}", Get).WithName("GetImportBatch")
             .WithDescription("One import batch: where it has got to (uploaded, committing, committed or failed) and its counts. While it is committing, importedCount grows towards selectedCount as the worker imports the rows: ask again every second or two to show progress.");
         imports.MapGet("/{id:guid}/preview", Preview).WithName("PreviewImport")
@@ -38,7 +46,35 @@ public static class ImportEndpoints
             .WithDescription("Commits the statement: the rows chosen (rows the preview reads as transactions, with the same mapping) are imported in the background as income (on incomeCategoryId) or expenses (on expenseCategoryId) on the batch's account, each belonging to the batch, and the answer is 202 with the batch, committing. A likely duplicate is imported only when it is chosen; those left out are counted in duplicateCount. A batch whose account has been archived since it was uploaded is refused on id. A batch committed already answers 409 with the problem type urn:pfm:problem:import-committed. While another statement is being imported into the same account it answers 409 with the problem type urn:pfm:problem:import-in-progress and changes nothing: once that one is imported, preview again, and the rows it brought in are likely duplicates.")
             .ProducesProblem(StatusCodes.Status409Conflict);
 
+        imports.MapDelete("/{id:guid}", Undo).WithName("UndoImport")
+            .WithDescription("Undoes the import batch: every transaction it created is deleted, edited or not, and can be restored for 30 days like any deleted transaction. One marked as a leg of a transfer since deletes the transfer, the other leg with it. A batch still being imported is stopped, and what it imported so far deleted. The answer is the batch, undone; undoing it again answers the same. While any of its transactions (or the other leg of a transfer one is a leg of) is reconciled it answers 409 with the problem type urn:pfm:problem:import-reconciled and changes nothing: reopen the reconciliation first. A statement uploaded and never committed answers 409 with the problem type urn:pfm:problem:import-not-committed.")
+            .ProducesProblem(StatusCodes.Status409Conflict);
+
         return api;
+    }
+
+    private static async Task<Results<Ok<ImportBatchResponse>, NotFound, ValidationProblem, ProblemHttpResult>> Undo(
+        Guid id, UndoImportHandler handler, CancellationToken cancellationToken)
+    {
+        var result = await handler.HandleAsync(new UndoImportCommand(id), cancellationToken);
+        if (!result.IsValid)
+        {
+            return ValidationProblems.For(result);
+        }
+
+        return result.Outcome switch
+        {
+            null => TypedResults.NotFound(),
+            UndoImportOutcome.Undone undone => TypedResults.Ok(ImportBatchResponse.From(undone.Batch)),
+            UndoImportOutcome.Reconciled reconciled => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportReconciled,
+                title: "This statement cannot be undone while any of its transactions is reconciled.",
+                detail: $"{reconciled.Transactions} of its transactions {(reconciled.Transactions == 1 ? "is" : "are")} reconciled. Reopen the reconciliation, then undo the statement.",
+                extensions: new Dictionary<string, object?> { ["reconciledCount"] = reconciled.Transactions }),
+            _ => TypedResults.Problem(
+                statusCode: StatusCodes.Status409Conflict, type: ImportNotCommitted, title: "This statement has not been committed.",
+                detail: "Nothing has been imported from it, so there is nothing to undo."),
+        };
     }
 
     /// <param name="accountId">The account to import into: one of the user's that is not archived.</param>
@@ -54,6 +90,27 @@ public static class ImportEndpoints
         return result.IsValid
             ? TypedResults.Created($"/api/v1/imports/{result.Outcome.Id}", ImportBatchResponse.From(result.Outcome))
             : ValidationProblems.For(result);
+    }
+
+    /// <param name="accountId">Only the batches of this account.</param>
+    /// <param name="limit">How many batches a page holds: 1 to 100, 50 when left out.</param>
+    /// <param name="cursor">The <c>nextCursor</c> of the page before; left out for the first page.</param>
+    private static async Task<Results<Ok<ImportBatchListResponse>, ValidationProblem>> List(
+        ListImportBatchesHandler handler, CancellationToken cancellationToken, Guid? accountId = null, int limit = Paging.DefaultLimit, string? cursor = null)
+    {
+        if (!Paging.IsValidLimit(limit))
+        {
+            return PagingProblems.For("limit", $"Ask for 1 to {Paging.MaxLimit} at a time.");
+        }
+
+        ImportBatchCursor? after = null;
+        if (cursor is not null && !ImportBatchCursor.TryParse(cursor, out after))
+        {
+            return PagingProblems.For("cursor", "Use the nextCursor of the page before.");
+        }
+
+        var page = await handler.HandleAsync(new ListImportBatches(accountId, limit, after), cancellationToken);
+        return TypedResults.Ok(new ImportBatchListResponse([.. page.Items.Select(ImportBatchResponse.From)], page.NextCursor));
     }
 
     private static async Task<Results<Ok<ImportBatchResponse>, NotFound>> Get(Guid id, GetImportBatchHandler handler, CancellationToken cancellationToken) =>
@@ -177,7 +234,7 @@ public sealed record MappingResponse(
 
 /// <summary>An import batch: one uploaded statement and the transactions created from it.</summary>
 /// <param name="FileName">What the user's file was called.</param>
-/// <param name="Status"><c>uploaded</c> (to preview and commit), <c>committing</c> (the worker is importing it), <c>committed</c>, or <c>failed</c> (stopped, for the reason in failure; what it imported stays).</param>
+/// <param name="Status"><c>uploaded</c> (to preview and commit), <c>committing</c> (the worker is importing it), <c>committed</c>, <c>failed</c> (stopped, for the reason in failure; what it imported stays), or <c>undone</c> (every transaction it created is deleted).</param>
 /// <param name="RowCount">Once committed, the rows of the file that are transactions or failed to be read as one.</param>
 /// <param name="SelectedCount">How many rows the user chose to import.</param>
 /// <param name="ImportedCount">How many of them are transactions now; it reaches selectedCount when the batch is committed.</param>
@@ -187,14 +244,22 @@ public sealed record MappingResponse(
 /// <param name="CommittedAt">When its last row was imported.</param>
 /// <param name="Mapping">How the file was read when it was committed; null before.</param>
 /// <param name="SuggestedMapping">A first guess at how to read the file (its separator, and the header row after any preamble), while it is uploaded; null after.</param>
+/// <param name="SavedMapping">The mapping saved for the account: the one its last statement was committed with, to start from in place of the suggested one. While the batch is uploaded; null after, or when the account has none.</param>
+/// <param name="UndoneAt">When the user undid the batch, deleting every transaction it created; null unless they did.</param>
 public sealed record ImportBatchResponse(
     Guid Id, Guid AccountId, string FileName, ImportBatchStatus Status, int RowCount, int SelectedCount, int ImportedCount, int DuplicateCount,
-    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping)
+    int FailedCount, ImportFailure? Failure, DateTimeOffset CreatedAt, DateTimeOffset? CommittedAt, MappingResponse? Mapping, MappingResponse? SuggestedMapping,
+    MappingResponse? SavedMapping, DateTimeOffset? UndoneAt)
 {
     public static ImportBatchResponse From(ImportBatchDetails batch) =>
         new(batch.Id, batch.AccountId, batch.FileName, batch.Status, batch.RowCount, batch.SelectedCount, batch.ImportedCount, batch.DuplicateCount,
-            batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping));
+            batch.FailedCount, batch.Failure, batch.CreatedAt, batch.CommittedAt, MappingResponse.From(batch.Mapping), MappingResponse.From(batch.SuggestedMapping),
+            MappingResponse.From(batch.SavedMapping), batch.UndoneAt);
 }
+
+/// <summary>A page of past import batches.</summary>
+/// <param name="NextCursor">What to send as <c>cursor</c> for the next page; null on the last.</param>
+public sealed record ImportBatchListResponse(IReadOnlyList<ImportBatchResponse> Items, string? NextCursor);
 
 /// <summary>One row of a previewed statement.</summary>
 /// <param name="Number">Its place in the file, counted from 1: what a commit names it by.</param>

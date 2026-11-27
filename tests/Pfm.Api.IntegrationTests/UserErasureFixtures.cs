@@ -85,6 +85,12 @@ public static class UserErasureFixtures
         (await browser.PostFileAsync("/api/v1/imports", "statement.csv", "Date,Details,Amount\n02/11/2026,Highlands,-55000\n"u8.ToArray(), new Dictionary<string, string> { ["accountId"] = accountId.ToString() }))
             .EnsureSuccessStatusCode();
 
+        // A statement committed, which saves its mapping for the account (spec IMP-2); the worker has not imported it yet.
+        var committed = await browser.PostFileAsync("/api/v1/imports", "next.csv", "Date,Details,Amount\n03/11/2026,Highlands,-55000\n"u8.ToArray(), new Dictionary<string, string> { ["accountId"] = accountId.ToString() });
+        var batchId = (await committed.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<Identified>())!.Id;
+        var mapping = new { separator = "comma", hasHeaderRow = true, dateColumn = 0, descriptionColumn = 1, amountColumn = 2, dateFormat = "dayMonthYear", decimalSeparator = "dot" };
+        (await browser.PostAsync($"/api/v1/imports/{batchId}/commit", new { mapping, rows = new[] { 2 }, expenseCategoryId = food })).EnsureSuccessStatusCode();
+
         var categories = (await browser.Http.GetFromJsonAsync<CategoryTree>("/api/v1/categories"))!.Items;
         return new()
         {
@@ -93,7 +99,8 @@ public static class UserErasureFixtures
             ["BudgetNotifications"] = 1,
             ["Budgets"] = 1,
             ["Categories"] = categories.Length + categories.Sum(category => category.Subcategories.Length),
-            ["ImportBatches"] = 1,
+            ["ImportBatches"] = 2,
+            ["ImportMappings"] = 1,
             ["Institutions"] = 1,
             ["Reconciliations"] = 1,
             ["RecurringRules"] = 1,
