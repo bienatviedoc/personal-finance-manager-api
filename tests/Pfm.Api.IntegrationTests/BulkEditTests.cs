@@ -229,13 +229,7 @@ public class BulkEditTests(PfmApi api)
     [Fact]
     public async Task A_filter_that_a_thousand_and_one_transactions_pass_takes_the_action_with_one_left_out()
     {
-        var email = PfmApi.NewEmail();
-        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: 1_001));
-        var browser = api.CreateBrowser();
-        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
-        var leftOut = (await ListAsync(browser, "?limit=1")).Single().Id;
-
-        var response = await browser.PostAsync(Bulk, new { action = "addTag", filter = new { }, exceptTransactionIds = new[] { leftOut }, tag = "everything" });
+        var (browser, leftOut, response) = await TagEverythingButTheNewestAsync(transactions: 1_001);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(1_000, (await response.Content.ReadFromJsonAsync<BulkBody>())!.Count);
@@ -245,17 +239,24 @@ public class BulkEditTests(PfmApi api)
     [Fact]
     public async Task A_filter_that_a_thousand_and_two_transactions_pass_is_too_many_with_one_left_out()
     {
+        var (browser, _, response) = await TagEverythingButTheNewestAsync(transactions: 1_002);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
+        Assert.Empty(await ListAsync(browser, "?tag=everything"));
+    }
+
+    /// <summary>Signs in a new user with that many sample transactions and tags every one with "everything" by a filter, leaving out the newest.</summary>
+    private async Task<(Browser Browser, Guid LeftOut, HttpResponseMessage Response)> TagEverythingButTheNewestAsync(int transactions)
+    {
         var email = PfmApi.NewEmail();
-        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: 1_002));
+        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: transactions));
         var browser = api.CreateBrowser();
         (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
         var leftOut = (await ListAsync(browser, "?limit=1")).Single().Id;
 
         var response = await browser.PostAsync(Bulk, new { action = "addTag", filter = new { }, exceptTransactionIds = new[] { leftOut }, tag = "everything" });
-
-        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
-        Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
-        Assert.Empty(await ListAsync(browser, "?tag=everything"));
+        return (browser, leftOut, response);
     }
 
     [Fact]
