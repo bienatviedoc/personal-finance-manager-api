@@ -16,7 +16,13 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     {
         if (filter.CategoryId is { } categoryId)
         {
-            return (await SumInCategoryAsync(filter, categoryId, cancellationToken)).Sums;
+            // As SumInCategoryAsync adds up the amounts, leaving out the shares in the base currency nobody asked for.
+            return await LinesInCategory(filter, categoryId)
+                .GroupBy(share => new { share.TransactionId, share.Currency, share.Type, share.IsRefund })
+                .Select(transaction => new { transaction.Key.Currency, transaction.Key.Type, transaction.Key.IsRefund, Amount = transaction.Sum(share => share.Amount) })
+                .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
+                .Select(ofType => new TransactionSum(ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
+                .ToListAsync(cancellationToken);
         }
 
         return await Passing(filter)
@@ -35,20 +41,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     /// </summary>
     public async Task<CategorySums> SumInCategoryAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
     {
-        var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
-        var lines = db.Set<LineShare>().NotDeletedBetween(filter.From, filter.To, filter.AccountId).Where(share => inCategory.Contains(share.CategoryId));
-        if (filter.Type is { } type)
-        {
-            lines = lines.Where(share => share.Type == type);
-        }
-
-        if (filter is not { Min: null, Max: null, Search: null, Tag: null })
-        {
-            var passing = Passing(filter with { CategoryId = null }).Select(transaction => transaction.Id);
-            lines = lines.Where(share => passing.Contains(share.TransactionId));
-        }
-
-        var sums = await lines
+        var sums = await LinesInCategory(filter, categoryId)
             .GroupBy(share => new { share.TransactionId, share.Currency, share.Type, share.IsRefund, IsConverted = share.BaseCurrencyAmount != null })
             .Select(transaction => new
             {
@@ -71,6 +64,25 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
                 .Where(sum => sum.Type == TransactionType.Expense)
                 .GroupBy(sum => new { sum.IsRefund, sum.IsConverted })
                 .Select(ofKind => new SpentSum(ofKind.Key.IsRefund, ofKind.Key.IsConverted, ofKind.Sum(sum => sum.Count), ofKind.Sum(sum => sum.Share)))]);
+    }
+
+    /// <summary>The lines in a category and its subcategories of the transactions a filter lets through.</summary>
+    private IQueryable<LineShare> LinesInCategory(TransactionFilter filter, Guid categoryId)
+    {
+        var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
+        var lines = db.Set<LineShare>().NotDeletedBetween(filter.From, filter.To, filter.AccountId).Where(share => inCategory.Contains(share.CategoryId));
+        if (filter.Type is { } type)
+        {
+            lines = lines.Where(share => share.Type == type);
+        }
+
+        if (filter is not { Min: null, Max: null, Search: null, Tag: null })
+        {
+            var passing = Passing(filter with { CategoryId = null }).Select(transaction => transaction.Id);
+            lines = lines.Where(share => passing.Contains(share.TransactionId));
+        }
+
+        return lines;
     }
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
