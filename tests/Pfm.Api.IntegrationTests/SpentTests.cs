@@ -82,6 +82,40 @@ public class SpentTests(PfmApi api) : IAsyncLifetime
     }
 
     /// <summary>
+    /// The view spent is added up from is user-owned like the transactions it reads: another user's split lines, in
+    /// the same days and in categories of the same names, never reach a user's spent, list totals or reports, even
+    /// when the user names the other user's category.
+    /// </summary>
+    [Fact]
+    public async Task Another_users_split_lines_never_count_in_a_users_spent_lists_or_reports()
+    {
+        var (bob, _) = await api.SignedInAsync();
+        var bobs = await RecordEveryKindAsync(bob);
+        var (alice, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(alice, "Everyday", "VND", "1000000");
+        await SplitAsync(alice, everyday, "150000", March.AddDays(3), ("Groceries", "100000"), ("Coffee", "50000"));
+        var groceries = await CategoryAsync(alice, "Groceries");
+        var food = await CategoryAsync(alice, "Food & drink");
+        await SetBudgetAsync(alice, "2026-03", groceries, "1000000");
+
+        var list = await GetAsync<ListBody>(alice, $"/api/v1/transactions?{InMarch}&categoryId={groceries}");
+        Assert.Equal((1, new SpentBody("VND", "100000.00", 0)), (list.Total.Count, list.Total.Spent));
+        Assert.Equal("100000.00", (await GetAsync<DrillDownBody>(alice, $"/api/v1/reports/spending-by-category/transactions?{InMarch}&categoryId={groceries}")).Total);
+        Assert.Equal("150000.00", (await GetAsync<TrendBody>(alice, $"/api/v1/reports/trends?{InMarch}&categoryId={food}")).Total);
+        Assert.Equal(
+            [("Groceries", "100000.00"), ("Coffee", "50000.00")],
+            (await GetAsync<SpendingBody>(alice, $"/api/v1/reports/spending-by-category?{InMarch}&parentId={food}")).Items.Select(item => (item.Category.Name, item.Spent)));
+        var flow = (await GetAsync<IncomeVsExpensesBody>(alice, $"/api/v1/reports/income-vs-expenses?{InMarch}")).Total;
+        Assert.Equal(("0.00", "150000.00", 0), (flow.Income, flow.Expenses, flow.NotConverted));
+        Assert.Equal("100000.00", (await GetAsync<MonthBody>(alice, "/api/v1/budgets?month=2026-03")).Items.Single(item => item.CategoryId == groceries).Spent);
+        Assert.Equal("100000.00", (await GetAsync<BudgetVsActualBody>(alice, $"/api/v1/reports/budget-vs-actual?{InMarch}")).Items.Single(item => item.Category.Id == groceries).Spent);
+
+        var bobsGroceries = await GetAsync<ListBody>(alice, $"/api/v1/transactions?{InMarch}&categoryId={bobs.Groceries}");
+        Assert.Equal((0, new SpentBody("VND", "0.00", 0)), (bobsGroceries.Total.Count, bobsGroceries.Total.Spent));
+        Assert.Equal(HttpStatusCode.NotFound, (await alice.GetAsync($"/api/v1/reports/spending-by-category/transactions?{InMarch}&categoryId={bobs.Groceries}")).StatusCode);
+    }
+
+    /// <summary>
     /// The database adds up spent by the same definition as the domain: on the same transactions, what each contract
     /// answers is what `Transaction.SpentAmountIn` and `IncomeAmountIn` work out, rounding of a converted split included.
     /// </summary>

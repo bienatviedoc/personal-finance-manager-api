@@ -18,7 +18,7 @@ internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
         DateOnly from, DateOnly to, TrendType type, Guid? categoryId, string? payee, Guid? accountId, CancellationToken cancellationToken)
     {
         var transactionType = type == TrendType.Income ? TransactionType.Income : TransactionType.Expense;
-        var shares = db.Set<LineShare>().Counted(from, to, accountId).Where(share => share.Type == transactionType);
+        var shares = db.Set<LineShare>().NotDeletedBetween(from, to, accountId).Where(share => share.Type == transactionType);
         if (categoryId is { } category)
         {
             var withSubcategories = db.Set<Category>().AndSubcategoriesOf(category);

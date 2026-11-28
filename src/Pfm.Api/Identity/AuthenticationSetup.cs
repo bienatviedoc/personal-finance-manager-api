@@ -45,7 +45,7 @@ public static class AuthenticationSetup
             options.Events.OnValidatePrincipal = async context =>
             {
                 await validateWithIdentity(context);
-                await SessionCheck.EndIfNoLongerGoodAsync(context);
+                await SessionCheck.EndUnlessUserActiveWithSameStampAsync(context);
             };
         });
 

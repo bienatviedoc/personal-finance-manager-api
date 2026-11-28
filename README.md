@@ -106,7 +106,7 @@ Docker, runs of two minutes on the same seeded user: before and after spent was 
 | --- | --- | --- | --- | --- | --- |
 | Transactions, first and next page | 20 ms, 19 ms | 83 ms, 81 ms | 21 ms, 21 ms | 66 ms, 56 ms | 300 ms |
 | Transactions this month, searched, by amount | 10 ms, 39 ms, 38 ms | 51 ms, 119 ms, 127 ms | 8 ms, 38 ms, 42 ms | 47 ms, 94 ms, 95 ms | 300 ms |
-| Transactions in a category | 422 ms | 1.09 s | 114 ms | 293 ms | 300 ms |
+| Transactions in a category | 422 ms | 1.09 s | 108 ms | 261 ms | 300 ms |
 | Accounts, institutions, categories, recurring rules | 19 ms or less | 77 ms or less | 21 ms or less | 46 ms or less | 300 ms |
 | Budgets (a month) | 58 ms | 208 ms | 21 ms | 60 ms | 300 ms |
 | Spending by category, this month | 55 ms | 211 ms | 18 ms | 56 ms | 1 s |
@@ -120,7 +120,11 @@ Docker, runs of two minutes on the same seeded user: before and after spent was 
 Before, the transactions of a category, and the reports over a year, read every matching expense with its lines into
 memory to add up spent; with ten users and no pause they missed their targets. Spent is now a `SUM` in the database
 (see Transactions, Spent), and with ten users every list and report meets its target, the transactions of a category
-only just: with no dates, their totals and spent are one pass over every one of the category's lines.
+only just: with no dates, their totals and spent are one pass over every one of the category's lines. That pass reads
+the lines from their category's index alone, which carries each line's amount and position: alone, its query went from
+66 ms to 54 ms, but with ten users the list's 95th percentile only went from 266 ms to 261 ms on the same afternoon
+(293 ms in the first run above). Most of its time is looking up each of the category's transactions (about 19,000 of
+the 50,000), which an index cannot spare it.
 
 ## Layout
 
@@ -275,7 +279,8 @@ one of the merged category's own subcategories is refused as an error on `target
 - **Spent is added up in the database** (spec sections 8 and 10), by that definition, so lists and reports never read
   a year of transactions to add them up. The view `TransactionLineShares` (`LineShare`) gives each line its share of
   its transaction's converted amount: the whole of it for a line that is not split, and for a split's lines the
-  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals and leaving the
+  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals (the function
+  `CurrencyDecimals`, which `MigrationTests` holds to `Currencies.DecimalPlaces` for every currency) and leaving the
   rest to the last line, as `SpentAmountIn` does. The queries `SUM` those shares, grouped as each answer needs, refunds
   apart, and `Spent.Signed` gives the sums their sign. The view and the domain are two writings of one rule:
   `SpentTests` holds them to the same answers on the same transactions (converted splits, refunds, transfers, deleted
@@ -1065,7 +1070,11 @@ due, `ImportBatchRepository.UsersWithCommittingAsync` which users have a stateme
 imported, and `ImportBatchRepository.UsersWithUploadedBeforeAsync` which users have a statement uploaded and never
 committed for long enough to remove. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
-no user.
+no user, and in migrations, which create what the queries read: the view `TransactionLineShares` and the functions
+`SplitLineShare` and `CurrencyDecimals`, which share a split's converted amount among its lines for the reports'
+heavy sums, as spec section 9 allows raw SQL for. No query reads them with raw SQL: EF reads the view as the
+user-owned entity `LineShare`, so the user filter applies to it as to any table. The view selects each line's user,
+and never looks past it to another user's rows.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. That includes `LineShare`, read from the view
 `TransactionLineShares` that spent is added up from (see Transactions, Spent): the filter keeps it to the user's lines like any table, and as it is the

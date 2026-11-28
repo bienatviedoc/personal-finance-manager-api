@@ -1379,6 +1379,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
 
                             b1.HasIndex("CategoryId", "TransactionId");
 
+                            NpgsqlIndexBuilderExtensions.IncludeProperties(b1.HasIndex("CategoryId", "TransactionId"), new[] { "Amount", "Position" });
+
                             b1.HasIndex("TransactionId", "Position");
 
                             b1.ToTable("TransactionLines", null, t =>
