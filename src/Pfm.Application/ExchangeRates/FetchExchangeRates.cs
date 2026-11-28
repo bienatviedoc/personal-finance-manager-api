@@ -23,6 +23,9 @@ public sealed record FetchExchangeRatesCommand(int DaysBackWhenEmpty = FetchExch
     /// <summary>Ten years.</summary>
     public const int MaxDaysBackWhenEmpty = 3660;
 
+    /// <summary>Whether the first fetch may go this far back: 0 to <see cref="MaxDaysBackWhenEmpty"/> days.</summary>
+    public static bool IsValidDaysBackWhenEmpty(int days) => days is >= 0 and <= MaxDaysBackWhenEmpty;
+
     /// <summary>
     /// How long a day stored without every pair of currencies is asked for again. A source that still has
     /// not quoted a currency for that day a week later is not going to.

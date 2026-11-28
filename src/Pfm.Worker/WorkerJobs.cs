@@ -15,36 +15,45 @@ public static class WorkerJobs
     /// </summary>
     public static IServiceCollection AddJobs(this IServiceCollection services)
     {
-        services.AddJob<ExchangeRateFetchJob, ExchangeRateFetchOptions>(ExchangeRateFetchOptions.Section)
-            .Validate(options => options.FetchEvery > TimeSpan.Zero, LongerThanZero(ExchangeRateFetchOptions.Section, nameof(ExchangeRateFetchOptions.FetchEvery)))
+        services.AddJob<ExchangeRateFetchJob, ExchangeRateFetchOptions>(
+                ExchangeRateFetchOptions.Section, nameof(ExchangeRateFetchOptions.FetchEvery), options => options.FetchEvery)
             .Validate(
-                options => options.DaysBackWhenEmpty is >= 0 and <= FetchExchangeRatesCommand.MaxDaysBackWhenEmpty,
+                options => FetchExchangeRatesCommand.IsValidDaysBackWhenEmpty(options.DaysBackWhenEmpty),
                 $"{ExchangeRateFetchOptions.Section}:{nameof(ExchangeRateFetchOptions.DaysBackWhenEmpty)} must be from 0 to {FetchExchangeRatesCommand.MaxDaysBackWhenEmpty}.");
-        services.AddJob<RecurringPostingJob, RecurringPostingOptions>(RecurringPostingOptions.Section)
-            .Validate(options => options.PostEvery > TimeSpan.Zero, LongerThanZero(RecurringPostingOptions.Section, nameof(RecurringPostingOptions.PostEvery)));
-        services.AddJob<UserErasureJob, UserErasureOptions>(UserErasureOptions.Section)
-            .Validate(options => options.RunEvery > TimeSpan.Zero, LongerThanZero(UserErasureOptions.Section, nameof(UserErasureOptions.RunEvery)));
-        services.AddJob<IntegrityCheckJob, IntegrityCheckOptions>(IntegrityCheckOptions.Section)
-            .Validate(options => options.RunEvery > TimeSpan.Zero, LongerThanZero(IntegrityCheckOptions.Section, nameof(IntegrityCheckOptions.RunEvery)));
-        services.AddJob<DeletedTransactionPurgeJob, DeletedTransactionPurgeOptions>(DeletedTransactionPurgeOptions.Section)
-            .Validate(options => options.RunEvery > TimeSpan.Zero, LongerThanZero(DeletedTransactionPurgeOptions.Section, nameof(DeletedTransactionPurgeOptions.RunEvery)));
-        services.AddJob<ImportCommitJob, ImportCommitOptions>(ImportCommitOptions.Section)
-            .Validate(options => options.CommitEvery > TimeSpan.Zero, LongerThanZero(ImportCommitOptions.Section, nameof(ImportCommitOptions.CommitEvery)));
-        services.AddJob<AbandonedUploadSweepJob, AbandonedUploadSweepOptions>(AbandonedUploadSweepOptions.Section)
-            .Validate(options => options.RunEvery > TimeSpan.Zero, LongerThanZero(AbandonedUploadSweepOptions.Section, nameof(AbandonedUploadSweepOptions.RunEvery)))
-            .Validate(options => options.KeepFor > TimeSpan.Zero, LongerThanZero(AbandonedUploadSweepOptions.Section, nameof(AbandonedUploadSweepOptions.KeepFor)));
+        services.AddJob<RecurringPostingJob, RecurringPostingOptions>(
+            RecurringPostingOptions.Section, nameof(RecurringPostingOptions.PostEvery), options => options.PostEvery);
+        services.AddJob<UserErasureJob, UserErasureOptions>(
+            UserErasureOptions.Section, nameof(UserErasureOptions.RunEvery), options => options.RunEvery);
+        services.AddJob<IntegrityCheckJob, IntegrityCheckOptions>(
+            IntegrityCheckOptions.Section, nameof(IntegrityCheckOptions.RunEvery), options => options.RunEvery);
+        services.AddJob<DeletedTransactionPurgeJob, DeletedTransactionPurgeOptions>(
+            DeletedTransactionPurgeOptions.Section, nameof(DeletedTransactionPurgeOptions.RunEvery), options => options.RunEvery);
+        services.AddJob<ImportCommitJob, ImportCommitOptions>(
+            ImportCommitOptions.Section, nameof(ImportCommitOptions.CommitEvery), options => options.CommitEvery);
+        services.AddJob<AbandonedUploadSweepJob, AbandonedUploadSweepOptions>(
+                AbandonedUploadSweepOptions.Section, nameof(AbandonedUploadSweepOptions.RunEvery), options => options.RunEvery)
+            .ValidateLongerThanZero(AbandonedUploadSweepOptions.Section, nameof(AbandonedUploadSweepOptions.KeepFor), options => options.KeepFor);
 
         return services;
     }
 
-    /// <summary>What a refused interval says: every job's settings are named by their section and key, in one wording.</summary>
-    private static string LongerThanZero(string section, string setting) => $"{section}:{setting} must be longer than zero.";
-
-    private static OptionsBuilder<TOptions> AddJob<TJob, TOptions>(this IServiceCollection services, string section)
+    /// <summary>
+    /// Registers a job with its options, bound from its section and checked as the worker starts, its interval
+    /// (named <paramref name="interval"/>) among them.
+    /// </summary>
+    private static OptionsBuilder<TOptions> AddJob<TJob, TOptions>(
+        this IServiceCollection services, string section, string interval, Func<TOptions, TimeSpan> runEvery)
         where TJob : PeriodicJob
         where TOptions : class
     {
         services.AddHostedService<TJob>();
-        return services.AddOptions<TOptions>().BindConfiguration(section).ValidateOnStart();
+        return services.AddOptions<TOptions>().BindConfiguration(section).ValidateOnStart()
+            .ValidateLongerThanZero(section, interval, runEvery);
     }
+
+    /// <summary>Refuses a length of time of zero or less, named by its section and key in every job's one wording.</summary>
+    private static OptionsBuilder<TOptions> ValidateLongerThanZero<TOptions>(
+        this OptionsBuilder<TOptions> options, string section, string setting, Func<TOptions, TimeSpan> length)
+        where TOptions : class =>
+        options.Validate(value => length(value) > TimeSpan.Zero, $"{section}:{setting} must be longer than zero.");
 }

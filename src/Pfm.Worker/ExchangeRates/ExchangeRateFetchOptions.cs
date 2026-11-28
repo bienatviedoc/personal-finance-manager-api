@@ -1,4 +1,5 @@
 using Pfm.Application.ExchangeRates;
+using Pfm.Infrastructure.ExchangeRates;
 
 namespace Pfm.Worker.ExchangeRates;
 
@@ -9,7 +10,8 @@ namespace Pfm.Worker.ExchangeRates;
 /// </summary>
 public sealed class ExchangeRateFetchOptions
 {
-    public const string Section = "ExchangeRates";
+    /// <summary>The section Infrastructure reads where rates come from.</summary>
+    public const string Section = ExchangeRateSourceOptions.Section;
 
     /// <summary>How far back the first fetch goes, while no rate is stored yet.</summary>
     public int DaysBackWhenEmpty { get; set; } = FetchExchangeRatesCommand.DefaultDaysBackWhenEmpty;
