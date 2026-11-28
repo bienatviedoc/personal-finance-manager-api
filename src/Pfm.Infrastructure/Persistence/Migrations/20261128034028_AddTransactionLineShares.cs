@@ -8,8 +8,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
     /// The view the database adds up spent and income from (`LineShare`): each line of a transaction with its share
     /// of the transaction's amount in the base currency, shared as `Transaction.SpentAmountIn` shares it. A line with
     /// the whole amount (one that is not split) takes the whole converted amount. A line of a split takes its part,
-    /// rounded half away from zero to the base currency's decimals (`Currencies.DecimalPlaces`: none for VND, two
-    /// for the others), and the last line, the one at the highest position, takes what the others left. The view is a
+    /// rounded half away from zero to the base currency's decimals (`Currencies.DecimalPlaces` in `Pfm.Domain`: none
+    /// for VND, two for the others; from `AddCurrencyDecimals` on, the view reads them from the function `CurrencyDecimals`), and the last line, the one at the highest position, takes what the others left. The view is a
     /// plain join, so every condition on the transaction (user, dates, account, type) reaches the tables' indexes;
     /// only a split's lines look at its other lines. A share is null while the transaction is not converted.
     /// </summary>
