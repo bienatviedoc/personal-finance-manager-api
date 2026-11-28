@@ -99,31 +99,28 @@ It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (th
 users browsing at once with no pause between requests (10), `DURATION` (`2m`), and `MIN_TRANSACTIONS`
 (50000), below which the run refuses to start, as the targets are for a user that size; pass each with `-e`.
 
-Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
-in Docker:
+Results, 28 November 2026, on a developer laptop (20 cores, WSL 2) shared with other work, PostgreSQL 17 in
+Docker, runs of two minutes on the same seeded user: before and after spent was added up in the database (#70).
 
-| Request | p95, 1 user | p95, 10 users | Target |
-| --- | --- | --- | --- |
-| Transactions, first and next page | 44 ms, 35 ms | 271 ms, 215 ms | 300 ms |
-| Transactions this month, searched, by amount | 11 ms, 139 ms, 83 ms | 77 ms, 476 ms, 276 ms | 300 ms |
-| **Transactions in a category** | **761 ms** | **4.69 s** | 300 ms |
-| Accounts, institutions, categories, recurring rules | 37 ms or less | 217 ms or less | 300 ms |
-| Budgets (a month) | 92 ms | 958 ms | 300 ms |
-| Spending by category, this month | 111 ms | 934 ms | 1 s |
-| Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
-| Spending transactions of a category | 154 ms | 1.31 s | 1 s |
-| Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
-| Income vs expenses, this year, last 12 months compared | 286 ms, 291 ms | 1.09 s, 1.08 s | 1 s |
-| Net worth, last 12 months | 23 ms | 104 ms | 1 s |
-| Budget vs actual, this month, this year | 47 ms, 294 ms | 173 ms, 1.07 s | 1 s |
+| Request | Before, 1 user | Before, 10 users | After, 1 user | After, 10 users | Target |
+| --- | --- | --- | --- | --- | --- |
+| Transactions, first and next page | 20 ms, 19 ms | 83 ms, 81 ms | 21 ms, 21 ms | 66 ms, 56 ms | 300 ms |
+| Transactions this month, searched, by amount | 10 ms, 39 ms, 38 ms | 51 ms, 119 ms, 127 ms | 8 ms, 38 ms, 42 ms | 47 ms, 94 ms, 95 ms | 300 ms |
+| Transactions in a category | 422 ms | 1.09 s | 114 ms | 293 ms | 300 ms |
+| Accounts, institutions, categories, recurring rules | 19 ms or less | 77 ms or less | 21 ms or less | 46 ms or less | 300 ms |
+| Budgets (a month) | 58 ms | 208 ms | 21 ms | 60 ms | 300 ms |
+| Spending by category, this month | 55 ms | 211 ms | 18 ms | 56 ms | 1 s |
+| Spending by category, this year, in a category, 12 months compared | 425 ms, 436 ms, 432 ms | 1.47 s, 1.43 s, 1.45 s | 101 ms, 103 ms, 104 ms | 271 ms, 284 ms, 290 ms | 1 s |
+| Spending transactions of a category | 96 ms | 311 ms | 101 ms | 253 ms | 1 s |
+| Trend of a category compared, of a payee | 211 ms, 46 ms | 726 ms, 142 ms | 98 ms, 32 ms | 257 ms, 113 ms | 1 s |
+| Income vs expenses, this year, last 12 months compared | 423 ms, 438 ms | 1.57 s, 1.52 s | 172 ms, 173 ms | 482 ms, 505 ms | 1 s |
+| Net worth, last 12 months | 22 ms | 92 ms | 21 ms | 95 ms | 1 s |
+| Budget vs actual, this month, this year | 68 ms, 434 ms | 222 ms, 1.49 s | 23 ms, 120 ms | 98 ms, 343 ms | 1 s |
 
-The last three rows were measured later the same day, in runs of one minute (`-e DURATION=1m`), on the same
-machine and data.
-
-With one user every report meets its target, and every list but one: the transactions of a category, whose
-spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
-read a year of transactions into memory to add them up (spending by category, trends) fall well behind, and income
-vs expenses and budget vs actual over a year, which do the same, just miss it. Both are followed up in #70.
+Before, the transactions of a category, and the reports over a year, read every matching expense with its lines into
+memory to add up spent; with ten users and no pause they missed their targets. Spent is now a `SUM` in the database
+(see Transactions, Spent), and with ten users every list and report meets its target, the transactions of a category
+only just: with no dates, their totals and spent are one pass over every one of the category's lines.
 
 ## Layout
 
