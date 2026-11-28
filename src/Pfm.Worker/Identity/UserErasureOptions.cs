@@ -1,6 +1,6 @@
-namespace Pfm.Infrastructure.Identity;
+namespace Pfm.Worker.Identity;
 
-/// <summary>How often the worker erases deactivated users whose 30 days are over. The default suits every environment.</summary>
+/// <summary>How often the worker erases deactivated users whose 30 days are over (`UserErasure__RunEvery`). The default suits every environment.</summary>
 public sealed class UserErasureOptions
 {
     public const string Section = "UserErasure";

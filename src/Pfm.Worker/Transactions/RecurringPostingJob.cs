@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.Transactions.Recurring;
 
-namespace Pfm.Worker.Recurring;
+namespace Pfm.Worker.Transactions;
 
 /// <summary>
 /// Posts the occurrences of recurring rules that are due, when the worker starts and every few minutes after

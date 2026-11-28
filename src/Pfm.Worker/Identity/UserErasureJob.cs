@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.Identity;
-using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Worker.Identity;
 
