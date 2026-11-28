@@ -15,7 +15,10 @@ public interface ITransactionRepository
     Task<IReadOnlyList<Transaction>> ListAsync(
         TransactionFilter filter, TransactionSort sort, int take, TransactionCursor? after, CancellationToken cancellationToken);
 
-    /// <summary>Every transaction that passes <paramref name="filter"/>, counted and added up by currency and type.</summary>
+    /// <summary>
+    /// Every transaction that passes <paramref name="filter"/>, counted and added up by currency and type, each by its
+    /// whole amount. A filter that names a category is added up by <see cref="SumInCategoryAsync"/>, by its lines there.
+    /// </summary>
     Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
     /// <summary>

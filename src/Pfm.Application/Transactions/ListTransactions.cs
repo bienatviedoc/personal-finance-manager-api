@@ -33,6 +33,12 @@ public sealed record TransactionFilter(
     public const int MaxSearchLength = 200;
 
     public static readonly TransactionFilter None = new();
+
+    /// <summary>
+    /// Whether it limits what only a whole transaction carries (its amount, text or tags), not its lines: dates,
+    /// account, category and type are on each line too.
+    /// </summary>
+    public bool LimitsWhatLinesDoNotCarry => this is not { Min: null, Max: null, Search: null, Tag: null };
 }
 
 /// <summary>What a list of transactions is sorted by (spec TXN-3).</summary>
@@ -112,7 +118,7 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
     private async Task<SpentTotal> SpentAsync(IReadOnlyList<SpentSum> sums, CancellationToken cancellationToken) =>
         new(
             await baseCurrency.OfCurrentUserAsync(cancellationToken),
-            sums.Where(sum => sum.IsConverted).Sum(sum => Spent.Signed(TransactionType.Expense, sum.Amount, sum.IsRefund)),
+            sums.Where(sum => sum.IsConverted).Sum(sum => Spent.Signed(TransactionType.Expense, sum.BaseCurrencyAmount, sum.IsRefund)),
             sums.Where(sum => !sum.IsConverted).Sum(sum => sum.Count));
 
     /// <summary>
@@ -141,10 +147,10 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
 public sealed record TransactionSum(Currency Currency, TransactionType Type, bool IsRefund, int Count, decimal Amount);
 
 /// <summary>
-/// How many expenses of one kind (refunds or not, converted or not) passed a filter, and what their lines in a
+/// How many expenses passed a filter, refunds apart from others and converted apart from not, and what their lines in a
 /// category come to in the base currency, without the sign of spent: zero for those not converted.
 /// </summary>
-public sealed record SpentSum(bool IsRefund, bool IsConverted, int Count, decimal Amount);
+public sealed record SpentSum(bool IsRefund, bool IsConverted, int Count, decimal BaseCurrencyAmount);
 
 /// <summary>The transactions that passed a filter on a category, added up by currency and type, and what the expenses among them spent there.</summary>
 public sealed record CategorySums(IReadOnlyList<TransactionSum> Sums, IReadOnlyList<SpentSum> Spent);

@@ -14,12 +14,6 @@ public interface ICategoryRepository
     /// <summary>The subcategories of the user's category with this id, archived ones included.</summary>
     Task<IReadOnlyList<Category>> ListSubcategoriesAsync(Guid parentId, CancellationToken cancellationToken);
 
-    /// <summary>
-    /// The ids of the user's category with this id and of its subcategories, archived ones included: what the
-    /// category stands for when transactions are filtered or added up by it. Empty when they have no such category.
-    /// </summary>
-    Task<IReadOnlyList<Guid>> ListIdsWithSubcategoriesAsync(Guid categoryId, CancellationToken cancellationToken);
-
     void Add(Category category);
 }
 

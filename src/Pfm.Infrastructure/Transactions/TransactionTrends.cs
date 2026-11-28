@@ -36,7 +36,7 @@ internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
             .. (await shares.SumByTransaction().ToListAsync(cancellationToken)).Select(sum => new TrendTransaction(
                 sum.TransactionId,
                 sum.Date,
-                !sum.IsConverted ? null : sum.Type == TransactionType.Income ? sum.Amount : Spent.Signed(sum.Type, sum.Amount, sum.IsRefund))),
+                !sum.IsConverted ? null : sum.IncomeAmount + sum.SpentAmount)),
         ];
     }
 }

@@ -12,25 +12,12 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         TransactionFilter filter, TransactionSort sort, int take, TransactionCursor? after, CancellationToken cancellationToken) =>
         await Sorted(After(Passing(filter), sort, after), sort).Take(take).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken)
-    {
-        if (filter.CategoryId is { } categoryId)
-        {
-            // As SumInCategoryAsync adds up the amounts, leaving out the shares in the base currency nobody asked for.
-            return await LinesInCategory(filter, categoryId)
-                .GroupBy(share => new { share.TransactionId, share.Currency, share.Type, share.IsRefund })
-                .Select(transaction => new { transaction.Key.Currency, transaction.Key.Type, transaction.Key.IsRefund, Amount = transaction.Sum(share => share.Amount) })
-                .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
-                .Select(ofType => new TransactionSum(ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
-                .ToListAsync(cancellationToken);
-        }
-
-        return await Passing(filter)
+    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
+        await Passing(filter)
             .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
             .Select(ofType => new TransactionSum(
                 ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
             .ToListAsync(cancellationToken);
-    }
 
     /// <summary>
     /// Each line counts in its own category (spec section 6): a split adds only its lines in the category. One pass
@@ -49,10 +36,10 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
                 Amount = transaction.Sum(share => share.Amount), Share = transaction.Sum(share => share.BaseCurrencyAmount ?? 0),
             })
             .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund, transaction.IsConverted })
-            .Select(ofKind => new
+            .Select(alike => new
             {
-                ofKind.Key.Currency, ofKind.Key.Type, ofKind.Key.IsRefund, ofKind.Key.IsConverted, Count = ofKind.Count(),
-                Amount = ofKind.Sum(transaction => transaction.Amount), Share = ofKind.Sum(transaction => transaction.Share),
+                alike.Key.Currency, alike.Key.Type, alike.Key.IsRefund, alike.Key.IsConverted, Count = alike.Count(),
+                Amount = alike.Sum(transaction => transaction.Amount), Share = alike.Sum(transaction => transaction.Share),
             })
             .ToListAsync(cancellationToken);
 
@@ -63,7 +50,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             [.. sums
                 .Where(sum => sum.Type == TransactionType.Expense)
                 .GroupBy(sum => new { sum.IsRefund, sum.IsConverted })
-                .Select(ofKind => new SpentSum(ofKind.Key.IsRefund, ofKind.Key.IsConverted, ofKind.Sum(sum => sum.Count), ofKind.Sum(sum => sum.Share)))]);
+                .Select(alike => new SpentSum(alike.Key.IsRefund, alike.Key.IsConverted, alike.Sum(sum => sum.Count), alike.Sum(sum => sum.Share)))]);
     }
 
     /// <summary>The lines in a category and its subcategories of the transactions a filter lets through.</summary>
@@ -76,7 +63,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             lines = lines.Where(share => share.Type == type);
         }
 
-        if (filter is not { Min: null, Max: null, Search: null, Tag: null })
+        if (filter.LimitsWhatLinesDoNotCarry)
         {
             var passing = Passing(filter with { CategoryId = null }).Select(transaction => transaction.Id);
             lines = lines.Where(share => passing.Contains(share.TransactionId));

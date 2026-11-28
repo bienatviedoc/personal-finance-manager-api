@@ -32,4 +32,11 @@ internal static class LineShares
 }
 
 /// <summary>What some of a transaction's lines come to in the base currency, without a sign.</summary>
-internal sealed record TransactionShare(Guid TransactionId, DateOnly Date, TransactionType Type, bool IsRefund, bool IsConverted, decimal Amount);
+internal sealed record TransactionShare(Guid TransactionId, DateOnly Date, TransactionType Type, bool IsRefund, bool IsConverted, decimal Amount)
+{
+    /// <summary>What it brought in: the amount of an income, zero for anything else.</summary>
+    public decimal IncomeAmount => Type == TransactionType.Income ? Amount : 0;
+
+    /// <summary>What it moved spent by, with spent's one sign (<see cref="Spent.Signed"/>): zero for anything but an expense.</summary>
+    public decimal SpentAmount => Spent.Signed(Type, Amount, IsRefund);
+}

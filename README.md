@@ -785,7 +785,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   the month before as an `amount` and a `percent` (of the earlier total's size, to one decimal; none from zero; the first
   month's is from the last month of the period compared with, and none without `compare`). `PeriodChange` and `Trend` (`Pfm.Domain.Reports`) work that out. An expense category
   adds up spent, by the same definition as spending by category; an income category adds up the income received in
-  it (`Transaction.IncomeAmountIn`), and `isIncome` says which. A payee alone adds up what was spent with it, or with `type=income` the
+  it (each income's lines there in the base currency, summed by the database as `Transaction.IncomeAmountIn` shares them), and `isIncome` says which. A payee alone adds up what was spent with it, or with `type=income` the
   income received from it; with `categoryId` as well, only in that category, whose kind says which (so `type` is
   refused with it). `ReportParameters` reads `payee` and `type` beside the filters. A category the user does not have is not found, as the trend is of
   it. With `compare`, `previous` is the trend over the period before and `change` how the total

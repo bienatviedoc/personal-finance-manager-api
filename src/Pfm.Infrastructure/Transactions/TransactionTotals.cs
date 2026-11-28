@@ -87,32 +87,32 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
         ];
 
     /// <summary>The database's sums behind spent: each month's, for each category and kind of expense.</summary>
-    private async Task<List<(DateOnly Month, CategoryExpensesOfKind Sum)>> SpentEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
+    private async Task<List<(DateOnly Month, CategoryExpenseSum Sum)>> SpentEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
         var sums = await ExpenseShares(from, to, accountId)
             .GroupBy(share => new
             {
                 share.Date.Year, share.Date.Month, share.CategoryId, share.IsRefund,
-                NotConverted = share.BaseCurrencyAmount == null ? share.TransactionId : (Guid?)null,
+                NotConvertedId = share.BaseCurrencyAmount == null ? share.TransactionId : (Guid?)null,
             })
-            .Select(ofKind => new
+            .Select(alike => new
             {
-                ofKind.Key.Year, ofKind.Key.Month,
-                Sum = new CategoryExpensesOfKind(ofKind.Key.CategoryId, ofKind.Key.IsRefund, ofKind.Key.NotConverted, ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)),
+                alike.Key.Year, alike.Key.Month,
+                Sum = new CategoryExpenseSum(alike.Key.CategoryId, alike.Key.IsRefund, alike.Key.NotConvertedId, alike.Sum(share => share.BaseCurrencyAmount ?? 0)),
             })
             .ToListAsync(cancellationToken);
 
         return [.. sums.Select(sum => (new DateOnly(sum.Year, sum.Month, 1), sum.Sum))];
     }
 
-    private static List<CategorySpent> SpentByCategory(IReadOnlyList<CategoryExpensesOfKind> sums) =>
+    private static List<CategorySpent> SpentByCategory(IReadOnlyList<CategoryExpenseSum> sums) =>
         [
             .. sums
                 .GroupBy(sum => sum.CategoryId)
                 .Select(ofCategory => new CategorySpent(
                     ofCategory.Key,
                     ofCategory.Sum(sum => Spent.Signed(TransactionType.Expense, sum.Amount, sum.IsRefund)),
-                    [.. ofCategory.Select(sum => sum.NotConverted).OfType<Guid>().Distinct()])),
+                    [.. ofCategory.Select(sum => sum.NotConvertedId).OfType<Guid>().Distinct()])),
         ];
 
     /// <summary>
@@ -168,7 +168,7 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
         }
 
         return [.. (await shares.SumByTransaction().ToListAsync(cancellationToken)).Select(sum => new MoneyInOrOut(
-            sum.TransactionId, sum.Date, sum.Type == TransactionType.Income ? sum.Amount : 0, Spent.Signed(sum.Type, sum.Amount, sum.IsRefund), sum.IsConverted))];
+            sum.TransactionId, sum.Date, sum.IncomeAmount, sum.SpentAmount, sum.IsConverted))];
     }
 
     /// <summary>The lines of expenses dated between two days, on one account or on all, that are not deleted.</summary>
@@ -176,10 +176,10 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
         db.Set<LineShare>().NotDeletedBetween(from, to, accountId).Where(share => share.Type == TransactionType.Expense);
 
     /// <summary>
-    /// What one category's expenses of one kind (refunds or not) come to in the base currency, before the sign of
+    /// What one category's expenses, refunds apart from others, come to in the base currency, before the sign of
     /// spent: one sum for those that are converted, and one for each that is not, by its id.
     /// </summary>
-    private sealed record CategoryExpensesOfKind(Guid CategoryId, bool IsRefund, Guid? NotConverted, decimal Amount);
+    private sealed record CategoryExpenseSum(Guid CategoryId, bool IsRefund, Guid? NotConvertedId, decimal Amount);
 
     /// <summary>How many transactions that are not deleted have a line on the category, a split counting once.</summary>
     public Task<int> CountTransactionsAsync(Guid categoryId, CancellationToken cancellationToken) =>
