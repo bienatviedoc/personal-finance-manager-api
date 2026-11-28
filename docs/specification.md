@@ -186,7 +186,7 @@ A budget is a monthly spending limit on an expense category, tracked in the user
 ```
 
 - Transfers are excluded. A refund is an expense with the refund flag set: it adds to the account balance and reduces spent in its category, rather than inflating income.
-- Split transactions contribute each line to its own category.
+- Split transactions contribute each line to its own category. A split's amount in the base currency is shared among its lines in proportion to their amounts, each share rounded to the base currency's decimals (half away from zero) and the last line taking what is left, so the shares add up exactly to it.
 - Spent can be negative, for example when a refund lands in a month with no other spending in its category. It is shown as it is, never clamped to zero.
 - Each category sends at most one warning notification and one over notification per month, even if spent drops back and crosses the threshold again.
 - A budget month is the calendar month from the 1st, and its boundary follows the user's time zone. A configurable month start day (e.g. the 25th, for salary cycles) is a Could.
@@ -317,6 +317,7 @@ The schema centres on `Transaction`; balances, budgets and reports are all deriv
 - Trigram index on `Transaction.Payee` and `Note`, and on `TransactionLine.Note`, for search.
 - Check constraints: `Amount > 0`; `Budget.Amount >= 0`. Split-sum equality is checked in the domain and re-verified by the nightly integrity job.
 - Optimistic concurrency through `RowVersion` on `Transaction`, `Account` and `Budget`.
+- Spent is computed with `SUM` queries over each transaction line's share of its transaction in the base currency (a view, `TransactionLineShares`), grouped as each list, budget or report needs; it is never stored.
 - Balances are computed with a `SUM` query. If that becomes slow, add a monthly `AccountBalanceSnapshot` table; do not add a mutable `CurrentBalance` column.
 
 ## 11. REST API

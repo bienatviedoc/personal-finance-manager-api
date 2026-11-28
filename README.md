@@ -275,6 +275,14 @@ one of the merged category's own subcategories is refused as an error on `target
   taking what rounding leaves. A refund counts in the month of
   the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
   are left out. `GET /budgets` answers it (see Budgets below), through `ICategorySpending`.
+- **Spent is added up in the database** (spec sections 8 and 10), by that definition, so lists and reports never read
+  a year of transactions to add them up. The view `TransactionLineShares` (`LineShare`) gives each line its share of
+  its transaction's converted amount: the whole of it for a line that is not split, and for a split's lines the
+  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals and leaving the
+  rest to the last line, as `SpentAmountIn` does. The queries `SUM` those shares, grouped as each answer needs, refunds
+  apart, and `Spent.Signed` gives the sums their sign. The view and the domain are two writings of one rule:
+  `SpentTests` holds them to the same answers on the same transactions (converted splits, refunds, transfers, deleted
+  and not converted expenses, and a seeded year), so change both together.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
@@ -660,7 +668,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
   `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
   `ICategorySpending` (`Pfm.Application.Contracts.Transactions`). Transactions answers with its own definition of
-  spent (`Transaction.SpentAmountIn`, see Transactions above), adding up the month's expenses as they were
+  spent (`Transaction.SpentAmountIn`, see Transactions above), added up by the database, the month's expenses as they were
   converted into the base currency at the exchange rate of each one's own date: a refund is taken away, so spent
   can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
   will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
@@ -691,7 +699,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **Drilling down** (BUD-8): the transactions behind a budget are the transaction list filtered by its category
   (which takes in its subcategories) and the first and last days of its month. Filtered by a category, the list's
   `total` also answers `spent`: what those transactions spent there in the base currency, with how many are
-  `notConverted`, added up by `Transaction.SpentAmountIn` like the budget's, so a split counts only its lines there
+  `notConverted`, added up by the database like the budget's, so a split counts only its lines there
   and a refund comes off. The per-currency totals beside it are in each transaction's own currency, so only
   `spent` is sure to equal the budget's figure.
 - **The base currency locks once a budget exists** (rule 12,
@@ -1055,7 +1063,9 @@ committed for long enough to remove. Each runs for the worker, which acts for no
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
 
-Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
+Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. That includes `LineShare`, read from the view
+`TransactionLineShares` that spent is added up from (see Transactions, Spent): the filter keeps it to the user's lines like any table, and as it is the
+user's transactions seen another way, the export and the erasure leave it out. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
 `IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
 if they were signed in, and so are today's date (`IUserCalendar`) and the base currency (`IBaseCurrency`).

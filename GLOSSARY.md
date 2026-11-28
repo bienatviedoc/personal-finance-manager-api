@@ -45,7 +45,7 @@ An expense transaction flagged as money coming back, which raises the account ba
 _Avoid_: Negative expense, reversal, income (for money returned)
 
 **Spent**:
-The total of a category's expenses in a budget month (or a report period), minus its refunds, in the base currency. It is always derived from transactions and can be negative.
+The total of a category's expenses in a budget month (or a report period), minus its refunds, in the base currency. It is always derived from transactions and can be negative. A split counts only its lines in the category: its amount in the base currency is shared among its lines in proportion, each share rounded, the last line taking what is left.
 _Avoid_: Actual, used, consumed (the budget vs actual report keeps the name the specification gives it, RPT-6; within it, say spent)
 
 **Attachment**:
