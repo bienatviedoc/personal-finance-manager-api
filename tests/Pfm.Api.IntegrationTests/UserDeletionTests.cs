@@ -43,6 +43,48 @@ public class UserDeletionTests(PfmApi api)
         Assert.Equal(HttpStatusCode.Unauthorized, (await elsewhere.GetAsync("/api/v1/me")).StatusCode);
     }
 
+    [Fact]
+    public async Task Every_other_session_is_refused_on_its_very_next_request_and_stays_signed_out()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        var elsewhere = api.CreateBrowser();
+        (await elsewhere.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.OK, (await elsewhere.GetAsync("/api/v1/accounts")).StatusCode);
+
+        await browser.PostAsync(Deletion, new { password = PfmApi.Password });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await elsewhere.GetAsync("/api/v1/accounts")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await elsewhere.PostAsync("/api/v1/accounts", new { name = "Everyday" })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await browser.GetAsync("/api/v1/accounts")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_users_deletion_leaves_your_session_as_it_was()
+    {
+        var (leaving, _) = await api.SignedInAsync();
+        var (staying, _) = await api.SignedInAsync();
+
+        await leaving.PostAsync(Deletion, new { password = PfmApi.Password });
+
+        Assert.Equal(HttpStatusCode.OK, (await staying.GetAsync("/api/v1/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await staying.GetAsync("/api/v1/accounts")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Signing_in_again_to_cancel_gives_a_session_that_works_while_the_old_ones_stay_ended()
+    {
+        var (browser, email) = await api.SignedInAsync();
+        var elsewhere = api.CreateBrowser();
+        (await elsewhere.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+        await browser.PostAsync(Deletion, new { password = PfmApi.Password });
+
+        var again = api.CreateBrowser();
+        Assert.Equal(HttpStatusCode.OK, (await SignInAsync(again, email)).StatusCode);
+
+        Assert.Equal(HttpStatusCode.OK, (await again.GetAsync("/api/v1/me")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await elsewhere.GetAsync("/api/v1/me")).StatusCode);
+    }
+
     [Theory]
     [InlineData("not the right password")]
     [InlineData("")]

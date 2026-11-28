@@ -12,32 +12,65 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
         TransactionFilter filter, TransactionSort sort, int take, TransactionCursor? after, CancellationToken cancellationToken) =>
         await Sorted(After(Passing(filter), sort, after), sort).Take(take).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken)
-    {
-        if (filter.CategoryId is not { } categoryId)
-        {
-            return await Passing(filter)
-                .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
-                .Select(ofType => new TransactionSum(
-                    ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
-                .ToListAsync(cancellationToken);
-        }
-
-        // Each line counts in its own category (spec section 6): a split adds only its lines in the category.
-        var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
-        return await Passing(filter)
-            .SelectMany(transaction => transaction.Lines
-                .Where(line => inCategory.Contains(line.CategoryId))
-                .Select(line => new { transaction.Id, transaction.Currency, transaction.Type, transaction.IsRefund, line.Amount }))
-            .GroupBy(line => new { line.Currency, line.Type, line.IsRefund })
+    public async Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
+        await Passing(filter)
+            .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
             .Select(ofType => new TransactionSum(
-                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund,
-                ofType.Select(line => line.Id).Distinct().Count(), ofType.Sum(line => line.Amount)))
+                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// Each line counts in its own category (spec section 6): a split adds only its lines in the category. One pass
+    /// over the lines in the category (<see cref="LineShare"/>) adds up both their amounts and their shares in the base
+    /// currency, each transaction's first, so it is counted once without sorting them all. The filter's dates, account
+    /// and type are conditions on the lines themselves; only a filter on what lines do not carry (amount, text, tag) is
+    /// checked on their transactions.
+    /// </summary>
+    public async Task<CategorySums> SumInCategoryAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
+    {
+        var sums = await LinesInCategory(filter, categoryId)
+            .GroupBy(share => new { share.TransactionId, share.Currency, share.Type, share.IsRefund, IsConverted = share.BaseCurrencyAmount != null })
+            .Select(transaction => new
+            {
+                transaction.Key.Currency, transaction.Key.Type, transaction.Key.IsRefund, transaction.Key.IsConverted,
+                Amount = transaction.Sum(share => share.Amount), Share = transaction.Sum(share => share.BaseCurrencyAmount ?? 0),
+            })
+            .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund, transaction.IsConverted })
+            .Select(alike => new
+            {
+                alike.Key.Currency, alike.Key.Type, alike.Key.IsRefund, alike.Key.IsConverted, Count = alike.Count(),
+                Amount = alike.Sum(transaction => transaction.Amount), Share = alike.Sum(transaction => transaction.Share),
+            })
+            .ToListAsync(cancellationToken);
+
+        return new CategorySums(
+            [.. sums
+                .GroupBy(sum => new { sum.Currency, sum.Type, sum.IsRefund })
+                .Select(ofType => new TransactionSum(ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Sum(sum => sum.Count), ofType.Sum(sum => sum.Amount)))],
+            [.. sums
+                .Where(sum => sum.Type == TransactionType.Expense)
+                .GroupBy(sum => new { sum.IsRefund, sum.IsConverted })
+                .Select(alike => new SpentSum(alike.Key.IsRefund, alike.Key.IsConverted, alike.Sum(sum => sum.Count), alike.Sum(sum => sum.Share)))]);
     }
 
-    public async Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
-        await Passing(filter).AsNoTracking().Where(transaction => transaction.Type == TransactionType.Expense).ToListAsync(cancellationToken);
+    /// <summary>The lines in a category and its subcategories of the transactions a filter lets through.</summary>
+    private IQueryable<LineShare> LinesInCategory(TransactionFilter filter, Guid categoryId)
+    {
+        var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
+        var lines = db.Set<LineShare>().NotDeletedBetween(filter.From, filter.To, filter.AccountId).Where(share => inCategory.Contains(share.CategoryId));
+        if (filter.Type is { } type)
+        {
+            lines = lines.Where(share => share.Type == type);
+        }
+
+        if (filter.LimitsWhatLinesDoNotCarry)
+        {
+            var passing = Passing(filter with { CategoryId = null }).Select(transaction => transaction.Id);
+            lines = lines.Where(share => passing.Contains(share.TransactionId));
+        }
+
+        return lines;
+    }
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
     private IQueryable<Transaction> Passing(TransactionFilter filter)

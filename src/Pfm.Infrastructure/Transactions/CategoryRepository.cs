@@ -17,8 +17,5 @@ internal sealed class CategoryRepository(PfmDbContext db) : ICategoryRepository
     public async Task<IReadOnlyList<Category>> ListSubcategoriesAsync(Guid parentId, CancellationToken cancellationToken) =>
         await db.Set<Category>().Where(category => category.ParentId == parentId).ToListAsync(cancellationToken);
 
-    public async Task<IReadOnlyList<Guid>> ListIdsWithSubcategoriesAsync(Guid categoryId, CancellationToken cancellationToken) =>
-        await db.Set<Category>().AndSubcategoriesOf(categoryId).ToListAsync(cancellationToken);
-
     public void Add(Category category) => db.Set<Category>().Add(category);
 }

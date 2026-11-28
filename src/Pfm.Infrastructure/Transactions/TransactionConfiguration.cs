@@ -118,8 +118,9 @@ internal sealed class TransactionConfiguration : IEntityTypeConfiguration<Transa
             // A category with transactions is archived, never deleted.
             line.HasOne<Category>().WithMany().HasForeignKey(row => row.CategoryId).OnDelete(DeleteBehavior.Restrict);
 
-            // What was spent in a category, for the list's filter, budgets and reports (spec section 10).
-            line.HasIndex(nameof(TransactionLine.CategoryId), TransactionId);
+            // What was spent in a category, for the list's filter, budgets and reports (spec section 10). It carries what
+            // a line adds to a sum, so the category's lines are read from the index alone (see "Load test" in the README).
+            line.HasIndex(nameof(TransactionLine.CategoryId), TransactionId).IncludeProperties(nameof(TransactionLine.Amount), nameof(TransactionLine.Position));
             line.HasIndex(TransactionId, nameof(TransactionLine.Position));
 
             // Search finds a split by the note of any of its lines, through their trigrams like the transaction's.

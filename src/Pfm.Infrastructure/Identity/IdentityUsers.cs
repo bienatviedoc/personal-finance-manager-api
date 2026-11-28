@@ -120,7 +120,7 @@ internal sealed class IdentityUsers(UserManager<User> users) : IUsers
         }
     }
 
-    // The new security stamp ends every session, within the time the host checks it in (see AuthenticationSetup).
+    // The new security stamp ends every session on its next request (SessionCheck).
     public async Task DeactivateAsync(Guid userId, DateTimeOffset at)
     {
         var user = await users.FindByIdAsync(userId.ToString())

@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Pfm.Application.Abstractions;
 using Microsoft.AspNetCore.DataProtection;
 using Pfm.Infrastructure;
+using Pfm.Infrastructure.Identity;
 using Pfm.Infrastructure.Persistence;
 
 namespace Pfm.Api.Identity;
@@ -38,9 +39,18 @@ public static class AuthenticationSetup
             // existing events, never by replacing them: Identity's security-stamp check lives there.
             options.Events.OnRedirectToLogin = context => StatusOnly(context, StatusCodes.Status401Unauthorized);
             options.Events.OnRedirectToAccessDenied = context => StatusOnly(context, StatusCodes.Status403Forbidden);
+
+            // A deleted user, or one whose security stamp changed, is signed out on the session's next request.
+            var validateWithIdentity = options.Events.OnValidatePrincipal;
+            options.Events.OnValidatePrincipal = async context =>
+            {
+                await validateWithIdentity(context);
+                await SessionCheck.EndUnlessUserActiveWithSameStampAsync(context);
+            };
         });
 
-        // A changed security stamp (password reset, deactivation) ends every session within this time.
+        // How often Identity issues a session's cookie again with the user's claims as they are now. Ending a session
+        // does not wait for it: SessionCheck does that on every request.
         services.Configure<SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.FromMinutes(5));
 
         services.AddAuthorizationBuilder()

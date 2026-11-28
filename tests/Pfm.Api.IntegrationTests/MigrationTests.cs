@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Pfm.Domain;
 using Pfm.Infrastructure.Persistence;
 
 namespace Pfm.Api.IntegrationTests;
@@ -36,6 +37,27 @@ public class MigrationTests(PfmApi api)
             .SingleAsync();
 
         Assert.Equal(1, installed);
+    }
+
+    public static TheoryData<Currency> EveryCurrency => [.. Enum.GetValues<Currency>()];
+
+    /// <summary>
+    /// The database shares a split's converted amount among its lines rounded to the base currency's decimals, which it
+    /// reads from its function <c>CurrencyDecimals</c>: it must answer what the domain does for every currency, so a
+    /// currency added to one and not the other fails here.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(EveryCurrency))]
+    public async Task The_database_gives_each_currency_the_decimals_the_domain_gives_it(Currency currency)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PfmDbContext>();
+
+        var decimals = await db.Database
+            .SqlQuery<int?>($"SELECT \"CurrencyDecimals\"({currency.ToString()}) AS \"Value\"")
+            .SingleAsync();
+
+        Assert.Equal(currency.DecimalPlaces(), decimals);
     }
 
     [Theory]

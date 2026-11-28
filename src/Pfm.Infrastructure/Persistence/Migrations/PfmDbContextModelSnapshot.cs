@@ -1144,6 +1144,56 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Pfm.Infrastructure.Transactions.LineShare", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<decimal?>("BaseCurrencyAmount")
+                        .HasPrecision(19, 4)
+                        .HasColumnType("numeric(19,4)");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)");
+
+                    b.Property<DateOnly>("Date")
+                        .HasColumnType("date");
+
+                    b.Property<DateTimeOffset?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsRefund")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Payee")
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("TransactionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("UserId")
+                        .IsConcurrencyToken()
+                        .HasColumnType("uuid");
+
+                    b.ToTable((string)null);
+
+                    b.ToView("TransactionLineShares", (string)null);
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityUserClaim<System.Guid>", b =>
                 {
                     b.HasOne("Pfm.Infrastructure.Identity.User", null)
@@ -1328,6 +1378,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                             NpgsqlIndexBuilderExtensions.HasOperators(b1.HasIndex("Note"), new[] { "gin_trgm_ops" });
 
                             b1.HasIndex("CategoryId", "TransactionId");
+
+                            NpgsqlIndexBuilderExtensions.IncludeProperties(b1.HasIndex("CategoryId", "TransactionId"), new[] { "Amount", "Position" });
 
                             b1.HasIndex("TransactionId", "Position");
 

@@ -962,6 +962,24 @@ public class BudgetTests(PfmApi api) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_base_currency_stays_locked_until_the_last_budget_is_removed_and_can_then_change_again()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var food = await CategoryAsync(browser, "Food & drink");
+        await SetAsync(browser, ThisMonth, food, "3000000");
+        await SetOverallAsync(browser, LastMonth, "10000000");
+
+        await browser.DeleteAsync($"{Budgets}/{ThisMonth}/{food}");
+        var whileOneRemains = await browser.PatchAsync("/api/v1/me", new { baseCurrency = "USD" });
+        await browser.DeleteAsync($"{Budgets}/{LastMonth}/overall");
+        var afterTheLast = await browser.PatchAsync("/api/v1/me", new { baseCurrency = "USD" });
+
+        Assert.Equal(["baseCurrency"], await whileOneRemains.ErrorFieldsAsync());
+        Assert.Equal(HttpStatusCode.OK, afterTheLast.StatusCode);
+        Assert.Equal(new ProfileBody("USD", "Asia/Ho_Chi_Minh", false), await ProfileAsync(browser));
+    }
+
+    [Fact]
     public async Task A_locked_base_currency_still_lets_every_other_setting_change_and_may_be_sent_as_it_is()
     {
         var (browser, _) = await api.SignedInAsync();
