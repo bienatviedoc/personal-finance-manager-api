@@ -105,17 +105,18 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
     }
 
     /// <summary>
-    /// Spent by the expenses that pass the filter, added up here by <see cref="Transaction.SpentAmountIn"/>, as
-    /// budgets add it up, so that the two never disagree, rounding of a converted split included.
+    /// Spent by the expenses that pass the filter, added up by the database as budgets add it up, so that the two
+    /// never disagree, rounding of a converted split included; the sign of spent is applied to the sums here, by its
+    /// one definition (<see cref="Spent.Signed"/>).
     /// </summary>
     private async Task<SpentTotal> SpentAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
     {
         var categoryIds = await categories.ListIdsWithSubcategoriesAsync(categoryId, cancellationToken);
-        var expenses = await transactions.ListExpensesAsync(filter, cancellationToken);
+        var sums = await transactions.SpentInAsync(filter, categoryIds, cancellationToken);
         return new SpentTotal(
             await baseCurrency.OfCurrentUserAsync(cancellationToken),
-            expenses.Sum(expense => expense.SpentAmountIn(categoryIds)),
-            expenses.Count(expense => !expense.IsConverted));
+            sums.Where(sum => sum.IsConverted).Sum(sum => Spent.Signed(TransactionType.Expense, sum.Amount, sum.IsRefund)),
+            sums.Where(sum => !sum.IsConverted).Sum(sum => sum.Count));
     }
 
     /// <summary>
@@ -142,6 +143,12 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
 /// their amounts added up.
 /// </summary>
 public sealed record TransactionSum(Currency Currency, TransactionType Type, bool IsRefund, int Count, decimal Amount);
+
+/// <summary>
+/// How many expenses of one kind (refunds or not, converted or not) passed a filter, and what their lines in a
+/// category come to in the base currency, without the sign of spent: zero for those not converted.
+/// </summary>
+public sealed record SpentSum(bool IsRefund, bool IsConverted, int Count, decimal Amount);
 
 /// <summary>
 /// Where a page of transactions ends: the date, amount and id of its last one, opaque to clients. It holds

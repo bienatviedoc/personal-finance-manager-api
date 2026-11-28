@@ -21,9 +21,12 @@ internal sealed class UserData(PfmDbContext db) : IUserData
 
     private static readonly MethodInfo EraseMethod = typeof(UserData).GetMethod(nameof(EraseAsync), BindingFlags.Instance | BindingFlags.NonPublic)!;
 
-    /// <summary>The entities whose rows belong to a user, each mapped to a table of its own.</summary>
+    /// <summary>
+    /// The entities whose rows belong to a user, each mapped to a table of its own. One read from a view (a
+    /// transaction's lines as spent adds them up) is the user's rows of other tables seen another way, so it is left out.
+    /// </summary>
     public static IReadOnlyList<IEntityType> UserOwnedEntities(IModel model) =>
-        [.. model.GetEntityTypes().Where(type => typeof(IUserOwned).IsAssignableFrom(type.ClrType) && !type.IsOwned() && type.BaseType is null)];
+        [.. model.GetEntityTypes().Where(type => typeof(IUserOwned).IsAssignableFrom(type.ClrType) && !type.IsOwned() && type.BaseType is null && type.GetTableName() is not null)];
 
     /// <summary>
     /// What a user-owned entity keeps in a table of its own for the parts it owns (a transaction's lines). Those

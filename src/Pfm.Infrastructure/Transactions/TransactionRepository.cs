@@ -36,8 +36,20 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<Transaction>> ListExpensesAsync(TransactionFilter filter, CancellationToken cancellationToken) =>
-        await Passing(filter).AsNoTracking().Where(transaction => transaction.Type == TransactionType.Expense).ToListAsync(cancellationToken);
+    /// <summary>
+    /// The lines (<see cref="LineShare"/>) of the expenses that pass the filter, in the categories. The filter's dates
+    /// and account are applied to the lines too, so the database reads only those days' lines.
+    /// </summary>
+    public async Task<IReadOnlyList<SpentSum>> SpentInAsync(TransactionFilter filter, IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken)
+    {
+        var passing = Passing(filter).Where(transaction => transaction.Type == TransactionType.Expense).Select(transaction => transaction.Id);
+        return await db.Set<LineShare>().Counted(filter.From, filter.To, filter.AccountId)
+            .Where(share => share.Type == TransactionType.Expense && categoryIds.Contains(share.CategoryId) && passing.Contains(share.TransactionId))
+            .GroupBy(share => new { share.IsRefund, IsConverted = share.BaseCurrencyAmount != null })
+            .Select(ofKind => new SpentSum(
+                ofKind.Key.IsRefund, ofKind.Key.IsConverted, ofKind.Select(share => share.TransactionId).Distinct().Count(), ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)))
+            .ToListAsync(cancellationToken);
+    }
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
     private IQueryable<Transaction> Passing(TransactionFilter filter)
