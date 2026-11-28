@@ -17,7 +17,7 @@ public class BulkEditTests
     [Fact]
     public void Recategorising_puts_the_whole_amount_on_the_new_category_and_keeps_the_lines_note()
     {
-        var transaction = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var transaction = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
 
         transaction.Recategorise(Household, Tuesday);
 
@@ -30,7 +30,7 @@ public class BulkEditTests
     [Fact]
     public void Recategorising_onto_the_category_it_is_on_already_changes_nothing()
     {
-        var transaction = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var transaction = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
 
         transaction.Recategorise(Groceries, Tuesday);
 
@@ -40,9 +40,9 @@ public class BulkEditTests
     [Fact]
     public void A_category_of_the_wrong_kind_or_a_split_transaction_is_refused_a_new_category()
     {
-        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
         var split = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], null, null, Today, Monday);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], null, null, new Moment(Today, Monday));
 
         Assert.Equal(nameof(Transaction.CategoryId), Assert.Throws<TransactionRuleViolation>(() => expense.Recategorise(Salary, Tuesday)).Property);
         Assert.Equal(nameof(Transaction.Lines), Assert.Throws<TransactionRuleViolation>(() => split.Recategorise(Household, Tuesday)).Property);
@@ -53,7 +53,7 @@ public class BulkEditTests
     public void A_move_to_an_account_in_the_same_currency_keeps_everything_else_and_one_in_another_is_refused()
     {
         var transaction = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], "Co.op", null, Today, Monday);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], "Co.op", null, new Moment(Today, Monday));
 
         transaction.MoveTo(Savings, Currency.VND, Tuesday);
 
@@ -65,7 +65,7 @@ public class BulkEditTests
     [Fact]
     public void A_tag_is_added_once_and_removed_and_a_twenty_first_is_refused()
     {
-        var transaction = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var transaction = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
         var trip = Tag.Create("japan-trip", Monday);
 
         transaction.AddTag(trip, Tuesday);
@@ -86,14 +86,14 @@ public class BulkEditTests
     [Fact]
     public void Each_change_a_transaction_cannot_take_is_refused_with_the_reason_a_bulk_action_names_it_by()
     {
-        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
         var split = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], null, null, Today, Monday);
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
-        var reconciled = Reconciled(Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday));
-        var reconciledTransfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, [new SplitLine(Groceries, 400m), new SplitLine(Household, 600m)], null, null, new Moment(Today, Monday));
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
+        var reconciled = Reconciled(Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday)));
+        var reconciledTransfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         Reconciled(reconciledTransfer.OutLeg);
-        var tagged = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 1000m, Today, Groceries, null, null, Today, Monday);
+        var tagged = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 1000m), Today, Groceries, null, null, new Moment(Today, Monday));
         foreach (var number in Enumerable.Range(1, Transaction.MaxTags))
         {
             tagged.AddTag(Tag.Create($"tag-{number}", Monday), Tuesday);

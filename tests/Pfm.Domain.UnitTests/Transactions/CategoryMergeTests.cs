@@ -122,8 +122,8 @@ public class CategoryMergeTests
         var (coffee, eatingOut, groceries) = (Expense("Coffee"), Expense("Eating out"), Expense("Groceries"));
         var today = DateOnly.FromDateTime(Now.UtcDateTime);
         var split = Transaction.RecordSplit(
-            TransactionType.Expense, Guid.CreateVersion7(), Currency.VND, 300m, today,
-            [new SplitLine(coffee, 100m), new SplitLine(groceries, 150m), new SplitLine(coffee, 50m, "Cake")], payee: null, note: null, today, Now);
+            TransactionType.Expense, new AccountAmount(Guid.CreateVersion7(), Currency.VND, 300m), today,
+            [new SplitLine(coffee, 100m), new SplitLine(groceries, 150m), new SplitLine(coffee, 50m, "Cake")], payee: null, note: null, new Moment(today, Now));
 
         split.MoveLines(coffee, eatingOut, Later);
 
@@ -139,7 +139,7 @@ public class CategoryMergeTests
     {
         var (coffee, eatingOut) = (Expense("Coffee"), Expense("Eating out"));
         var today = DateOnly.FromDateTime(Now.UtcDateTime);
-        var expense = Transaction.Record(TransactionType.Expense, Guid.CreateVersion7(), Currency.VND, 100m, today, coffee, null, null, today, Now);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Guid.CreateVersion7(), Currency.VND, 100m), today, coffee, null, null, new Moment(today, Now));
         expense.Delete(Now);
 
         expense.MoveLines(coffee, eatingOut, Later);

@@ -22,7 +22,7 @@ public class SpentTests
             Expense(999m, Clothing, new DateOnly(2026, 10, 31)),
             Expense(999m, Clothing, new DateOnly(2025, 11, 2)),
             Expense(125_000m, Groceries, new DateOnly(2026, 11, 2)),
-            Converted(Transaction.Record(TransactionType.Income, Everyday, Currency.VND, 15_000_000m, new DateOnly(2026, 11, 2), Salary, null, null, Today, Now)),
+            Converted(Transaction.Record(TransactionType.Income, new AccountAmount(Everyday, Currency.VND, 15_000_000m), new DateOnly(2026, 11, 2), Salary, null, null, new Moment(Today, Now))),
         ];
 
         Assert.Equal(2_000_000m, Spent.Of(transactions, [Clothing.Id, Shoes.Id], 2026, 11));
@@ -62,9 +62,9 @@ public class SpentTests
     [Fact]
     public void Spent_is_in_the_base_currency_and_a_refund_takes_away_its_own_converted_amount()
     {
-        var bought = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 40m, new DateOnly(2026, 11, 2), Clothing, null, null, Today, Now);
+        var bought = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.USD, 40m), new DateOnly(2026, 11, 2), Clothing, null, null, new Moment(Today, Now));
         bought.ConvertInto(Currency.VND, 1_000_000m, 25_000m, new DateOnly(2026, 11, 2));
-        var refunded = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 40m, new DateOnly(2026, 11, 10), Clothing, null, null, Today, Now, isRefund: true);
+        var refunded = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.USD, 40m), new DateOnly(2026, 11, 10), Clothing, null, null, new Moment(Today, Now), isRefund: true);
         refunded.ConvertInto(Currency.VND, 1_040_000m, 26_000m, new DateOnly(2026, 11, 10));
 
         Assert.Equal((1_000_000m, -1_040_000m), (bought.SpentAmount, refunded.SpentAmount));
@@ -76,9 +76,9 @@ public class SpentTests
     {
         var deleted = Refund(300_000m, Clothing, new DateOnly(2026, 11, 9));
         deleted.Delete(Now);
-        var notConverted = Transaction.Record(TransactionType.Expense, Everyday, Currency.USD, 40m, new DateOnly(2026, 11, 2), Clothing, null, null, Today, Now, isRefund: true);
+        var notConverted = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.USD, 40m), new DateOnly(2026, 11, 2), Clothing, null, null, new Moment(Today, Now), isRefund: true);
         notConverted.FlagNotConverted(Currency.VND);
-        var neverSaved = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 40m, new DateOnly(2026, 11, 2), Clothing, null, null, Today, Now);
+        var neverSaved = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 40m), new DateOnly(2026, 11, 2), Clothing, null, null, new Moment(Today, Now));
 
         Assert.Equal(500_000m, Spent.Of([Expense(500_000m, Clothing, new DateOnly(2026, 11, 5)), deleted, notConverted, neverSaved], [Clothing.Id], 2026, 11));
     }
@@ -87,11 +87,11 @@ public class SpentTests
     public void A_split_transaction_adds_each_line_to_spent_in_that_lines_category()
     {
         var split = Converted(Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 500_000m, new DateOnly(2026, 11, 2),
-            [new SplitLine(Groceries, 320_000m), new SplitLine(Shoes, 150_000m), new SplitLine(Clothing, 30_000m)], null, null, Today, Now));
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 500_000m), new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 320_000m), new SplitLine(Shoes, 150_000m), new SplitLine(Clothing, 30_000m)], null, null, new Moment(Today, Now)));
         var refunded = Converted(Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 100_000m, new DateOnly(2026, 11, 9),
-            [new SplitLine(Groceries, 60_000m), new SplitLine(Shoes, 40_000m)], null, null, Today, Now, isRefund: true));
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 100_000m), new DateOnly(2026, 11, 9),
+            [new SplitLine(Groceries, 60_000m), new SplitLine(Shoes, 40_000m)], null, null, new Moment(Today, Now), isRefund: true));
 
         Assert.Equal(320_000m, Spent.Of([split], [Groceries.Id], 2026, 11));
         Assert.Equal(180_000m, Spent.Of([split], [Clothing.Id, Shoes.Id], 2026, 11));
@@ -106,8 +106,8 @@ public class SpentTests
     {
         // 100 dollars in three equal parts, converted to 2,500,000 đồng, which has no decimals to share a remainder in.
         var split = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.USD, 100m, new DateOnly(2026, 11, 2),
-            [new SplitLine(Groceries, 33.33m), new SplitLine(Shoes, 33.33m), new SplitLine(Clothing, 33.34m)], null, null, Today, Now);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.USD, 100m), new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 33.33m), new SplitLine(Shoes, 33.33m), new SplitLine(Clothing, 33.34m)], null, null, new Moment(Today, Now));
         split.ConvertInto(Currency.VND, 2_500_000m, 25_000m, new DateOnly(2026, 11, 2));
 
         var shares = new[] { Groceries, Shoes, Clothing }.Select(category => Spent.Of([split], [category.Id], 2026, 11)).ToArray();
@@ -121,8 +121,8 @@ public class SpentTests
     public void A_share_that_does_not_come_out_even_is_rounded_and_the_last_line_takes_what_is_left()
     {
         var split = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 100m, new DateOnly(2026, 11, 2),
-            [new SplitLine(Groceries, 33m), new SplitLine(Shoes, 33m), new SplitLine(Clothing, 34m)], null, null, Today, Now);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 100m), new DateOnly(2026, 11, 2),
+            [new SplitLine(Groceries, 33m), new SplitLine(Shoes, 33m), new SplitLine(Clothing, 34m)], null, null, new Moment(Today, Now));
         split.ConvertInto(Currency.USD, 0.05m, 0.0005m, new DateOnly(2026, 11, 2));
 
         Assert.Equal(
@@ -131,10 +131,10 @@ public class SpentTests
     }
 
     private static Transaction Expense(decimal amount, Category category, DateOnly date) =>
-        Converted(Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date, category, null, null, Today, Now));
+        Converted(Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, amount), date, category, null, null, new Moment(Today, Now)));
 
     private static Transaction Refund(decimal amount, Category category, DateOnly date) =>
-        Converted(Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date, category, null, null, Today, Now, isRefund: true));
+        Converted(Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, amount), date, category, null, null, new Moment(Today, Now), isRefund: true));
 
     /// <summary>In the base currency already, so converted at a rate of one.</summary>
     private static Transaction Converted(Transaction transaction)

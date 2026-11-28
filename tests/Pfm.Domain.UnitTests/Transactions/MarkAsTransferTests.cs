@@ -56,7 +56,7 @@ public class MarkAsTransferTests
     public void A_split_expense_is_marked_whole()
     {
         var expense = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 300m, Today, [new SplitLine(Fees, 100m), new SplitLine(Groceries, 200m)], null, null, Today, Monday);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 300m), Today, [new SplitLine(Fees, 100m), new SplitLine(Groceries, 200m)], null, null, new Moment(Today, Monday));
 
         var transfer = Transfer.Mark(expense, Income(Visa, 300m), Tuesday);
 
@@ -69,7 +69,7 @@ public class MarkAsTransferTests
     {
         var expense = Expense(Everyday, 2_550_000m);
         expense.ConvertInto(Currency.VND, 2_550_000m, 1m, Today);
-        var income = Transaction.Record(TransactionType.Income, Dollars, Currency.USD, 99.5m, Today, OtherIncome, null, null, Today, Monday);
+        var income = Transaction.Record(TransactionType.Income, new AccountAmount(Dollars, Currency.USD, 99.5m), Today, OtherIncome, null, null, new Moment(Today, Monday));
         income.ConvertInto(Currency.VND, 2_540_000m, 25_527.64m, Today);
 
         var transfer = Transfer.Mark(expense, income, Tuesday);
@@ -97,7 +97,7 @@ public class MarkAsTransferTests
     [Fact]
     public void The_two_must_be_on_the_same_date()
     {
-        var income = Transaction.Record(TransactionType.Income, Visa, Currency.VND, 100m, Today.AddDays(-1), OtherIncome, null, null, Today, Monday);
+        var income = Transaction.Record(TransactionType.Income, new AccountAmount(Visa, Currency.VND, 100m), Today.AddDays(-1), OtherIncome, null, null, new Moment(Today, Monday));
 
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Expense(Everyday, 100m), income, Tuesday));
 
@@ -107,7 +107,7 @@ public class MarkAsTransferTests
     [Fact]
     public void Only_an_expense_that_is_not_a_refund_becomes_the_transfer_out_leg_and_only_income_the_transfer_in_leg()
     {
-        var refund = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 100m, Today, Fees, null, null, Today, Monday, isRefund: true);
+        var refund = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 100m), Today, Fees, null, null, new Moment(Today, Monday), isRefund: true);
 
         Assert.Equal(Transfer.ExpenseId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(refund, Income(Visa, 100m), Tuesday)).Property);
         Assert.Equal(Transfer.ExpenseId, Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(Income(Everyday, 100m), Income(Visa, 100m), Tuesday)).Property);
@@ -169,7 +169,7 @@ public class MarkAsTransferTests
     [Fact]
     public void Any_transfer_can_be_unmarked_into_an_expense_and_an_income()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Visa, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Visa, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
 
         var (expense, income) = transfer.Unmark(Fees, OtherIncome, Tuesday);
 
@@ -210,8 +210,8 @@ public class MarkAsTransferTests
     private static Transfer Marked() => Transfer.Mark(Expense(Everyday, 100m), Income(Visa, 100m), Monday);
 
     private static Transaction Expense(Guid account, decimal amount, string? payee = null, string? note = null) =>
-        Transaction.Record(TransactionType.Expense, account, Currency.VND, amount, Today, Fees, payee, note, Today, Monday);
+        Transaction.Record(TransactionType.Expense, new AccountAmount(account, Currency.VND, amount), Today, Fees, payee, note, new Moment(Today, Monday));
 
     private static Transaction Income(Guid account, decimal amount, string? note = null) =>
-        Transaction.Record(TransactionType.Income, account, Currency.VND, amount, Today, OtherIncome, null, note, Today, Monday);
+        Transaction.Record(TransactionType.Income, new AccountAmount(account, Currency.VND, amount), Today, OtherIncome, null, note, new Moment(Today, Monday));
 }

@@ -3,6 +3,7 @@ using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
@@ -88,13 +89,11 @@ public sealed class CreateTransactionHandler(
         Transaction transaction;
         try
         {
+            var moves = new AccountAmount(against.Account.Id, against.Account.Currency, fields.Amount!.Value);
+            var at = new Moment(against.Today, clock.GetUtcNow());
             transaction = against.Split is { } lines
-                ? Transaction.RecordSplit(
-                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, lines, command.Payee,
-                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund)
-                : Transaction.Record(
-                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+                ? Transaction.RecordSplit(fields.Type!.Value, moves, fields.Date!.Value, lines, command.Payee, command.Note, at, command.IsRefund)
+                : Transaction.Record(fields.Type!.Value, moves, fields.Date!.Value, against.Category, command.Payee, command.Note, at, command.IsRefund);
         }
         catch (TransactionRuleViolation violation)
         {

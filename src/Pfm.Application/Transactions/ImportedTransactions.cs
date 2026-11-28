@@ -2,6 +2,7 @@ using Pfm.Application.Contracts.Accounts;
 using Pfm.Application.Contracts.Identity;
 using Pfm.Application.Contracts.Transactions;
 using Pfm.Application.Transactions.Categories;
+using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
@@ -49,8 +50,8 @@ public sealed class ImportedTransactions(
                 var category = (row.CategoryId is { } ownId ? own[ownId] : row.IsIncome ? incomeCategory : expenseCategory)
                     ?? throw new TransactionRuleViolation(nameof(Transaction.CategoryId), "The category chosen for the statement is gone.");
                 var transaction = Transaction.Record(
-                    row.IsIncome ? TransactionType.Income : TransactionType.Expense, account.Id, account.Currency, row.Amount, row.Date, category, row.Payee,
-                    note: null, today, now);
+                    row.IsIncome ? TransactionType.Income : TransactionType.Expense, new AccountAmount(account.Id, account.Currency, row.Amount), row.Date, category, row.Payee,
+                    note: null, new Moment(today, now));
                 transaction.ImportedBy(importBatchId);
                 recorded.Add(transaction);
             }

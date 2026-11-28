@@ -98,7 +98,7 @@ public class ReconciliationTests
     public void Only_a_transaction_on_the_account_dated_on_or_before_the_statement_date_can_be_ticked()
     {
         var reconciliation = Reconciliation.Start(Everyday, Currency.VND, StatementDate, 0m, Today, Monday);
-        var elsewhere = Transaction.Record(TransactionType.Expense, Savings, Currency.VND, 1_000m, StatementDate, Groceries, null, null, Today, Monday);
+        var elsewhere = Transaction.Record(TransactionType.Expense, new AccountAmount(Savings, Currency.VND, 1_000m), StatementDate, Groceries, null, null, new Moment(Today, Monday));
         var later = Expense(1_000m, StatementDate.AddDays(1));
 
         Assert.Equal("TransactionId", Assert.Throws<ReconciliationRuleViolation>(() => reconciliation.Tick(elsewhere, Tuesday)).Property);
@@ -180,7 +180,7 @@ public class ReconciliationTests
         Assert.Null(reconciliation.CompletedAt);
         Assert.False(groceries.IsReconciled);
         Assert.Equal(reconciliation.Id, groceries.ReconciliationId);
-        groceries.Edit(TransactionType.Expense, Everyday, Currency.VND, 600_000m, StatementDate, Groceries, null, null, Today, Tuesday);
+        groceries.Edit(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 600_000m), StatementDate, Groceries, null, null, new Moment(Today, Tuesday));
         Assert.Equal(600_000m, groceries.Amount);
     }
 
@@ -204,7 +204,7 @@ public class ReconciliationTests
         }
 
         var violation = Assert.Throws<TransactionRuleViolation>(() =>
-            groceries.Edit(type, account, Currency.VND, amount, date, category, null, null, Today, Tuesday, isRefund));
+            groceries.Edit(type, new AccountAmount(account, Currency.VND, amount), date, category, null, null, new Moment(Today, Tuesday), isRefund));
 
         Assert.Equal(field, violation.Property);
         Assert.Equal((500_000m, StatementDate, Everyday, TransactionType.Expense), (groceries.Amount, groceries.Date, groceries.AccountId, groceries.Type));
@@ -216,7 +216,7 @@ public class ReconciliationTests
         var groceries = ReconciledExpense(500_000m);
         var dining = Category.Create("Dining", CategoryKind.Expense, "utensils", Color.Parse("#dc2626"), Monday);
 
-        groceries.Edit(TransactionType.Expense, Everyday, Currency.VND, 500_000m, StatementDate, dining, "Bep Me In", "lunch", Today, Tuesday);
+        groceries.Edit(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 500_000m), StatementDate, dining, "Bep Me In", "lunch", new Moment(Today, Tuesday));
 
         Assert.Equal((dining.Id, "Bep Me In", "lunch"), (groceries.CategoryId, groceries.Payee, groceries.Note));
         Assert.True(groceries.IsReconciled);
@@ -238,7 +238,7 @@ public class ReconciliationTests
         var groceries = Expense(500_000m);
         reconciliation.Tick(groceries, Tuesday);
 
-        groceries.Edit(TransactionType.Expense, Savings, Currency.VND, 500_000m, StatementDate, Groceries, null, null, Today, Tuesday);
+        groceries.Edit(TransactionType.Expense, new AccountAmount(Savings, Currency.VND, 500_000m), StatementDate, Groceries, null, null, new Moment(Today, Tuesday));
 
         Assert.Null(groceries.ReconciliationId);
     }
@@ -247,22 +247,22 @@ public class ReconciliationTests
     public void A_transfer_is_locked_as_soon_as_either_leg_is_reconciled()
     {
         var transfer = Transfer.Record(
-            new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, Today, Monday);
+            new AccountAmount(Everyday, Currency.VND, 1_000_000m), new AccountAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, new Moment(Today, Monday));
         var reconciliation = Reconciliation.Start(Savings, Currency.VND, StatementDate, 1_000_000m, Today, Monday);
         reconciliation.Tick(transfer.InLeg, Tuesday);
         reconciliation.Complete(0m, [transfer.InLeg], Tuesday);
 
         Assert.True(transfer.IsReconciled);
         Assert.Equal("Amount", Assert.Throws<TransferRuleViolation>(() =>
-            transfer.Edit(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), StatementDate, null, Today, Tuesday)).Property);
+            transfer.Edit(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), StatementDate, null, new Moment(Today, Tuesday))).Property);
         Assert.Equal("Date", Assert.Throws<TransferRuleViolation>(() =>
-            transfer.Edit(new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), Today, null, Today, Tuesday)).Property);
+            transfer.Edit(new AccountAmount(Everyday, Currency.VND, 1_000_000m), new AccountAmount(Savings, Currency.VND, 1_000_000m), Today, null, new Moment(Today, Tuesday))).Property);
         Assert.Equal("FromAccountId", Assert.Throws<TransferRuleViolation>(() =>
-            transfer.Edit(new LegAmount(Guid.CreateVersion7(), Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, Today, Tuesday)).Property);
+            transfer.Edit(new AccountAmount(Guid.CreateVersion7(), Currency.VND, 1_000_000m), new AccountAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, new Moment(Today, Tuesday))).Property);
         Assert.Throws<TransactionRuleViolation>(() => transfer.Delete(Tuesday));
         Assert.Equal((1_000_000m, false), (transfer.Amount, transfer.IsDeleted));
 
-        transfer.Edit(new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, "rent pot", Today, Tuesday);
+        transfer.Edit(new AccountAmount(Everyday, Currency.VND, 1_000_000m), new AccountAmount(Savings, Currency.VND, 1_000_000m), StatementDate, "rent pot", new Moment(Today, Tuesday));
         Assert.Equal("rent pot", transfer.Note);
     }
 
@@ -270,14 +270,14 @@ public class ReconciliationTests
     public void A_reconciled_transaction_cannot_be_marked_as_a_leg_of_a_transfer()
     {
         var reconciledExpense = ReconciledExpense(500_000m);
-        var income = Transaction.Record(TransactionType.Income, Savings, Currency.VND, 500_000m, StatementDate, Salary, null, null, Today, Monday);
+        var income = Transaction.Record(TransactionType.Income, new AccountAmount(Savings, Currency.VND, 500_000m), StatementDate, Salary, null, null, new Moment(Today, Monday));
 
         var violation = Assert.Throws<TransferRuleViolation>(() => Transfer.Mark(reconciledExpense, income, Tuesday));
 
         Assert.Equal(Transfer.ExpenseId, violation.Property);
         Assert.Equal((TransactionType.Expense, TransactionType.Income), (reconciledExpense.Type, income.Type));
 
-        var expense = Transaction.Record(TransactionType.Expense, Savings, Currency.VND, 500_000m, StatementDate, Groceries, null, null, Today, Monday);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Savings, Currency.VND, 500_000m), StatementDate, Groceries, null, null, new Moment(Today, Monday));
         var reconciledIncome = Income(500_000m);
         var reconciliation = Reconciliation.Start(Everyday, Currency.VND, StatementDate, 500_000m, Today, Monday);
         reconciliation.Tick(reconciledIncome, Monday);
@@ -291,7 +291,7 @@ public class ReconciliationTests
     public void A_reconciled_transfer_cannot_be_unmarked()
     {
         var transfer = Transfer.Record(
-            new LegAmount(Everyday, Currency.VND, 1_000_000m), new LegAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, Today, Monday);
+            new AccountAmount(Everyday, Currency.VND, 1_000_000m), new AccountAmount(Savings, Currency.VND, 1_000_000m), StatementDate, null, new Moment(Today, Monday));
         var reconciliation = Reconciliation.Start(Everyday, Currency.VND, StatementDate, -1_000_000m, Today, Monday);
         reconciliation.Tick(transfer.OutLeg, Tuesday);
         reconciliation.Complete(0m, [transfer.OutLeg], Tuesday);
@@ -301,10 +301,10 @@ public class ReconciliationTests
     }
 
     private static Transaction Income(decimal amount) =>
-        Transaction.Record(TransactionType.Income, Everyday, Currency.VND, amount, StatementDate, Salary, null, null, Today, Monday);
+        Transaction.Record(TransactionType.Income, new AccountAmount(Everyday, Currency.VND, amount), StatementDate, Salary, null, null, new Moment(Today, Monday));
 
     private static Transaction Expense(decimal amount, DateOnly? date = null) =>
-        Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, amount, date ?? StatementDate, Groceries, null, null, Today, Monday);
+        Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, amount), date ?? StatementDate, Groceries, null, null, new Moment(Today, Monday));
 
     private static Transaction ReconciledExpense(decimal amount)
     {
