@@ -275,7 +275,8 @@ one of the merged category's own subcategories is refused as an error on `target
 - **Spent is added up in the database** (spec sections 8 and 10), by that definition, so lists and reports never read
   a year of transactions to add them up. The view `TransactionLineShares` (`LineShare`) gives each line its share of
   its transaction's converted amount: the whole of it for a line that is not split, and for a split's lines the
-  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals and leaving the
+  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals (the function
+  `CurrencyDecimals`, which `MigrationTests` holds to `Currencies.DecimalPlaces` for every currency) and leaving the
   rest to the last line, as `SpentAmountIn` does. The queries `SUM` those shares, grouped as each answer needs, refunds
   apart, and `Spent.Signed` gives the sums their sign. The view and the domain are two writings of one rule:
   `SpentTests` holds them to the same answers on the same transactions (converted splits, refunds, transfers, deleted
@@ -1065,7 +1066,11 @@ due, `ImportBatchRepository.UsersWithCommittingAsync` which users have a stateme
 imported, and `ImportBatchRepository.UsersWithUploadedBeforeAsync` which users have a statement uploaded and never
 committed for long enough to remove. Each runs for the worker, which acts for no user, and answers user ids only, never a row; the worker then
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
-no user.
+no user, and in migrations, which create what the queries read: the view `TransactionLineShares` and the functions
+`SplitLineShare` and `CurrencyDecimals`, which share a split's converted amount among its lines for the reports'
+heavy sums, as spec section 9 allows raw SQL for. No query reads them with raw SQL: EF reads the view as the
+user-owned entity `LineShare`, so the user filter applies to it as to any table. The view selects each line's user,
+and never looks past it to another user's rows.
 
 Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. That includes `LineShare`, read from the view
 `TransactionLineShares` that spent is added up from (see Transactions, Spent): the filter keeps it to the user's lines like any table, and as it is the
