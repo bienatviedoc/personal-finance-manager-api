@@ -175,26 +175,26 @@ internal sealed class SampleYear
         {
             var household = Math.Round(amount / 3, 0);
             return Convert(Transaction.RecordSplit(
-                TransactionType.Expense, account.Id, _currency, amount, date,
+                TransactionType.Expense, new AccountAmount(account.Id, _currency, amount), date,
                 [new SplitLine(_categories["Groceries"], amount - household), new SplitLine(_categories["Household"], household, "Cleaning")],
-                payee, note: null, _today, _now));
+                payee, note: null, new Moment(_today, _now)));
         }
 
         if (roll < 2)
         {
             return Convert(Transaction.Record(
-                TransactionType.Expense, account.Id, _currency, amount, date, _categories[spending.Category], payee, "Returned", _today, _now, isRefund: true));
+                TransactionType.Expense, new AccountAmount(account.Id, _currency, amount), date, _categories[spending.Category], payee, "Returned", new Moment(_today, _now), isRefund: true));
         }
 
         return Record(TransactionType.Expense, account, spending.Category, amount, date, payee, roll < 10 ? "Shared with friends" : null);
     }
 
     private Transaction Record(TransactionType type, Account account, string category, decimal amount, DateOnly date, string? payee, string? note) =>
-        Convert(Transaction.Record(type, account.Id, _currency, amount, date, _categories[category], payee, note, _today, _now));
+        Convert(Transaction.Record(type, new AccountAmount(account.Id, _currency, amount), date, _categories[category], payee, note, new Moment(_today, _now)));
 
     private IEnumerable<Transaction> Transfer(Account from, Account to, decimal amount, DateOnly date, string note)
     {
-        var transfer = Domain.Transactions.Transfer.Record(new LegAmount(from.Id, _currency, amount), new LegAmount(to.Id, _currency, amount), date, note, _today, _now);
+        var transfer = Domain.Transactions.Transfer.Record(new AccountAmount(from.Id, _currency, amount), new AccountAmount(to.Id, _currency, amount), date, note, new Moment(_today, _now));
         return [Convert(transfer.OutLeg), Convert(transfer.InLeg)];
     }
 

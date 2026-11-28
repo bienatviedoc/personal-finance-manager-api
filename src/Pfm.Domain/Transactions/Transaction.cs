@@ -212,34 +212,26 @@ public sealed class Transaction : IUserOwned
     /// </summary>
     public static decimal RemainingToSplit(decimal amount, IEnumerable<decimal> lineAmounts) => amount - lineAmounts.Sum();
 
-    /// <param name="currency">The currency of the account, which the transaction takes.</param>
+    /// <param name="moves">What it moves; it takes the account's currency.</param>
     /// <param name="category">One of the user's categories that is not archived, of the kind the type takes.</param>
-    /// <param name="today">Today's date in the user's time zone.</param>
     /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public static Transaction Record(
-        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now, bool isRefund = false)
-    {
-        ArgumentNullException.ThrowIfNull(category);
-        GuardRecordedOnItsOwn(type);
-        var transaction = new Transaction(now);
-        transaction.Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
-        return transaction;
-    }
+        TransactionType type, AccountAmount moves, DateOnly date, Category category, string? payee, string? note, Moment at, bool isRefund = false) =>
+        RecordOn(type, moves, date, OneLine(category, moves), payee, note, at, isRefund);
 
     /// <summary>
     /// One leg of a transfer, for <see cref="Transfer"/> alone to record: a leg never exists without the other.
     /// </summary>
-    internal static Transaction RecordLeg(Guid transferId, TransactionType type, LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now)
+    internal static Transaction RecordLeg(Guid transferId, TransactionType type, AccountAmount moves, DateOnly date, string? note, Moment at)
     {
-        var leg = new Transaction(now) { TransferId = transferId };
-        leg.Set(type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+        var leg = new Transaction(at.Now) { TransferId = transferId };
+        leg.Set(type, moves, date, NoLines, payee: null, note, at, isRefund: false);
         return leg;
     }
 
     /// <summary>Changes a leg, for <see cref="Transfer"/> alone, which changes the other leg with it. Its type stays.</summary>
-    internal void EditLeg(LegAmount moves, DateOnly date, string? note, DateOnly today, DateTimeOffset now) =>
-        Set(Type, moves.AccountId, moves.Currency, moves.Amount, date, NoLines, split: false, payee: null, note, today, now, isRefund: false);
+    internal void EditLeg(AccountAmount moves, DateOnly date, string? note, Moment at) =>
+        Set(Type, moves, date, NoLines, payee: null, note, at, isRefund: false);
 
     /// <summary>
     /// Makes income or an expense a leg of a transfer, for <see cref="Transfer.Mark"/> alone, which makes the
@@ -274,21 +266,25 @@ public sealed class Transaction : IUserOwned
     }
 
     /// <summary>Records a transaction split across several categories.</summary>
-    /// <param name="currency">The currency of the account, which the transaction takes.</param>
+    /// <param name="moves">What it moves; it takes the account's currency.</param>
     /// <param name="lines">
-    /// At least <see cref="MinSplitLines"/>, each on one of the user's categories that is not archived, of the
-    /// kind the type takes, and together exactly <paramref name="amount"/>.
+    /// <see cref="MinSplitLines"/> to <see cref="MaxLines"/>, each on one of the user's categories that is not
+    /// archived, of the kind the type takes, and together exactly the amount.
     /// </param>
-    /// <param name="today">Today's date in the user's time zone.</param>
     /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public static Transaction RecordSplit(
-        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note,
-        DateOnly today, DateTimeOffset now, bool isRefund = false)
+        TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at,
+        bool isRefund = false) =>
+        RecordOn(type, moves, date, SplitAcross(lines), payee, note, at, isRefund);
+
+    /// <summary>Records income or an expense on these lines: one, with the whole amount, or the lines of a split.</summary>
+    private static Transaction RecordOn(
+        TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at, bool isRefund)
     {
-        ArgumentNullException.ThrowIfNull(lines);
+        ArgumentNullException.ThrowIfNull(at);
         GuardRecordedOnItsOwn(type);
-        var transaction = new Transaction(now);
-        transaction.Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
+        var transaction = new Transaction(at.Now);
+        transaction.Set(type, moves, date, lines, payee, note, at, isRefund);
         return transaction;
     }
 
@@ -297,37 +293,52 @@ public sealed class Transaction : IUserOwned
     /// a category that has since been archived, but not move to one. A split transaction becomes one line
     /// again, on <paramref name="category"/>.
     /// </summary>
-    /// <param name="currency">The currency of the account the transaction is now on.</param>
-    /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="moves">What it now moves; it takes the account's currency.</param>
     /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public void Edit(
-        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, Category category, string? payee, string? note,
-        DateOnly today, DateTimeOffset now, bool isRefund = false)
-    {
-        ArgumentNullException.ThrowIfNull(category);
-        GuardNotDeleted();
-        GuardNotALeg();
-        GuardRecordedOnItsOwn(type);
-        Set(type, accountId, currency, amount, date, [new SplitLine(category, amount)], split: false, payee, note, today, now, isRefund);
-    }
+        TransactionType type, AccountAmount moves, DateOnly date, Category category, string? payee, string? note, Moment at, bool isRefund = false) =>
+        EditOn(type, moves, date, OneLine(category, moves), payee, note, at, isRefund);
 
     /// <summary>
     /// Changes the transaction as <see cref="Edit"/> does, and splits it across <paramref name="lines"/>, which
     /// replace the lines it had. A line may keep a category the transaction already has that has since been
     /// archived.
     /// </summary>
-    /// <param name="currency">The currency of the account the transaction is now on.</param>
-    /// <param name="today">Today's date in the user's time zone.</param>
+    /// <param name="moves">What it now moves; it takes the account's currency.</param>
     /// <param name="isRefund">Whether the expense is a refund; no other type can be.</param>
     public void EditSplit(
-        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note,
-        DateOnly today, DateTimeOffset now, bool isRefund = false)
+        TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at,
+        bool isRefund = false) =>
+        EditOn(type, moves, date, SplitAcross(lines), payee, note, at, isRefund);
+
+    private void EditOn(
+        TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at, bool isRefund)
     {
-        ArgumentNullException.ThrowIfNull(lines);
         GuardNotDeleted();
         GuardNotALeg();
         GuardRecordedOnItsOwn(type);
-        Set(type, accountId, currency, amount, date, lines, split: true, payee, note, today, now, isRefund);
+        Set(type, moves, date, lines, payee, note, at, isRefund);
+    }
+
+    /// <summary>The one line of a transaction that is not split: its category and whole amount.</summary>
+    private static SplitLine[] OneLine(Category category, AccountAmount moves)
+    {
+        ArgumentNullException.ThrowIfNull(category);
+        ArgumentNullException.ThrowIfNull(moves);
+        return [new SplitLine(category, moves.Amount)];
+    }
+
+    /// <summary>The lines of a split, which has more than one: with one, a transaction is not split.</summary>
+    /// <exception cref="TransactionRuleViolation">Fewer than <see cref="MinSplitLines"/> lines, or more than <see cref="MaxLines"/>.</exception>
+    private static IReadOnlyList<SplitLine> SplitAcross(IReadOnlyList<SplitLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+        if (lines.Count is < MinSplitLines or > MaxLines)
+        {
+            throw new TransactionRuleViolation(nameof(Lines), $"A split has {MinSplitLines} to {MaxLines} lines.");
+        }
+
+        return lines;
     }
 
     /// <summary>
@@ -670,14 +681,17 @@ public sealed class Transaction : IUserOwned
         UpdatedAt = now;
     }
 
-    /// <param name="split">
-    /// Whether <paramref name="lines"/> were entered as a split. When not, there is one, with the whole amount,
-    /// and what is wrong with its category is wrong with the transaction's.
+    /// <param name="lines">
+    /// None for a leg of a transfer. One for a transaction that is not split, with the whole amount: what is wrong
+    /// with its category is wrong with the transaction's. More for a split, each named by where it is.
     /// </param>
     private void Set(
-        TransactionType type, Guid accountId, Currency currency, decimal amount, DateOnly date, IReadOnlyList<SplitLine> lines, bool split, string? payee,
-        string? note, DateOnly today, DateTimeOffset now, bool isRefund)
+        TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at, bool isRefund)
     {
+        ArgumentNullException.ThrowIfNull(moves);
+        ArgumentNullException.ThrowIfNull(at);
+        var (accountId, currency, amount) = moves;
+        var (today, now) = at;
         if (!Enum.IsDefined(type))
         {
             throw new ArgumentOutOfRangeException(nameof(type), type, "Not a transaction type.");
@@ -719,7 +733,7 @@ public sealed class Transaction : IUserOwned
         // it has no lines.
         if (!type.IsTransferLeg())
         {
-            GuardLines(type, currency, amount, lines, split);
+            GuardLines(type, currency, amount, lines);
         }
 
         if (isRefund && type != TransactionType.Expense)
@@ -806,13 +820,10 @@ public sealed class Transaction : IUserOwned
         : null;
 
     /// <summary>The rules of a transaction's lines, each broken one named by where it is: <c>Lines[1].Amount</c>.</summary>
-    private void GuardLines(TransactionType type, Currency currency, decimal amount, IReadOnlyList<SplitLine> lines, bool split)
+    private void GuardLines(TransactionType type, Currency currency, decimal amount, IReadOnlyList<SplitLine> lines)
     {
-        if (split && lines.Count is < MinSplitLines or > MaxLines)
-        {
-            throw new TransactionRuleViolation(nameof(Lines), $"A split has {MinSplitLines} to {MaxLines} lines.");
-        }
-
+        // One line is a transaction that is not split: what is wrong with it is wrong with the transaction.
+        var split = lines.Count > 1;
         var categoriesItHas = _lines.Select(line => line.CategoryId).ToHashSet();
         for (var position = 0; position < lines.Count; position++)
         {

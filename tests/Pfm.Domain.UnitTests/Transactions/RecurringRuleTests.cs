@@ -163,7 +163,7 @@ public class RecurringRuleTests
     {
         var rule = PayRent(MonthlyFromThe5th);
         var transaction = Transaction.Record(
-            rule.Type, rule.AccountId, Currency.VND, rule.Amount, Date("2026-11-05"), Rent, rule.Payee, rule.Note, today: Date("2026-11-16"), Now);
+            rule.Type, new AccountAmount(rule.AccountId, Currency.VND, rule.Amount), Date("2026-11-05"), Rent, rule.Payee, rule.Note, new Moment(Date("2026-11-16"), Now));
         Assert.Null(transaction.RecurringRuleId);
 
         transaction.PostedBy(rule.Id);

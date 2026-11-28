@@ -15,14 +15,14 @@ public class TransactionIntegrityTests
     [Fact]
     public void Transactions_that_add_up_show_no_drift()
     {
-        var salary = Transaction.Record(TransactionType.Income, Everyday, Currency.VND, 15_000_000m, Today, Salary, null, null, Today, Now);
+        var salary = Transaction.Record(TransactionType.Income, new AccountAmount(Everyday, Currency.VND, 15_000_000m), Today, Salary, null, null, new Moment(Today, Now));
         var shopping = Transaction.RecordSplit(
-            TransactionType.Expense, Everyday, Currency.VND, 500_000m, Today, [new SplitLine(Groceries, 320_000m), new SplitLine(Household, 180_000m)], null, null, Today, Now);
-        var refund = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 20_000m, Today, Groceries, null, null, Today, Now, isRefund: true);
-        var deleted = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 99_000m, Today, Groceries, null, null, Today, Now);
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 500_000m), Today, [new SplitLine(Groceries, 320_000m), new SplitLine(Household, 180_000m)], null, null, new Moment(Today, Now));
+        var refund = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 20_000m), Today, Groceries, null, null, new Moment(Today, Now), isRefund: true);
+        var deleted = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 99_000m), Today, Groceries, null, null, new Moment(Today, Now));
         deleted.Delete(Now);
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, null, Today, Now);
-        var cancelled = Transfer.Record(new LegAmount(Everyday, Currency.VND, 1_000m), new LegAmount(Savings, Currency.VND, 1_000m), Today, null, Today, Now);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today, null, new Moment(Today, Now));
+        var cancelled = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 1_000m), new AccountAmount(Savings, Currency.VND, 1_000m), Today, null, new Moment(Today, Now));
         cancelled.Delete(Now);
 
         var drift = TransactionIntegrity.Check(
@@ -35,8 +35,8 @@ public class TransactionIntegrityTests
     [Fact]
     public void A_balance_that_is_not_what_its_accounts_transactions_come_to_is_drift_naming_the_account_and_both_amounts()
     {
-        var salary = Transaction.Record(TransactionType.Income, Everyday, Currency.VND, 15_000_000m, Today, Salary, null, null, Today, Now);
-        var lunch = Transaction.Record(TransactionType.Expense, Savings, Currency.VND, 45_000m, Today, Groceries, null, null, Today, Now);
+        var salary = Transaction.Record(TransactionType.Income, new AccountAmount(Everyday, Currency.VND, 15_000_000m), Today, Salary, null, null, new Moment(Today, Now));
+        var lunch = Transaction.Record(TransactionType.Expense, new AccountAmount(Savings, Currency.VND, 45_000m), Today, Groceries, null, null, new Moment(Today, Now));
 
         var drift = TransactionIntegrity.Check([salary, lunch], new Dictionary<Guid, decimal> { [Everyday] = 14_000_000m });
 
@@ -48,7 +48,7 @@ public class TransactionIntegrityTests
     [Fact]
     public void A_transfer_with_one_leg_is_drift_naming_the_transfer_and_the_leg_it_has()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, null, Today, Now);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today, null, new Moment(Today, Now));
 
         var drift = TransactionIntegrity.Check([transfer.OutLeg], new Dictionary<Guid, decimal> { [Everyday] = -2_000_000m });
 
