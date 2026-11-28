@@ -27,7 +27,7 @@ public static class TransactionEndpoints
         transactions.MapPost("/{id:guid}/restore", Restore).WithName("RestoreTransaction")
             .WithDescription("Restores a transaction deleted in the last 30 days: it is back in lists and its account's balance at once, as it was when it was deleted. Restoring a leg of a transfer restores the whole transfer, the other leg with it. One that is not deleted, or was deleted longer ago, is not found. The ETag header carries its row version.");
         transactions.MapPost("/bulk", BulkEdit).WithName("BulkEditTransactions")
-            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters; never both, and at most 1000: a filter that more pass answers 422 with the problem type urn:pfm:problem:bulk-selection-too-large and its max, and nothing changes. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
+            .WithDescription("One action on many transactions at once: setCategory, addTag, removeTag, moveToAccount or delete. Select them by transactionIds, or every one that passes filter, which takes the list's filters, but those in exceptTransactionIds; never both, and at most 1000: a filter that more pass answers 422 with the problem type urn:pfm:problem:bulk-selection-too-large and its max, and nothing changes. All of them take the action in one save, or none does: when any cannot, it answers 409 with the problem type urn:pfm:problem:bulk-action-refused, listing each transaction refused and why, and nothing changes. Income takes only an income category and an expense only an expense one; a split keeps its lines and a leg of a transfer has no category; a transaction moves only to an account in its currency, and not while it is reconciled; a reconciled transaction, or a transfer with a reconciled leg, is not deleted. Deleting a leg of a transfer deletes the whole transfer. The balances of the accounts involved follow at once.")
             .Produces<BulkActionRefusedProblem>(StatusCodes.Status409Conflict, "application/problem+json")
             .Produces<BulkSelectionTooLargeProblem>(StatusCodes.Status422UnprocessableEntity, "application/problem+json");
         transactions.MapGet("/{id:guid}", Get).WithName("GetTransaction")
@@ -220,7 +220,8 @@ public static class TransactionEndpoints
         }
 
         var result = await handler.HandleAsync(
-            new BulkEditTransactionsCommand(request.Action, request.TransactionIds, filter, request.CategoryId, request.Tag, request.AccountId), cancellationToken);
+            new BulkEditTransactionsCommand(
+                request.Action, request.TransactionIds, filter, request.CategoryId, request.Tag, request.AccountId, request.ExceptTransactionIds), cancellationToken);
         if (!result.IsValid)
         {
             return ValidationProblems.For(result);
@@ -426,9 +427,10 @@ public sealed record QuickAddResponse(Guid? LastAccountId, Guid? SuggestedCatego
 /// <param name="CategoryId">For setCategory: one of the user's categories that is not archived.</param>
 /// <param name="Tag">For addTag and removeTag: the tag's name, 1 to 50 characters, kept trimmed and in lower case. Adding one the user has no tag with yet creates it.</param>
 /// <param name="AccountId">For moveToAccount: one of the user's accounts that is not archived.</param>
+/// <param name="ExceptTransactionIds">With <c>filter</c> only: the transactions it leaves out of those that pass, at most 1000. One that does not pass, or that the user has no such one of, leaves out nothing.</param>
 public sealed record BulkEditRequest(
     string Action, IReadOnlyList<Guid>? TransactionIds = null, TransactionFilterRequest? Filter = null, Guid? CategoryId = null, string? Tag = null,
-    Guid? AccountId = null);
+    Guid? AccountId = null, IReadOnlyList<Guid>? ExceptTransactionIds = null);
 
 /// <summary>The filters of the transaction list, each as its query parameter of the same name takes it; one left out filters nothing.</summary>
 public sealed record TransactionFilterRequest(
