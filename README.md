@@ -296,7 +296,7 @@ one of the merged category's own subcategories is refused as an error on `target
   only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
-  only happen until the base currency locks (rule 12; see Budgets below).
+  only happen while the base currency is unlocked, that is while the user has no budget (rule 12; see Budgets below).
 - **A transfer is two linked transactions** (rules 3 and 4, [decision record 0001](docs/adr/0001-transfer-is-two-linked-transactions.md)):
   `POST /transfers` records a `transferOut` leg on the source account and a `transferIn` leg on the destination,
   sharing a `TransferId`, in one save. `Transfer` (`Pfm.Domain.Transactions`) is the only way to record, edit or
