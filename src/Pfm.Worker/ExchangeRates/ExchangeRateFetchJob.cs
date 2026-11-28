@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.ExchangeRates;
-using Pfm.Infrastructure.ExchangeRates;
 
 namespace Pfm.Worker.ExchangeRates;
 
@@ -10,7 +9,7 @@ namespace Pfm.Worker.ExchangeRates;
 /// it to the error tracker, and the next one catches up on the days it missed.
 /// </summary>
 public sealed partial class ExchangeRateFetchJob(
-    IServiceScopeFactory scopes, IOptions<ExchangeRateOptions> options, TimeProvider time, ILogger<ExchangeRateFetchJob> logger)
+    IServiceScopeFactory scopes, IOptions<ExchangeRateFetchOptions> options, TimeProvider time, ILogger<ExchangeRateFetchJob> logger)
     : PeriodicJob(scopes, time)
 {
     protected override TimeSpan RunEvery => options.Value.FetchEvery;
@@ -30,7 +29,7 @@ public sealed partial class ExchangeRateFetchJob(
         }
         else
         {
-            LogMisconfigured(ExchangeRateOptions.Section, string.Join(", ", result.Errors.Keys));
+            LogMisconfigured(ExchangeRateFetchOptions.Section, string.Join(", ", result.Errors.Keys));
         }
     }
 

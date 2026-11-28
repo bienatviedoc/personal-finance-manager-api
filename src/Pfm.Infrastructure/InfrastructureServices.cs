@@ -156,10 +156,7 @@ public static class InfrastructureServices
         builder.Services.AddScoped<IUsers, IdentityUsers>();
         builder.Services.AddScoped<ITwoFactor, IdentityTwoFactor>();
         builder.Services.AddScoped<IPasswordPolicy, IdentityPasswordPolicy>();
-        builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();
-        builder.Services.AddOptions<UserErasureOptions>().BindConfiguration(UserErasureOptions.Section)
-            .Validate(options => options.RunEvery > TimeSpan.Zero, $"{UserErasureOptions.Section}:RunEvery must be longer than no time at all.");
-        return builder;
+        builder.Services.AddTransient<IIdentityEmails, IdentityEmails>();        return builder;
     }
 
     /// <summary>Applies pending migrations. Run as its own deploy step, never at host start-up.</summary>
