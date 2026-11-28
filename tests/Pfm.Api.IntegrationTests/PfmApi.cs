@@ -282,8 +282,6 @@ public sealed class PfmApi : IAsyncLifetime
             {
                 services.AddTransient<IStartupFilter, ThrowingRouteFilter>();
                 services.AddTransient<IStartupFilter, ClientAddressFilter>();
-                // Check the session against the user's security stamp on every request, not every few minutes.
-                services.Configure<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions>(options => options.ValidationInterval = TimeSpan.Zero);
                 services.RemoveAll<IEmailSender>();
                 services.AddSingleton<IEmailSender>(emails);
                 services.RemoveAll<IExchangeRateSource>();
