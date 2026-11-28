@@ -60,7 +60,8 @@ Seeding an email that already has a user is refused.
 dotnet test Pfm.slnx
 ```
 
-Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`; behaviour through
+Domain rules that need nothing but the domain type are unit-tested in `Pfm.Domain.UnitTests`, and the worker's job loop
+(`PeriodicJob`) in `Pfm.Worker.UnitTests`; behaviour through
 the API is tested over HTTP in `Pfm.Api.IntegrationTests`. Those tests share one API and all call from one
 address, so its rate limit is set too high to meet; a test of the limit (or of anything else set at start-up)
 runs its own copy of the API from `PfmApi` (`WithAuthRateLimit`, `WhereSignInLocksFor`). Give each test its own
@@ -150,6 +151,14 @@ Code in one module may use another module only through that module's contracts, 
 Categories belong to `Transactions` (spec section 5), so `Budgets`, `Imports` and `Reports` reach them through
 its contracts.
 
+### Background jobs
+
+Each job in `Pfm.Worker` derives from `PeriodicJob`, which holds the loop they share: the first run starts with the
+worker and the next every `RunEvery` after that, each run in a scope of its own (`RunAsync` is given its services). A
+run that fails goes to the job's `OnFailed`, which logs it in the job's own words (and so reports it to the error
+tracker); the next run still happens. Stopping the worker cancels the run in progress, which is not a failure. A job
+gives only its interval, from its own options, its run and its log messages.
+
 ### Use cases
 
 Each use case lives in its module in `Pfm.Application` as one file holding three types: a command (the
@@ -234,7 +243,7 @@ one of the merged category's own subcategories is refused as an error on `target
   the rate of every pair of currencies, in both directions, per day. A stored rate never changes. A day stored
   without every pair (the source had not quoted a currency yet) is asked for again for a week, and only the
   pairs it lacks are filled in. Rates are stored with `INSERT … ON CONFLICT DO NOTHING`, so two workers fetching
-  at once store each rate once and neither fails. The job is a plain `BackgroundService` on a timer: the
+  at once store each rate once and neither fails. The job is a `PeriodicJob` (see Layout, Background jobs): the
   specification names Hangfire for background jobs (section 9), which is not in the repository yet. Rates
   belong to no user. The source is [Frankfurter](https://frankfurter.dev), behind `IExchangeRateSource`
   ([decision record 0003](docs/adr/0003-exchange-rates-from-frankfurter.md)); tests fake it and never reach the

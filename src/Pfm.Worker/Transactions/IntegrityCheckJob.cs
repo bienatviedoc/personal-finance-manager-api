@@ -11,12 +11,11 @@ namespace Pfm.Worker.Transactions;
 /// ends with one log line saying what it found, and the metrics below say when the last run was and what it
 /// came to. A run that fails is logged, which reports it to the error tracker, and the next one runs as usual.
 /// </summary>
-public sealed partial class IntegrityCheckJob : BackgroundService
+public sealed partial class IntegrityCheckJob : PeriodicJob
 {
     /// <summary>The meter of the job's metrics; the worker exports it.</summary>
     public const string MeterName = "Pfm.Worker.IntegrityCheck";
 
-    private readonly IServiceScopeFactory _scopes;
     private readonly IOptions<IntegrityCheckOptions> _options;
     private readonly TimeProvider _time;
     private readonly ILogger<IntegrityCheckJob> _logger;
@@ -32,37 +31,27 @@ public sealed partial class IntegrityCheckJob : BackgroundService
 
     public IntegrityCheckJob(
         IServiceScopeFactory scopes, IOptions<IntegrityCheckOptions> options, TimeProvider time, IMeterFactory meters, ILogger<IntegrityCheckJob> logger)
+        : base(scopes, time)
     {
-        (_scopes, _options, _time, _logger) = (scopes, options, time, logger);
+        (_options, _time, _logger) = (options, time, logger);
         var meter = meters.Create(MeterName);
         _runs = meter.CreateCounter<long>("pfm.integrity_check.runs", "{run}", "Runs of the integrity check, by result: consistent, drift or failed.");
         _lastRun = meter.CreateGauge<long>("pfm.integrity_check.last_run", "s", "When the last integrity check of each result ended, in Unix time.");
         _drift = meter.CreateGauge<long>("pfm.integrity_check.drift", "{drift}", "Drift of each kind (lines, transfer, balance) the last integrity check found.");
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override TimeSpan RunEvery => _options.Value.RunEvery;
+
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(_options.Value.RunEvery, _time);
-        do
-        {
-            await CheckAsync(stoppingToken);
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+        var report = await services.GetRequiredService<IntegrityCheck>().RunAsync(cancellationToken);
+        Report(report);
     }
 
-    private async Task CheckAsync(CancellationToken cancellationToken)
+    protected override void OnFailed(Exception exception)
     {
-        try
-        {
-            await using var scope = _scopes.CreateAsyncScope();
-            var report = await scope.ServiceProvider.GetRequiredService<IntegrityCheck>().RunAsync(cancellationToken);
-            Report(report);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-            Ended("failed");
-        }
+        LogFailed(exception);
+        Ended("failed");
     }
 
     private void Report(IntegrityReport report)
