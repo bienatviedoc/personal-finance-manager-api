@@ -3,6 +3,7 @@ using Pfm.Application.Abstractions;
 using Pfm.Application.Contracts.Budgets;
 using Pfm.Application.Transactions.Tags;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions;
@@ -97,17 +98,15 @@ public sealed class EditTransactionHandler(
         var dateBefore = transaction.Date;
         try
         {
+            var moves = new AccountAmount(against.Account.Id, against.Account.Currency, fields.Amount!.Value);
+            var at = new Moment(against.Today, clock.GetUtcNow());
             if (against.Split is { } lines)
             {
-                transaction.EditSplit(
-                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, lines, command.Payee,
-                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+                transaction.EditSplit(fields.Type!.Value, moves, fields.Date!.Value, lines, command.Payee, command.Note, at, command.IsRefund);
             }
             else
             {
-                transaction.Edit(
-                    fields.Type!.Value, against.Account.Id, against.Account.Currency, fields.Amount!.Value, fields.Date!.Value, against.Category, command.Payee,
-                    command.Note, against.Today, clock.GetUtcNow(), command.IsRefund);
+                transaction.Edit(fields.Type!.Value, moves, fields.Date!.Value, against.Category, command.Payee, command.Note, at, command.IsRefund);
             }
         }
         catch (TransactionRuleViolation violation)
