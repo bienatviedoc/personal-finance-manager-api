@@ -75,18 +75,19 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// definition, <see cref="Spent.Signed"/>, applied to those sums here. Only the type Expense is read, so income
     /// and the legs of a transfer never count, and what is deleted is left out.
     /// </summary>
-    public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
-    {
-        var sums = await ExpenseShares(from, to, accountId)
-            .GroupBy(share => new { share.CategoryId, share.IsRefund, NotConverted = share.BaseCurrencyAmount == null ? share.TransactionId : (Guid?)null })
-            .Select(ofKind => new SpentSum(ofKind.Key.CategoryId, ofKind.Key.IsRefund, ofKind.Key.NotConverted, ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)))
-            .ToListAsync(cancellationToken);
-
-        return SpentByCategory(sums);
-    }
+    public async Task<IReadOnlyList<CategorySpent>> SpentByCategoryAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken) =>
+        SpentByCategory([.. (await SpentEachMonthAsync(from, to, accountId, cancellationToken)).Select(month => month.Sum)]);
 
     /// <summary>What each month's expenses spent in each category, added up as <see cref="SpentByCategoryAsync"/> adds it up, month by month.</summary>
-    public async Task<IReadOnlyList<CategorySpentInMonth>> SpentByCategoryEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CategorySpentInMonth>> SpentByCategoryEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken) =>
+        [
+            .. (await SpentEachMonthAsync(from, to, accountId, cancellationToken))
+                .GroupBy(month => month.Month, month => month.Sum)
+                .SelectMany(month => SpentByCategory([.. month]).Select(spent => new CategorySpentInMonth(month.Key, spent))),
+        ];
+
+    /// <summary>The database's sums behind spent: each month's, for each category and kind of expense.</summary>
+    private async Task<List<(DateOnly Month, CategoryExpensesOfKind Sum)>> SpentEachMonthAsync(DateOnly from, DateOnly to, Guid? accountId, CancellationToken cancellationToken)
     {
         var sums = await ExpenseShares(from, to, accountId)
             .GroupBy(share => new
@@ -97,19 +98,14 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
             .Select(ofKind => new
             {
                 ofKind.Key.Year, ofKind.Key.Month,
-                Sum = new SpentSum(ofKind.Key.CategoryId, ofKind.Key.IsRefund, ofKind.Key.NotConverted, ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)),
+                Sum = new CategoryExpensesOfKind(ofKind.Key.CategoryId, ofKind.Key.IsRefund, ofKind.Key.NotConverted, ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)),
             })
             .ToListAsync(cancellationToken);
 
-        return
-        [
-            .. sums
-                .GroupBy(sum => new DateOnly(sum.Year, sum.Month, 1), sum => sum.Sum)
-                .SelectMany(month => SpentByCategory([.. month]).Select(spent => new CategorySpentInMonth(month.Key, spent))),
-        ];
+        return [.. sums.Select(sum => (new DateOnly(sum.Year, sum.Month, 1), sum.Sum))];
     }
 
-    private static List<CategorySpent> SpentByCategory(IReadOnlyList<SpentSum> sums) =>
+    private static List<CategorySpent> SpentByCategory(IReadOnlyList<CategoryExpensesOfKind> sums) =>
         [
             .. sums
                 .GroupBy(sum => sum.CategoryId)
@@ -126,30 +122,32 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// </summary>
     public async Task<IReadOnlyList<CategoryExpense>> ExpensesInAsync(DateOnly from, DateOnly to, Guid categoryId, Guid? accountId, CancellationToken cancellationToken)
     {
-        var expenses = await db.Set<Transaction>().AsNoTracking()
-            .Where(transaction => transaction.Type == TransactionType.Expense && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to
-                && (accountId == null || transaction.AccountId == accountId)
-                && transaction.Lines.Any(line => line.CategoryId == categoryId))
-            .OrderByDescending(transaction => transaction.Date).ThenByDescending(transaction => transaction.CreatedAt).ThenByDescending(transaction => transaction.Id)
-            .Select(transaction => new
+        // One query: each expense and what it spent are read together, so an edit between two reads cannot set them apart.
+        var inCategory = ExpenseShares(from, to, accountId)
+            .Where(share => share.CategoryId == categoryId)
+            .GroupBy(share => new { share.TransactionId, IsConverted = share.BaseCurrencyAmount != null })
+            .Select(expense => new
             {
-                transaction.Id, transaction.Date, transaction.AccountId, transaction.Payee, transaction.Note,
-                Amount = transaction.Lines.Where(line => line.CategoryId == categoryId).Sum(line => line.Amount),
-                transaction.Currency, transaction.IsRefund,
-                IsSplit = transaction.Lines.Any(line => line.CategoryId != categoryId),
+                expense.Key.TransactionId, expense.Key.IsConverted,
+                Amount = expense.Sum(share => share.Amount), Spent = expense.Sum(share => share.BaseCurrencyAmount ?? 0),
+            });
+        var expenses = await db.Set<Transaction>().AsNoTracking()
+            .Join(inCategory, transaction => transaction.Id, expense => expense.TransactionId, (transaction, expense) => new { Transaction = transaction, InCategory = expense })
+            .OrderByDescending(expense => expense.Transaction.Date).ThenByDescending(expense => expense.Transaction.CreatedAt).ThenByDescending(expense => expense.Transaction.Id)
+            .Select(expense => new
+            {
+                expense.Transaction.Id, expense.Transaction.Date, expense.Transaction.AccountId, expense.Transaction.Payee, expense.Transaction.Note,
+                expense.InCategory.Amount, expense.Transaction.Currency, expense.Transaction.IsRefund,
+                IsSplit = expense.Transaction.Lines.Any(line => line.CategoryId != categoryId),
+                expense.InCategory.IsConverted, expense.InCategory.Spent,
             })
             .ToListAsync(cancellationToken);
-        var shares = await ExpenseShares(from, to, accountId)
-            .Where(share => share.CategoryId == categoryId && share.BaseCurrencyAmount != null)
-            .GroupBy(share => share.TransactionId)
-            .Select(ofExpense => new { TransactionId = ofExpense.Key, Amount = ofExpense.Sum(share => share.BaseCurrencyAmount ?? 0) })
-            .ToDictionaryAsync(share => share.TransactionId, share => share.Amount, cancellationToken);
 
         return
         [
             .. expenses.Select(expense => new CategoryExpense(
                 expense.Id, expense.Date, expense.AccountId, expense.Payee, expense.Note, expense.Amount, expense.Currency, expense.IsRefund, expense.IsSplit,
-                shares.TryGetValue(expense.Id, out var share) ? Spent.Signed(TransactionType.Expense, share, expense.IsRefund) : null)),
+                expense.IsConverted ? Spent.Signed(TransactionType.Expense, expense.Spent, expense.IsRefund) : null)),
         ];
     }
 
@@ -181,7 +179,7 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     /// What one category's expenses of one kind (refunds or not) come to in the base currency, before the sign of
     /// spent: one sum for those that are converted, and one for each that is not, by its id.
     /// </summary>
-    private sealed record SpentSum(Guid CategoryId, bool IsRefund, Guid? NotConverted, decimal Amount);
+    private sealed record CategoryExpensesOfKind(Guid CategoryId, bool IsRefund, Guid? NotConverted, decimal Amount);
 
     /// <summary>How many transactions that are not deleted have a line on the category, a split counting once.</summary>
     public Task<int> CountTransactionsAsync(Guid categoryId, CancellationToken cancellationToken) =>
