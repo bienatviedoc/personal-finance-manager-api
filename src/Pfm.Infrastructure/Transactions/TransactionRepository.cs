@@ -23,16 +23,18 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
                 .ToListAsync(cancellationToken);
         }
 
-        // Each line counts in its own category (spec section 6): a split adds only its lines in the category.
+        // Each line counts in its own category (spec section 6): a split adds only its lines in the category. Its
+        // lines there are added up first, so each transaction is counted once without sorting them all; and the lines
+        // being in the category already, the filter needs no second look for one.
         var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
-        return await Passing(filter)
-            .SelectMany(transaction => transaction.Lines
-                .Where(line => inCategory.Contains(line.CategoryId))
-                .Select(line => new { transaction.Id, transaction.Currency, transaction.Type, transaction.IsRefund, line.Amount }))
-            .GroupBy(line => new { line.Currency, line.Type, line.IsRefund })
-            .Select(ofType => new TransactionSum(
-                ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund,
-                ofType.Select(line => line.Id).Distinct().Count(), ofType.Sum(line => line.Amount)))
+        return await Passing(filter with { CategoryId = null })
+            .SelectMany(
+                transaction => transaction.Lines.Where(line => inCategory.Contains(line.CategoryId)),
+                (transaction, line) => new { transaction.Id, transaction.Currency, transaction.Type, transaction.IsRefund, line.Amount })
+            .GroupBy(line => new { line.Id, line.Currency, line.Type, line.IsRefund })
+            .Select(transaction => new { transaction.Key.Currency, transaction.Key.Type, transaction.Key.IsRefund, Amount = transaction.Sum(line => line.Amount) })
+            .GroupBy(transaction => new { transaction.Currency, transaction.Type, transaction.IsRefund })
+            .Select(ofType => new TransactionSum(ofType.Key.Currency, ofType.Key.Type, ofType.Key.IsRefund, ofType.Count(), ofType.Sum(transaction => transaction.Amount)))
             .ToListAsync(cancellationToken);
     }
 
