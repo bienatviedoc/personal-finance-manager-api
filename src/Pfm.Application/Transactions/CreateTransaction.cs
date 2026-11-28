@@ -89,8 +89,8 @@ public sealed class CreateTransactionHandler(
         Transaction transaction;
         try
         {
-            var moves = new AccountAmount(against.Account.Id, against.Account.Currency, fields.Amount!.Value);
-            var at = new Moment(against.Today, clock.GetUtcNow());
+            var moves = against.Moves(fields.Amount!.Value);
+            var at = against.At(clock.GetUtcNow());
             transaction = against.Split is { } lines
                 ? Transaction.RecordSplit(fields.Type!.Value, moves, fields.Date!.Value, lines, command.Payee, command.Note, at, command.IsRefund)
                 : Transaction.Record(fields.Type!.Value, moves, fields.Date!.Value, against.Category, command.Payee, command.Note, at, command.IsRefund);

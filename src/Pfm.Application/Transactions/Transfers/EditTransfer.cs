@@ -80,7 +80,7 @@ public sealed class EditTransferHandler(
         var between = read.Outcome;
         try
         {
-            transfer.Edit(between.From, between.To, command.Parsed.Date!.Value, command.Note, new Moment(between.Today, clock.GetUtcNow()));
+            transfer.Edit(between.From, between.To, command.Parsed.Date!.Value, command.Note, between.At(clock.GetUtcNow()));
         }
         catch (TransferRuleViolation violation)
         {

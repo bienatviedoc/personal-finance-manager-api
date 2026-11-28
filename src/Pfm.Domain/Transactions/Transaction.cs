@@ -328,18 +328,18 @@ public sealed class Transaction : IUserOwned
         return [new SplitLine(category, moves.Amount)];
     }
 
-    /// <summary>The lines of a split, which has more than one: with one, a transaction is not split.</summary>
-    /// <exception cref="TransactionRuleViolation">Fewer than <see cref="MinSplitLines"/> lines, or more than <see cref="MaxLines"/>.</exception>
-    private static IReadOnlyList<SplitLine> SplitAcross(IReadOnlyList<SplitLine> lines)
+    /// <summary>
+    /// The lines of a split, which has more than one: with one, a transaction is not split. How many there are is
+    /// checked with the other rules of its lines, after those of the transaction.
+    /// </summary>
+    private static SplitLines SplitAcross(IReadOnlyList<SplitLine> lines)
     {
         ArgumentNullException.ThrowIfNull(lines);
-        if (lines.Count is < MinSplitLines or > MaxLines)
-        {
-            throw new TransactionRuleViolation(nameof(Lines), $"A split has {MinSplitLines} to {MaxLines} lines.");
-        }
-
-        return lines;
+        return new SplitLines(lines.ToArray());
     }
+
+    /// <summary>Lines entered as a split, however many there are.</summary>
+    private sealed class SplitLines(IList<SplitLine> lines) : System.Collections.ObjectModel.ReadOnlyCollection<SplitLine>(lines);
 
     /// <summary>
     /// Puts exactly these tags on the transaction: the ones it had and are not among them come off. Tags are
@@ -683,7 +683,7 @@ public sealed class Transaction : IUserOwned
 
     /// <param name="lines">
     /// None for a leg of a transfer. One for a transaction that is not split, with the whole amount: what is wrong
-    /// with its category is wrong with the transaction's. More for a split, each named by where it is.
+    /// with its category is wrong with the transaction's. The <see cref="SplitLines"/> of a split, each named by where it is.
     /// </param>
     private void Set(
         TransactionType type, AccountAmount moves, DateOnly date, IReadOnlyList<SplitLine> lines, string? payee, string? note, Moment at, bool isRefund)
@@ -822,8 +822,14 @@ public sealed class Transaction : IUserOwned
     /// <summary>The rules of a transaction's lines, each broken one named by where it is: <c>Lines[1].Amount</c>.</summary>
     private void GuardLines(TransactionType type, Currency currency, decimal amount, IReadOnlyList<SplitLine> lines)
     {
-        // One line is a transaction that is not split: what is wrong with it is wrong with the transaction.
-        var split = lines.Count > 1;
+        // One line not entered as a split is a transaction that is not split: what is wrong with it is wrong with
+        // the transaction.
+        var split = lines is SplitLines;
+        if (split && lines.Count is < MinSplitLines or > MaxLines)
+        {
+            throw new TransactionRuleViolation(nameof(Lines), $"A split has {MinSplitLines} to {MaxLines} lines.");
+        }
+
         var categoriesItHas = _lines.Select(line => line.CategoryId).ToHashSet();
         for (var position = 0; position < lines.Count; position++)
         {

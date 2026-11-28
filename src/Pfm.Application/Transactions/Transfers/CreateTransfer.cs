@@ -96,7 +96,7 @@ public sealed class CreateTransferHandler(
         Transfer transfer;
         try
         {
-            transfer = Transfer.Record(between.From, between.To, command.Parsed.Date!.Value, command.Note, new Moment(between.Today, clock.GetUtcNow()));
+            transfer = Transfer.Record(between.From, between.To, command.Parsed.Date!.Value, command.Note, between.At(clock.GetUtcNow()));
         }
         catch (TransferRuleViolation violation)
         {

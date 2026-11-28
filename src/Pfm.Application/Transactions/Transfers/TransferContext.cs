@@ -54,4 +54,8 @@ public sealed class TransferContext(IAccountLookup accounts, IUserCalendar calen
 /// <param name="To">What arrives on the destination account, in its currency.</param>
 /// <param name="Today">Today's date in the user's time zone.</param>
 /// <param name="BaseCurrency">The currency each leg's amount is converted into, as any transaction's is.</param>
-internal sealed record TransferredBetween(AccountAmount From, AccountAmount To, DateOnly Today, Currency BaseCurrency);
+internal sealed record TransferredBetween(AccountAmount From, AccountAmount To, DateOnly Today, Currency BaseCurrency)
+{
+    /// <summary>The moment the transfer is recorded or edited: today for the user, and now.</summary>
+    public Moment At(DateTimeOffset now) => new(Today, now);
+}
