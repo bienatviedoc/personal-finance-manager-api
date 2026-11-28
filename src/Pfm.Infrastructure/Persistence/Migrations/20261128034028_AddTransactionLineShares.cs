@@ -40,7 +40,8 @@ namespace Pfm.Infrastructure.Persistence.Migrations
                 """);
             migrationBuilder.Sql("""
                 CREATE VIEW "TransactionLineShares" AS
-                SELECT t."UserId", t."Id" AS "TransactionId", t."AccountId", t."Date", t."Type", t."IsRefund", t."DeletedAt", t."Payee", l."CategoryId",
+                SELECT t."UserId", t."Id" AS "TransactionId", t."AccountId", t."Date", t."Type", t."IsRefund", t."DeletedAt", t."Payee", t."Currency",
+                    l."CategoryId", l."Amount",
                     CASE
                         WHEN l."Amount" = t."Amount" THEN t."BaseCurrencyAmount"
                         ELSE "SplitLineShare"(t."Id", l."Position", t."BaseCurrencyAmount", t."Amount", l."Amount", CASE t."BaseCurrency" WHEN 'VND' THEN 0 ELSE 2 END)

@@ -19,12 +19,14 @@ public interface ITransactionRepository
     Task<IReadOnlyList<TransactionSum>> SumAsync(TransactionFilter filter, CancellationToken cancellationToken);
 
     /// <summary>
-    /// What the expenses that pass <paramref name="filter"/> spent in these categories, added up by the database:
-    /// each expense's lines in them, in the base currency, a split's converted amount shared among its lines as
-    /// <see cref="Transaction.SpentAmountIn"/> shares it. Refunds apart from other expenses, and those not converted
+    /// Every transaction that passes <paramref name="filter"/>, which names a category, counted and added up by
+    /// currency and type as <see cref="SumAsync"/> does, each adding only its lines in the category and its
+    /// subcategories; and what the expenses among them spent there, added up by the database in the same pass: each
+    /// one's lines there in the base currency, a split's converted amount shared among its lines as
+    /// <see cref="Transaction.SpentAmountIn"/> shares it, refunds apart from other expenses and those not converted
     /// apart from those that are, without the sign of spent.
     /// </summary>
-    Task<IReadOnlyList<SpentSum>> SpentInAsync(TransactionFilter filter, IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken);
+    Task<CategorySums> SumInCategoryAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken);
 
     /// <summary>The account's transactions dated from <paramref name="from"/> to <paramref name="to"/>, both included, read only; a deleted one is in none.</summary>
     Task<IReadOnlyList<Transaction>> ListOnAccountAsync(Guid accountId, DateOnly from, DateOnly to, CancellationToken cancellationToken);

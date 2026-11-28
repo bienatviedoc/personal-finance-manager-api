@@ -39,7 +39,13 @@ internal sealed class LineShare : IUserOwned
 
     public string? Payee { get; private set; }
 
+    /// <summary>The currency of the transaction, which its line's own amount is in.</summary>
+    public Currency Currency { get; private set; }
+
     public Guid CategoryId { get; private set; }
+
+    /// <summary>The line's own part of the transaction's amount, in <see cref="Currency"/>.</summary>
+    public decimal Amount { get; private set; }
 
     /// <summary>The line's share of the transaction's amount in the base currency; null while the transaction is not converted.</summary>
     public decimal? BaseCurrencyAmount { get; private set; }
@@ -51,6 +57,8 @@ internal sealed class LineShareConfiguration : IEntityTypeConfiguration<LineShar
     {
         share.HasNoKey().ToView(LineShare.View);
         share.Property(row => row.Type).HasConversion<string>().HasMaxLength(20);
+        share.Property(row => row.Currency).HasConversion<string>().HasMaxLength(3);
+        share.Property(row => row.Amount).HasPrecision(19, 4);
         share.Property(row => row.BaseCurrencyAmount).HasPrecision(19, 4);
     }
 }
