@@ -10,5 +10,6 @@
     <Project Path="tests/Pfm.Api.IntegrationTests/Pfm.Api.IntegrationTests.csproj" />
     <Project Path="tests/Pfm.ArchitectureTests/Pfm.ArchitectureTests.csproj" />
     <Project Path="tests/Pfm.Domain.UnitTests/Pfm.Domain.UnitTests.csproj" />
+    <Project Path="tests/Pfm.Worker.UnitTests/Pfm.Worker.UnitTests.csproj" />
   </Folder>
 </Solution>
