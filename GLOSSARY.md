@@ -33,7 +33,7 @@ A movement of a user's own money between two of their accounts, made of two link
 _Avoid_: Transfer transaction, internal payment, move
 
 **Leg**:
-One of the two transactions that make up a transfer.
+One of the two transactions that make up a transfer. A leg is edited only through its transfer, and deleting a leg deletes the transfer.
 _Avoid_: Side, half
 
 **Mark as transfer**:
