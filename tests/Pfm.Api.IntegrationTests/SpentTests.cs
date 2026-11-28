@@ -42,6 +42,10 @@ public class SpentTests(PfmApi api) : IAsyncLifetime
         const string groceries = "615427.00";
         var list = await GetAsync<ListBody>(browser, $"/api/v1/transactions?{InMarch}&categoryId={data.Groceries}");
         Assert.Equal(new SpentBody("VND", groceries, 0), list.Total.Spent);
+
+        // Filtered further, by what lines do not carry: only the dollar expenses are up to 1,000 in their own currency.
+        var upTo1000 = await GetAsync<ListBody>(browser, $"/api/v1/transactions?{InMarch}&categoryId={data.Groceries}&max=1000");
+        Assert.Equal(new SpentBody("VND", "45427.00", 0), upTo1000.Total.Spent);
         Assert.Equal(groceries, (await GetAsync<MonthBody>(browser, "/api/v1/budgets?month=2026-03")).Items.Single(item => item.CategoryId == data.Groceries).Spent);
         Assert.Equal(groceries, (await GetAsync<DrillDownBody>(browser, $"/api/v1/reports/spending-by-category/transactions?{InMarch}&categoryId={data.Groceries}")).Total);
         Assert.Equal(groceries, (await GetAsync<TrendBody>(browser, $"/api/v1/reports/trends?{InMarch}&categoryId={data.Groceries}")).Total);
@@ -72,6 +76,8 @@ public class SpentTests(PfmApi api) : IAsyncLifetime
         var byCategory = await GetAsync<SpendingBody>(browser, $"/api/v1/reports/spending-by-category?{inFebruary}&parentId={await CategoryAsync(browser, "Food & drink")}");
 
         Assert.Equal(new SpentBody("VND", "40000.00", 2), list.Total.Spent);
+        Assert.Equal(new SpentBody("VND", "0.00", 2), (await GetAsync<ListBody>(browser, $"/api/v1/transactions?{inFebruary}&categoryId={data.Groceries}&max=10")).Total.Spent);
+        Assert.Equal(new SpentBody("VND", "0.00", 0), (await GetAsync<ListBody>(browser, $"/api/v1/transactions?{inFebruary}&categoryId={data.Groceries}&type=income")).Total.Spent);
         Assert.Equal([("Groceries", "40000.00", 2), ("Coffee", "0.00", 1)], byCategory.Items.Select(item => (item.Category.Name, item.Spent, item.NotConverted)));
     }
 

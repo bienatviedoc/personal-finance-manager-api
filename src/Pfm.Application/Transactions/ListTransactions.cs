@@ -145,9 +145,10 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
 public sealed record TransactionSum(Currency Currency, TransactionType Type, bool IsRefund, int Count, decimal Amount);
 
 /// <summary>
-/// How many expenses of one kind (refunds or not, converted or not) passed a filter, and what their lines in a
-/// category come to in the base currency, without the sign of spent: zero for those not converted.
+/// What the lines in a category of the expenses of one kind (refunds or not, converted or not) that passed a filter
+/// come to in the base currency, without the sign of spent: zero for those not converted, which are counted instead.
 /// </summary>
+/// <param name="Count">How many expenses there are, for those not converted; zero for those converted, which are not counted.</param>
 public sealed record SpentSum(bool IsRefund, bool IsConverted, int Count, decimal Amount);
 
 /// <summary>

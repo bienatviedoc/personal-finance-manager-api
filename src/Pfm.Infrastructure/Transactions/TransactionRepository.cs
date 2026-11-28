@@ -37,18 +37,34 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     }
 
     /// <summary>
-    /// The lines (<see cref="LineShare"/>) of the expenses that pass the filter, in the categories. The filter's dates
-    /// and account are applied to the lines too, so the database reads only those days' lines.
+    /// The lines (<see cref="LineShare"/>) of the expenses that pass the filter, in the categories. The filter's
+    /// dates, account and type are conditions on the lines themselves, so the database reads only those lines; only
+    /// a filter on what lines do not carry (amount, text, tag) is checked on their transactions. The expenses not
+    /// converted are counted on the transactions, through the index of those waiting for a rate.
     /// </summary>
     public async Task<IReadOnlyList<SpentSum>> SpentInAsync(TransactionFilter filter, IReadOnlyCollection<Guid> categoryIds, CancellationToken cancellationToken)
     {
-        var passing = Passing(filter).Where(transaction => transaction.Type == TransactionType.Expense).Select(transaction => transaction.Id);
-        return await db.Set<LineShare>().Counted(filter.From, filter.To, filter.AccountId)
-            .Where(share => share.Type == TransactionType.Expense && categoryIds.Contains(share.CategoryId) && passing.Contains(share.TransactionId))
-            .GroupBy(share => new { share.IsRefund, IsConverted = share.BaseCurrencyAmount != null })
-            .Select(ofKind => new SpentSum(
-                ofKind.Key.IsRefund, ofKind.Key.IsConverted, ofKind.Select(share => share.TransactionId).Distinct().Count(), ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)))
+        if (filter.Type is { } type && type != TransactionType.Expense)
+        {
+            return [];
+        }
+
+        var shares = db.Set<LineShare>().Counted(filter.From, filter.To, filter.AccountId)
+            .Where(share => share.Type == TransactionType.Expense && share.BaseCurrencyAmount != null && categoryIds.Contains(share.CategoryId));
+        if (filter is not { Min: null, Max: null, Search: null, Tag: null })
+        {
+            var passing = Passing(filter).Select(transaction => transaction.Id);
+            shares = shares.Where(share => passing.Contains(share.TransactionId));
+        }
+
+        var converted = await shares
+            .GroupBy(share => share.IsRefund)
+            .Select(ofKind => new SpentSum(ofKind.Key, true, 0, ofKind.Sum(share => share.BaseCurrencyAmount ?? 0)))
             .ToListAsync(cancellationToken);
+        var notConverted = await Passing(filter)
+            .CountAsync(transaction => transaction.Type == TransactionType.Expense && transaction.Conversion!.Amount == null, cancellationToken);
+
+        return [.. converted, new SpentSum(false, false, notConverted, 0)];
     }
 
     /// <summary>The transactions a filter lets through; a deleted one never is.</summary>
