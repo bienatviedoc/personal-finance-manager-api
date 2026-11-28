@@ -13,7 +13,9 @@ namespace Pfm.Application.UseCases;
 /// Text is written so that a spreadsheet opening the file shows it rather than runs it (OWASP, CSV injection): text
 /// that starts with <c>=</c>, <c>+</c>, <c>-</c>, <c>@</c>, a tab or a carriage return gets a single quote before
 /// it. Only text: a number (a <see cref="decimal"/>, or an amount written as <see cref="Number"/>) is written as it
-/// is, so a negative amount stays a number. A list is its items, each written so, separated by <c>"; "</c>.
+/// is, so a negative amount stays a number. A string is always text, even one that looks like a number (a payee
+/// typed as <c>-3</c>); the SPA's <c>csv.ts</c> applies the same rule (spec section 13). A list is its items, each
+/// written so, separated by <c>"; "</c>.
 /// </para>
 /// </summary>
 public static class Csv
