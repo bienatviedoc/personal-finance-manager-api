@@ -1,6 +1,9 @@
 using System.Globalization;
 using System.Net;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Pfm.Infrastructure.Persistence;
 using static Pfm.Api.IntegrationTests.BrowserFixtures;
 
 namespace Pfm.Api.IntegrationTests;
@@ -97,6 +100,39 @@ public class TransactionExportTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Text_that_starts_with_a_tab_or_a_carriage_return_is_exported_behind_a_quote()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "Everyday");
+        var tab = await SpendAsync(browser, account, "Groceries", "1000", Day);
+        var carriageReturn = await SpendAsync(browser, account, "Groceries", "2000", Day.AddDays(-1));
+        // The API trims what it is sent, so a payee starting with either is saved behind the domain's back, as a row
+        // written some other way could hold it.
+        await SetPayeeAsync(tab, "\t=SUM(A1)");
+        await SetPayeeAsync(carriageReturn, "\r@SUM(A1)");
+
+        var rows = await RowsAsync(browser, "");
+
+        Assert.Equal([("'\t=SUM(A1)", "1000.00"), ("'\r@SUM(A1)", "2000.00")], rows.Select(row => (row["payee"], row["amount"])));
+    }
+
+    [Fact]
+    public async Task Text_that_looks_like_a_negative_amount_is_exported_as_text_behind_a_quote_and_the_amount_beside_it_as_a_number()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var account = await AddAccountAsync(browser, "-3");
+        await RecordAsync(browser, "expense", account, "Groceries", "3", Day, payee: "-3");
+        await RecordAsync(browser, "expense", account, "Groceries", "55000", Day.AddDays(-1), payee: "-55000.00");
+
+        var rows = await RowsAsync(browser, "");
+
+        // An amount is saved above zero, its type and isRefund giving its sign, so it is never guarded.
+        Assert.Equal(
+            [("'-3", "'-3", "3.00"), ("'-3", "'-55000.00", "55000.00")],
+            rows.Select(row => (row["account"], row["payee"], row["amount"])));
+    }
+
+    [Fact]
     public async Task Both_legs_of_a_transfer_are_exported_with_no_category()
     {
         var (browser, _) = await api.SignedInAsync();
@@ -153,6 +189,13 @@ public class TransactionExportTests(PfmApi api)
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(["from", "tag", "type"], await response.ErrorFieldsAsync());
+    }
+
+    private async Task SetPayeeAsync(Guid transactionId, string payee)
+    {
+        await using var scope = api.Services.CreateAsyncScope();
+        await scope.ServiceProvider.GetRequiredService<PfmDbContext>().Database
+            .ExecuteSqlAsync($"""UPDATE "Transactions" SET "Payee" = {payee} WHERE "Id" = {transactionId}""");
     }
 
     /// <summary>The export's rows, each by column name, read by a CSV reader that knows quotes.</summary>
