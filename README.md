@@ -357,7 +357,8 @@ one of the merged category's own subcategories is refused as an error on `target
   brings one back, both legs of a transfer together, until 30 days after it was deleted.
 - **A bulk action** (spec TXN-7; see the glossary) is `POST /transactions/bulk` (`BulkEditTransactions`): `setCategory`,
   `addTag`, `removeTag`, `moveToAccount` or `delete`, on the transactions named by `transactionIds` or on every
-  one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it), at most
+  one that passes `filter` (the list's filters, so the SPA can select all of a view without loading it) but those
+  in `exceptTransactionIds` (the rows the user unticked after selecting them all; only with `filter`), at most
   1000 either way: more ids are a validation problem on `transactionIds`, and a filter that more pass answers 422
   (`urn:pfm:problem:bulk-selection-too-large`, with the `max`) so a client can tell the user to narrow it. It is one save: when any selected transaction cannot take it, the answer is a 409
   (`urn:pfm:problem:bulk-action-refused`) listing each one and why (`BulkRefusal`: `notFound`, `transferLeg`, `split`,

@@ -31,14 +31,16 @@ public enum BulkAction
 
 /// <summary>
 /// One action on many of the user's transactions, which all take it or none does (spec TXN-7, section 11): the
-/// ones named by <paramref name="TransactionIds"/>, or every one that passes <paramref name="Filter"/>, never both.
+/// ones named by <paramref name="TransactionIds"/>, or every one that passes <paramref name="Filter"/> but those in
+/// <paramref name="ExceptTransactionIds"/>, never both.
 /// </summary>
 /// <param name="Action">A <see cref="BulkAction"/> as it travels: <c>setCategory</c>, <c>addTag</c>, ...</param>
 /// <param name="CategoryId">The category <see cref="BulkAction.SetCategory"/> puts them on.</param>
 /// <param name="Tag">The name of the tag <see cref="BulkAction.AddTag"/> and <see cref="BulkAction.RemoveTag"/> put on and take off.</param>
 /// <param name="AccountId">The account <see cref="BulkAction.MoveToAccount"/> moves them to.</param>
 public sealed record BulkEditTransactionsCommand(
-    string? Action, IReadOnlyList<Guid>? TransactionIds, TransactionFilter? Filter, Guid? CategoryId = null, string? Tag = null, Guid? AccountId = null)
+    string? Action, IReadOnlyList<Guid>? TransactionIds, TransactionFilter? Filter, Guid? CategoryId = null, string? Tag = null, Guid? AccountId = null,
+    IReadOnlyList<Guid>? ExceptTransactionIds = null)
 {
     /// <summary>The most transactions one bulk action takes.</summary>
     public const int MaxSelected = 1000;
@@ -60,8 +62,14 @@ public sealed class BulkEditTransactionsValidator : AbstractValidator<BulkEditTr
             .Must((command, ids) => (ids is null) != (command.Filter is null))
             .WithMessage("Select transactions by their ids or by a filter, one of the two.")
             .DependentRules(() => RuleFor(command => command.TransactionIds)
-                .Must(ids => ids is null || ids.Distinct().Count() is >= 1 and <= BulkEditTransactionsCommand.MaxSelected)
+                .Must(ids => HasDistinctUpToMax(ids, least: 1))
                 .WithMessage($"Select 1 to {BulkEditTransactionsCommand.MaxSelected} transactions."));
+        RuleFor(command => command.ExceptTransactionIds)
+            .Must((command, ids) => ids is null || command.Filter is not null)
+            .WithMessage("Leave transactions out only of those a filter selects.")
+            .DependentRules(() => RuleFor(command => command.ExceptTransactionIds)
+                .Must(ids => HasDistinctUpToMax(ids, least: 0))
+                .WithMessage($"Leave out at most {BulkEditTransactionsCommand.MaxSelected} transactions."));
         RuleFor(command => command.CategoryId).NotNull().Required().When(command => command.ParsedAction == BulkAction.SetCategory);
         RuleFor(command => command.AccountId).NotNull().Required().When(command => command.ParsedAction == BulkAction.MoveToAccount);
         RuleFor(command => command.Tag)
@@ -69,6 +77,10 @@ public sealed class BulkEditTransactionsValidator : AbstractValidator<BulkEditTr
             .When(command => command.ParsedAction is BulkAction.AddTag or BulkAction.RemoveTag)
             .WithMessage($"Enter a tag of 1 to {Domain.Transactions.Tag.MaxNameLength} characters.");
     }
+
+    /// <summary>Whether ids not sent, or at least <paramref name="least"/> and at most the most one bulk action takes once each counts once.</summary>
+    private static bool HasDistinctUpToMax(IReadOnlyList<Guid>? ids, int least) =>
+        ids is null || ids.Distinct().Count() is var count && count >= least && count <= BulkEditTransactionsCommand.MaxSelected;
 }
 
 /// <summary>What a bulk action came to: done to every transaction it selected, or refused, with nothing changed.</summary>
@@ -121,7 +133,12 @@ public sealed class BulkEditTransactionsHandler(
         IReadOnlyList<Transaction> selected;
         if (command.Filter is { } filter)
         {
-            selected = await transactions.ListAsync(filter, TransactionSort.NewestFirst, BulkEditTransactionsCommand.MaxSelected + 1, after: null, cancellationToken);
+            // Load one more than the limit, plus one for each transaction left out. Even if every left-out one passes
+            // the filter, what remains then shows whether more than the limit are selected.
+            var except = (command.ExceptTransactionIds ?? []).ToHashSet();
+            var passing = await transactions.ListAsync(
+                filter, TransactionSort.NewestFirst, BulkEditTransactionsCommand.MaxSelected + 1 + except.Count, after: null, cancellationToken);
+            selected = [.. passing.Where(transaction => !except.Contains(transaction.Id))];
             if (selected.Count > BulkEditTransactionsCommand.MaxSelected)
             {
                 return new BulkEditOutcome.TooMany(BulkEditTransactionsCommand.MaxSelected);

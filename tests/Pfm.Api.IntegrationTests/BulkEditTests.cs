@@ -193,6 +193,24 @@ public class BulkEditTests(PfmApi api)
     }
 
     [Fact]
+    public async Task Every_transaction_that_passes_a_filter_but_the_ones_left_out_is_selected()
+    {
+        var (browser, _) = await api.SignedInAsync();
+        var everyday = await AddAccountAsync(browser, "Everyday");
+        var first = await SpendAsync(browser, everyday, "Groceries", "1000", November2);
+        var leftOut = await SpendAsync(browser, everyday, "Groceries", "2000", November2);
+        var third = await SpendAsync(browser, everyday, "Groceries", "3000", November2);
+
+        var response = await browser.PostAsync(
+            Bulk, new { action = "addTag", filter = new { accountId = everyday }, exceptTransactionIds = new[] { leftOut, Guid.NewGuid() }, tag = "weekly" });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2, (await response.Content.ReadFromJsonAsync<BulkBody>())!.Count);
+        Assert.Equal([first, third], (await ListAsync(browser, "?tag=weekly")).Select(transaction => transaction.Id).Order());
+        Assert.Empty((await GetAsync(browser, leftOut)).Tags);
+    }
+
+    [Fact]
     public async Task A_filter_that_more_than_a_thousand_transactions_pass_is_refused_as_too_many_to_select_and_nothing_changes()
     {
         var email = PfmApi.NewEmail();
@@ -206,6 +224,39 @@ public class BulkEditTests(PfmApi api)
         Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
         Assert.Equal(1_000, (await response.Content.ReadFromJsonAsync<TooLargeBody>())!.Max);
         Assert.Empty(await ListAsync(browser, "?tag=everything"));
+    }
+
+    [Fact]
+    public async Task A_filter_that_a_thousand_and_one_transactions_pass_takes_the_action_with_one_left_out()
+    {
+        var (browser, leftOut, response) = await TagEverythingButTheNewestAsync(transactions: 1_001);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1_000, (await response.Content.ReadFromJsonAsync<BulkBody>())!.Count);
+        Assert.Empty((await GetAsync(browser, leftOut)).Tags);
+    }
+
+    [Fact]
+    public async Task A_filter_that_a_thousand_and_two_transactions_pass_is_too_many_with_one_left_out()
+    {
+        var (browser, _, response) = await TagEverythingButTheNewestAsync(transactions: 1_002);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
+        Assert.Equal("urn:pfm:problem:bulk-selection-too-large", await response.ProblemTypeAsync());
+        Assert.Empty(await ListAsync(browser, "?tag=everything"));
+    }
+
+    /// <summary>Signs in a new user with that many sample transactions and tags every one with "everything" by a filter, leaving out the newest.</summary>
+    private async Task<(Browser Browser, Guid LeftOut, HttpResponseMessage Response)> TagEverythingButTheNewestAsync(int transactions)
+    {
+        var email = PfmApi.NewEmail();
+        await api.Services.SeedSampleDataAsync(new SampleDataOptions(email, PfmApi.Password, Transactions: transactions));
+        var browser = api.CreateBrowser();
+        (await browser.PostAsync("/api/v1/auth/login", new { email, password = PfmApi.Password })).EnsureSuccessStatusCode();
+        var leftOut = (await ListAsync(browser, "?limit=1")).Single().Id;
+
+        var response = await browser.PostAsync(Bulk, new { action = "addTag", filter = new { }, exceptTransactionIds = new[] { leftOut }, tag = "everything" });
+        return (browser, leftOut, response);
     }
 
     [Fact]
@@ -227,6 +278,13 @@ public class BulkEditTests(PfmApi api)
         Assert.Equal(["accountId"], await (await browser.PostAsync(Bulk, new { action = "moveToAccount", transactionIds = ids, accountId = Guid.NewGuid() })).ErrorFieldsAsync());
         Assert.Equal(["tag"], await (await browser.PostAsync(Bulk, new { action = "addTag", transactionIds = ids, tag = " " })).ErrorFieldsAsync());
         Assert.Equal(["filter.min"], await (await browser.PostAsync(Bulk, new { action = "delete", filter = new { min = "lots" } })).ErrorFieldsAsync());
+        Assert.Equal(
+            ["exceptTransactionIds"],
+            await (await browser.PostAsync(Bulk, new { action = "delete", transactionIds = ids, exceptTransactionIds = ids })).ErrorFieldsAsync());
+        Assert.Equal(
+            ["exceptTransactionIds"],
+            await (await browser.PostAsync(
+                Bulk, new { action = "delete", filter = new { }, exceptTransactionIds = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid()).ToArray() })).ErrorFieldsAsync());
         Assert.Equal(
             ["transactionIds"],
             await (await browser.PostAsync(Bulk, new { action = "delete", transactionIds = Enumerable.Range(0, 1001).Select(_ => Guid.NewGuid()).ToArray() })).ErrorFieldsAsync());
