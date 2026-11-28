@@ -162,7 +162,7 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
     public async Task<IReadOnlyList<MoneyInOrOut>> IncomeAndExpensesAsync(
         DateOnly from, DateOnly to, Guid? accountId, IReadOnlyCollection<Guid>? categoryIds, CancellationToken cancellationToken)
     {
-        var shares = db.Set<LineShare>().Counted(from, to, accountId)
+        var shares = db.Set<LineShare>().NotDeletedBetween(from, to, accountId)
             .Where(share => share.Type == TransactionType.Income || share.Type == TransactionType.Expense);
         if (categoryIds is not null)
         {
@@ -175,7 +175,7 @@ internal sealed class TransactionTotals(PfmDbContext db) : IAccountTransactions,
 
     /// <summary>The lines of expenses dated between two days, on one account or on all, that are not deleted.</summary>
     private IQueryable<LineShare> ExpenseShares(DateOnly from, DateOnly to, Guid? accountId) =>
-        db.Set<LineShare>().Counted(from, to, accountId).Where(share => share.Type == TransactionType.Expense);
+        db.Set<LineShare>().NotDeletedBetween(from, to, accountId).Where(share => share.Type == TransactionType.Expense);
 
     /// <summary>
     /// What one category's expenses of one kind (refunds or not) come to in the base currency, before the sign of

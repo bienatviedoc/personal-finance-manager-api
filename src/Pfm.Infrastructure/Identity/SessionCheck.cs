@@ -7,7 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 namespace Pfm.Infrastructure.Identity;
 
 /// <summary>
-/// Ends a session on its next request once it is no longer good: the user is deactivated or gone, or their security
+/// Ends a session on its next request unless its user is still there, active, with the security stamp the cookie
+/// was issued with: so it ends once the user is deactivated or gone, or their security
 /// stamp has changed since the cookie was issued (deleting the user, a new password, two-factor turned on or off).
 /// The host that signs people in runs it on every request that brings a session cookie (the API's
 /// <c>AuthenticationSetup</c>).
@@ -20,7 +21,7 @@ namespace Pfm.Infrastructure.Identity;
 /// </remarks>
 public static class SessionCheck
 {
-    public static async Task EndIfNoLongerGoodAsync(CookieValidatePrincipalContext context)
+    public static async Task EndUnlessUserActiveWithSameStampAsync(CookieValidatePrincipalContext context)
     {
         if (context.Principal is not { } principal)
         {

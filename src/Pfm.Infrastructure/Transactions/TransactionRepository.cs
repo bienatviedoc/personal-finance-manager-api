@@ -36,7 +36,7 @@ internal sealed class TransactionRepository(PfmDbContext db) : ITransactionRepos
     public async Task<CategorySums> SumInCategoryAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
     {
         var inCategory = db.Set<Category>().AndSubcategoriesOf(categoryId);
-        var lines = db.Set<LineShare>().Counted(filter.From, filter.To, filter.AccountId).Where(share => inCategory.Contains(share.CategoryId));
+        var lines = db.Set<LineShare>().NotDeletedBetween(filter.From, filter.To, filter.AccountId).Where(share => inCategory.Contains(share.CategoryId));
         if (filter.Type is { } type)
         {
             lines = lines.Where(share => share.Type == type);
