@@ -99,31 +99,28 @@ It reads `PFM_URL` (`http://localhost:8080`), `PFM_EMAIL` and `PFM_PASSWORD` (th
 users browsing at once with no pause between requests (10), `DURATION` (`2m`), and `MIN_TRANSACTIONS`
 (50000), below which the run refuses to start, as the targets are for a user that size; pass each with `-e`.
 
-Results, 25 November 2026, on a developer laptop (20 cores, WSL 2) that was busy with other builds, PostgreSQL 17
-in Docker:
+Results, 28 November 2026, on a developer laptop (20 cores, WSL 2) shared with other work, PostgreSQL 17 in
+Docker, runs of two minutes on the same seeded user: before and after spent was added up in the database (#70).
 
-| Request | p95, 1 user | p95, 10 users | Target |
-| --- | --- | --- | --- |
-| Transactions, first and next page | 44 ms, 35 ms | 271 ms, 215 ms | 300 ms |
-| Transactions this month, searched, by amount | 11 ms, 139 ms, 83 ms | 77 ms, 476 ms, 276 ms | 300 ms |
-| **Transactions in a category** | **761 ms** | **4.69 s** | 300 ms |
-| Accounts, institutions, categories, recurring rules | 37 ms or less | 217 ms or less | 300 ms |
-| Budgets (a month) | 92 ms | 958 ms | 300 ms |
-| Spending by category, this month | 111 ms | 934 ms | 1 s |
-| Spending by category, this year, in a category, 12 months compared | 740 ms, 682 ms, 569 ms | 6.23 s, 4.98 s, 4.99 s | 1 s |
-| Spending transactions of a category | 154 ms | 1.31 s | 1 s |
-| Trend of a category compared, of a payee | 325 ms, 58 ms | 2.8 s, 427 ms | 1 s |
-| Income vs expenses, this year, last 12 months compared | 286 ms, 291 ms | 1.09 s, 1.08 s | 1 s |
-| Net worth, last 12 months | 23 ms | 104 ms | 1 s |
-| Budget vs actual, this month, this year | 47 ms, 294 ms | 173 ms, 1.07 s | 1 s |
+| Request | Before, 1 user | Before, 10 users | After, 1 user | After, 10 users | Target |
+| --- | --- | --- | --- | --- | --- |
+| Transactions, first and next page | 20 ms, 19 ms | 83 ms, 81 ms | 21 ms, 21 ms | 66 ms, 56 ms | 300 ms |
+| Transactions this month, searched, by amount | 10 ms, 39 ms, 38 ms | 51 ms, 119 ms, 127 ms | 8 ms, 38 ms, 42 ms | 47 ms, 94 ms, 95 ms | 300 ms |
+| Transactions in a category | 422 ms | 1.09 s | 114 ms | 293 ms | 300 ms |
+| Accounts, institutions, categories, recurring rules | 19 ms or less | 77 ms or less | 21 ms or less | 46 ms or less | 300 ms |
+| Budgets (a month) | 58 ms | 208 ms | 21 ms | 60 ms | 300 ms |
+| Spending by category, this month | 55 ms | 211 ms | 18 ms | 56 ms | 1 s |
+| Spending by category, this year, in a category, 12 months compared | 425 ms, 436 ms, 432 ms | 1.47 s, 1.43 s, 1.45 s | 101 ms, 103 ms, 104 ms | 271 ms, 284 ms, 290 ms | 1 s |
+| Spending transactions of a category | 96 ms | 311 ms | 101 ms | 253 ms | 1 s |
+| Trend of a category compared, of a payee | 211 ms, 46 ms | 726 ms, 142 ms | 98 ms, 32 ms | 257 ms, 113 ms | 1 s |
+| Income vs expenses, this year, last 12 months compared | 423 ms, 438 ms | 1.57 s, 1.52 s | 172 ms, 173 ms | 482 ms, 505 ms | 1 s |
+| Net worth, last 12 months | 22 ms | 92 ms | 21 ms | 95 ms | 1 s |
+| Budget vs actual, this month, this year | 68 ms, 434 ms | 222 ms, 1.49 s | 23 ms, 120 ms | 98 ms, 343 ms | 1 s |
 
-The last three rows were measured later the same day, in runs of one minute (`-e DURATION=1m`), on the same
-machine and data.
-
-With one user every report meets its target, and every list but one: the transactions of a category, whose
-spent (BUD-8) is added up in memory over every expense in it. With ten users and no pause the reports that
-read a year of transactions into memory to add them up (spending by category, trends) fall well behind, and income
-vs expenses and budget vs actual over a year, which do the same, just miss it. Both are followed up in #70.
+Before, the transactions of a category, and the reports over a year, read every matching expense with its lines into
+memory to add up spent; with ten users and no pause they missed their targets. Spent is now a `SUM` in the database
+(see Transactions, Spent), and with ten users every list and report meets its target, the transactions of a category
+only just: with no dates, their totals and spent are one pass over every one of the category's lines.
 
 ## Layout
 
@@ -275,6 +272,14 @@ one of the merged category's own subcategories is refused as an error on `target
   taking what rounding leaves. A refund counts in the month of
   the refund, so spent can go below zero, and nothing clamps it. A deleted transaction and one not converted
   are left out. `GET /budgets` answers it (see Budgets below), through `ICategorySpending`.
+- **Spent is added up in the database** (spec sections 8 and 10), by that definition, so lists and reports never read
+  a year of transactions to add them up. The view `TransactionLineShares` (`LineShare`) gives each line its share of
+  its transaction's converted amount: the whole of it for a line that is not split, and for a split's lines the
+  function `SplitLineShare`, rounding each share half away from zero to the base currency's decimals and leaving the
+  rest to the last line, as `SpentAmountIn` does. The queries `SUM` those shares, grouped as each answer needs, refunds
+  apart, and `Spent.Signed` gives the sums their sign. The view and the domain are two writings of one rule:
+  `SpentTests` holds them to the same answers on the same transactions (converted splits, refunds, transfers, deleted
+  and not converted expenses, and a seeded year), so change both together.
 - **Rules live in `Transaction`** (`Pfm.Domain.Transactions`). The validator checks what the command alone can
   say (an amount above zero, a date that is one); what needs the account, the category or today's date is checked
   while the transaction is built, and comes back as an error on the field at fault (`TransactionRuleViolation`).
@@ -660,7 +665,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
   `spent`, `remaining`, `percentSpent` and `state`, and the month's `totals`, every time (`BudgetProgress`,
   `BudgetTotals`): Budgets asks Transactions what was spent in each category that month through
   `ICategorySpending` (`Pfm.Application.Contracts.Transactions`). Transactions answers with its own definition of
-  spent (`Transaction.SpentAmountIn`, see Transactions above), adding up the month's expenses as they were
+  spent (`Transaction.SpentAmountIn`, see Transactions above), added up by the database, the month's expenses as they were
   converted into the base currency at the exchange rate of each one's own date: a refund is taken away, so spent
   can be negative, and a split adds each line to its own category. Only expenses count: income never does, nor
   will the legs of a transfer. A transaction is in the budget month of its date, which is a calendar
@@ -691,7 +696,7 @@ Vietcombank and Techcombank layouts through mappings, not parsers.
 - **Drilling down** (BUD-8): the transactions behind a budget are the transaction list filtered by its category
   (which takes in its subcategories) and the first and last days of its month. Filtered by a category, the list's
   `total` also answers `spent`: what those transactions spent there in the base currency, with how many are
-  `notConverted`, added up by `Transaction.SpentAmountIn` like the budget's, so a split counts only its lines there
+  `notConverted`, added up by the database like the budget's, so a split counts only its lines there
   and a refund comes off. The per-currency totals beside it are in each transaction's own currency, so only
   `spent` is sure to equal the budget's figure.
 - **The base currency locks once a budget exists** (rule 12,
@@ -1062,7 +1067,9 @@ committed for long enough to remove. Each runs for the worker, which acts for no
 acts for each of those users in turn, inside the filter. Raw SQL is used only on exchange rates, which belong to
 no user.
 
-Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. Code that
+Nothing to configure per entity; `UserIsolationTests` checks every user-owned entity in the model. That includes `LineShare`, read from the view
+`TransactionLineShares` that spent is added up from (see Transactions, Spent): the filter keeps it to the user's lines like any table, and as it is the
+user's transactions seen another way, the export and the erasure leave it out. Code that
 runs for no user, such as background jobs, sees no user-owned data until it acts for a specific user with
 `IActForUser.ActFor(userId)`; until the returned handle is disposed, user-owned data is that user's exactly as
 if they were signed in, and so are today's date (`IUserCalendar`) and the base currency (`IBaseCurrency`).

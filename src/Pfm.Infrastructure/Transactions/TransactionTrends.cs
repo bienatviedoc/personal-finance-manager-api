@@ -9,44 +9,34 @@ namespace Pfm.Infrastructure.Transactions;
 internal sealed class TransactionTrends(PfmDbContext db) : ITransactionTrends
 {
     /// <summary>
-    /// The transactions are read and their amounts worked out here, not in the database, so that spent and a split's
-    /// shares have the domain's one definition (<see cref="Transaction.SpentAmountIn"/>, <see cref="Transaction.IncomeAmountIn"/>).
+    /// The database adds up each transaction's lines on the category and its subcategories (every line when there is
+    /// no category) in the base currency (<see cref="LineShare"/>, shared as <see cref="Transaction.SpentAmountIn"/>
+    /// shares them); what each spent is worked out from those sums here, by the sign of spent's one definition
+    /// (<see cref="Spent.Signed"/>).
     /// </summary>
     public async Task<IReadOnlyList<TrendTransaction>> AmountsAsync(
         DateOnly from, DateOnly to, TrendType type, Guid? categoryId, string? payee, Guid? accountId, CancellationToken cancellationToken)
     {
-        var income = type == TrendType.Income;
-        var transactionType = income ? TransactionType.Income : TransactionType.Expense;
-        var transactions = db.Set<Transaction>().AsNoTracking()
-            .Where(transaction => transaction.Type == transactionType && transaction.DeletedAt == null && transaction.Date >= from && transaction.Date <= to);
-        if (accountId is { } account)
-        {
-            transactions = transactions.Where(transaction => transaction.AccountId == account);
-        }
-
-        IReadOnlyCollection<Guid>? categoryIds = null;
+        var transactionType = type == TrendType.Income ? TransactionType.Income : TransactionType.Expense;
+        var shares = db.Set<LineShare>().Counted(from, to, accountId).Where(share => share.Type == transactionType);
         if (categoryId is { } category)
         {
-            var withSubcategories = await db.Set<Category>().AndSubcategoriesOf(category).ToListAsync(cancellationToken);
-            transactions = transactions.Where(transaction => transaction.Lines.Any(line => withSubcategories.Contains(line.CategoryId)));
-            categoryIds = withSubcategories;
+            var withSubcategories = db.Set<Category>().AndSubcategoriesOf(category);
+            shares = shares.Where(share => withSubcategories.Contains(share.CategoryId));
         }
 
         if (payee is not null)
         {
             var exactly = LikePattern.Exactly(payee);
-            transactions = transactions.Where(transaction => EF.Functions.ILike(transaction.Payee!, exactly, LikePattern.Escape));
+            shares = shares.Where(share => EF.Functions.ILike(share.Payee!, exactly, LikePattern.Escape));
         }
 
-        var found = await transactions.ToListAsync(cancellationToken);
         return
         [
-            .. found.Select(transaction =>
-            {
-                IReadOnlyCollection<Guid> on = categoryIds ?? [.. transaction.Lines.Select(line => line.CategoryId)];
-                decimal? amount = !transaction.IsConverted ? null : income ? transaction.IncomeAmountIn(on) : transaction.SpentAmountIn(on);
-                return new TrendTransaction(transaction.Id, transaction.Date, amount);
-            }),
+            .. (await shares.SumByTransaction().ToListAsync(cancellationToken)).Select(sum => new TrendTransaction(
+                sum.TransactionId,
+                sum.Date,
+                !sum.IsConverted ? null : sum.Type == TransactionType.Income ? sum.Amount : Spent.Signed(sum.Type, sum.Amount, sum.IsRefund))),
         ];
     }
 }

@@ -86,7 +86,7 @@ public sealed record SpentTotal(Currency Currency, decimal Amount, int NotConver
 /// <param name="Net">What they do to balances together: each amount with the sign of its type.</param>
 public sealed record CurrencyTotal(Currency Currency, decimal Income, decimal Expenses, decimal Net);
 
-public sealed class ListTransactionsHandler(ITransactionRepository transactions, ICategoryRepository categories, IBaseCurrency baseCurrency) : IQueryHandler
+public sealed class ListTransactionsHandler(ITransactionRepository transactions, IBaseCurrency baseCurrency) : IQueryHandler
 {
     public async Task<TransactionList> HandleAsync(ListTransactions query, CancellationToken cancellationToken = default)
     {
@@ -95,28 +95,25 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
         var next = found.Count > query.Limit ? TransactionCursor.At(found[query.Limit - 1]).ToString() : null;
         var page = new Page<TransactionDetails>([.. found.Take(query.Limit).Select(TransactionDetails.Of)], next);
 
-        var total = Total(await transactions.SumAsync(query.Filter, cancellationToken));
-        if (query.Filter.CategoryId is { } categoryId)
+        if (query.Filter.CategoryId is not { } categoryId)
         {
-            total = total with { Spent = await SpentAsync(query.Filter, categoryId, cancellationToken) };
+            return new TransactionList(page, Total(await transactions.SumAsync(query.Filter, cancellationToken)));
         }
 
-        return new TransactionList(page, total);
+        var inCategory = await transactions.SumInCategoryAsync(query.Filter, categoryId, cancellationToken);
+        return new TransactionList(page, Total(inCategory.Sums) with { Spent = await SpentAsync(inCategory.Spent, cancellationToken) });
     }
 
     /// <summary>
-    /// Spent by the expenses that pass the filter, added up here by <see cref="Transaction.SpentAmountIn"/>, as
-    /// budgets add it up, so that the two never disagree, rounding of a converted split included.
+    /// Spent by the expenses that pass the filter, added up by the database as budgets add it up, so that the two
+    /// never disagree, rounding of a converted split included; the sign of spent is applied to the sums here, by its
+    /// one definition (<see cref="Spent.Signed"/>).
     /// </summary>
-    private async Task<SpentTotal> SpentAsync(TransactionFilter filter, Guid categoryId, CancellationToken cancellationToken)
-    {
-        var categoryIds = await categories.ListIdsWithSubcategoriesAsync(categoryId, cancellationToken);
-        var expenses = await transactions.ListExpensesAsync(filter, cancellationToken);
-        return new SpentTotal(
+    private async Task<SpentTotal> SpentAsync(IReadOnlyList<SpentSum> sums, CancellationToken cancellationToken) =>
+        new(
             await baseCurrency.OfCurrentUserAsync(cancellationToken),
-            expenses.Sum(expense => expense.SpentAmountIn(categoryIds)),
-            expenses.Count(expense => !expense.IsConverted));
-    }
+            sums.Where(sum => sum.IsConverted).Sum(sum => Spent.Signed(TransactionType.Expense, sum.Amount, sum.IsRefund)),
+            sums.Where(sum => !sum.IsConverted).Sum(sum => sum.Count));
 
     /// <summary>
     /// The database adds up the amounts of each type in each currency; the signs are applied to those sums here,
@@ -142,6 +139,15 @@ public sealed class ListTransactionsHandler(ITransactionRepository transactions,
 /// their amounts added up.
 /// </summary>
 public sealed record TransactionSum(Currency Currency, TransactionType Type, bool IsRefund, int Count, decimal Amount);
+
+/// <summary>
+/// How many expenses of one kind (refunds or not, converted or not) passed a filter, and what their lines in a
+/// category come to in the base currency, without the sign of spent: zero for those not converted.
+/// </summary>
+public sealed record SpentSum(bool IsRefund, bool IsConverted, int Count, decimal Amount);
+
+/// <summary>The transactions that passed a filter on a category, added up by currency and type, and what the expenses among them spent there.</summary>
+public sealed record CategorySums(IReadOnlyList<TransactionSum> Sums, IReadOnlyList<SpentSum> Spent);
 
 /// <summary>
 /// Where a page of transactions ends: the date, amount and id of its last one, opaque to clients. It holds
