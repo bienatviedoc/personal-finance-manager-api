@@ -65,7 +65,7 @@ Eight concepts carry the whole product; the rules under the table are the ones m
 
 1. **Money is never a float.** Amounts use `decimal` in C#, `numeric(19,4)` in PostgreSQL, and are sent as strings in JSON. The frontend formats them and does not do arithmetic on them beyond display.
 2. **Amounts are stored positive; the type gives the sign.** Account balance = opening balance + income - expenses + refunds + transfers in - transfers out. The one exception to the type giving the sign is a refund: an expense with the refund flag set adds to the balance.
-3. **A transfer is two linked transactions** sharing a `TransferId`: a Transfer out leg on account A and a Transfer in leg on account B. Editing or deleting one updates or deletes the other in the same database transaction. Transfers never appear in income, expense or budget totals. A transfer is locked as soon as either leg is reconciled.
+3. **A transfer is two linked transactions** sharing a `TransferId`: a Transfer out leg on account A and a Transfer in leg on account B. The two legs change together: deleting one leg deletes the transfer, both legs in the same database transaction, and a leg is edited only through its transfer (`PUT /transfers/{id}`), which updates both; `PUT /transactions/{id}` refuses a leg. Transfers never appear in income, expense or budget totals. A transfer is locked as soon as either leg is reconciled.
 4. **Cross-currency transfers store both amounts.** The exchange rate is implied by the two legs, not looked up.
 5. **A transaction can be split** across several categories. The split lines must sum exactly to the transaction amount.
 6. **Budgets roll up.** Spending in a subcategory counts toward a budget set on its parent. A budget cannot be set on both a parent and its child for the same month.
@@ -347,7 +347,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Accounts | `POST /accounts/{id}/reconciliations`; `POST /reconciliations/{id}/complete` | Start and lock a reconciliation |
 | Transactions | `GET /transactions?from&to&accountId&categoryId&type&tag&q&min&max` | Filtered, paged list with totals |
 | Transactions | `GET /transactions/quick-add?payee&type` | What quick add starts from: the account used last and the category a payee usually takes |
-| Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines |
+| Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines. A leg of a transfer is read and deleted here (deleting its transfer, rule 3) but edited only through `PUT /transfers/{id}` |
 | Transactions | `POST /transactions/bulk` | Bulk recategorise, tag or delete |
 | Transfers | `POST /transfers`; `GET, PUT, DELETE /transfers/{id}`; `POST /transfers/mark`; `POST /transfers/{id}/unmark` | Creates, reads and maintains both legs |
 | Attachments | `GET, POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipts of a transaction and upload; a signed URL to open one, and removal |
