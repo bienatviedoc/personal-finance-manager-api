@@ -406,6 +406,10 @@ Money logic is tested hardest at the domain and database level, because that is 
 | End to end | Playwright | Sign up, add income and expense, transfer, set budget, view report, import CSV |
 | Non-functional | k6 load test at 50,000 transactions; axe accessibility checks in CI | Section 8 targets |
 
+**CSV files the app writes**
+
+Every CSV file the app writes (the transactions export, the data export, a report downloaded in the browser) guards against formula injection (OWASP, CSV injection) by one rule, the same in the API and the frontend: a text cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written behind a single quote (`'`), so a spreadsheet shows it rather than runs it. Only text cells: a number (an amount, a share, a count) is written as it is, so an amount below zero stays a number. Any string is text, even one that looks like a number, such as a payee typed as `-3`.
+
 **Quality gates on every pull request**
 
 - Build with warnings as errors and nullable reference types on; ESLint and `tsc --noEmit` clean.
