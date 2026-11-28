@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.ExchangeRates;
-using Pfm.Infrastructure.ExchangeRates;
 
 namespace Pfm.Worker.ExchangeRates;
 
@@ -10,45 +9,31 @@ namespace Pfm.Worker.ExchangeRates;
 /// it to the error tracker, and the next one catches up on the days it missed.
 /// </summary>
 public sealed partial class ExchangeRateFetchJob(
-    IServiceScopeFactory scopes, IOptions<ExchangeRateOptions> options, TimeProvider time, ILogger<ExchangeRateFetchJob> logger)
-    : BackgroundService
+    IServiceScopeFactory scopes, IOptions<ExchangeRateFetchOptions> options, TimeProvider time, ILogger<ExchangeRateFetchJob> logger)
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override TimeSpan RunEvery => options.Value.FetchEvery;
+
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(options.Value.FetchEvery, time);
-        do
+        var result = await services.GetRequiredService<FetchExchangeRatesHandler>()
+            .HandleAsync(new FetchExchangeRatesCommand(options.Value.DaysBackWhenEmpty), cancellationToken);
+
+        if (!result.IsValid)
         {
-            await FetchAsync(stoppingToken);
+            // Checked as the worker starts too, so this logs only a check the two have come to disagree on.
+            LogMisconfigured(ExchangeRateFetchOptions.Section, string.Join(", ", result.Errors.Keys));
+            return;
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+
+        LogFetched(result.Outcome.Days);
+        if (result.Outcome.UsersNotSaved > 0)
+        {
+            LogUsersNotSaved(result.Outcome.UsersNotSaved);
+        }
     }
 
-    private async Task FetchAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var scope = scopes.CreateAsyncScope();
-            var result = await scope.ServiceProvider.GetRequiredService<FetchExchangeRatesHandler>()
-                .HandleAsync(new FetchExchangeRatesCommand(options.Value.DaysBackWhenEmpty), cancellationToken);
-
-            if (result.IsValid)
-            {
-                LogFetched(result.Outcome.Days);
-                if (result.Outcome.UsersNotSaved > 0)
-                {
-                    LogUsersNotSaved(result.Outcome.UsersNotSaved);
-                }
-            }
-            else
-            {
-                LogMisconfigured(ExchangeRateOptions.Section, string.Join(", ", result.Errors.Keys));
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-        }
-    }
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Fetched exchange rates for {Days} day(s)")]
     private partial void LogFetched(int days);

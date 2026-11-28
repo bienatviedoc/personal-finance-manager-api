@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.Transactions.Recurring;
 
-namespace Pfm.Worker.Recurring;
+namespace Pfm.Worker.Transactions;
 
 /// <summary>
 /// Posts the occurrences of recurring rules that are due, when the worker starts and every few minutes after
@@ -10,40 +10,26 @@ namespace Pfm.Worker.Recurring;
 /// </summary>
 public sealed partial class RecurringPostingJob(
     IServiceScopeFactory scopes, IOptions<RecurringPostingOptions> options, TimeProvider time, ILogger<RecurringPostingJob> logger)
-    : BackgroundService
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override TimeSpan RunEvery => options.Value.PostEvery;
+
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(options.Value.PostEvery, time);
-        do
+        var posted = await services.GetRequiredService<RecurringPosting>().PostDueAsync(cancellationToken);
+
+        if (posted.Occurrences > 0)
         {
-            await PostAsync(stoppingToken);
+            LogPosted(posted.Occurrences);
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
+
+        if (posted.RulesNotPosted > 0)
+        {
+            LogRulesNotPosted(posted.RulesNotPosted);
+        }
     }
 
-    private async Task PostAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var scope = scopes.CreateAsyncScope();
-            var posted = await scope.ServiceProvider.GetRequiredService<RecurringPosting>().PostDueAsync(cancellationToken);
-
-            if (posted.Occurrences > 0)
-            {
-                LogPosted(posted.Occurrences);
-            }
-
-            if (posted.RulesNotPosted > 0)
-            {
-                LogRulesNotPosted(posted.RulesNotPosted);
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-        }
-    }
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Posted {Occurrences} occurrence(s) of recurring rules")]
     private partial void LogPosted(int occurrences);

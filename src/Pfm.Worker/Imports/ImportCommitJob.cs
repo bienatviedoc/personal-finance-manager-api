@@ -12,44 +12,32 @@ namespace Pfm.Worker.Imports;
 /// </summary>
 public sealed partial class ImportCommitJob(
     IServiceScopeFactory scopes, IOptions<ImportCommitOptions> options, TimeProvider time, ILogger<ImportCommitJob> logger)
-    : BackgroundService
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(options.Value.CommitEvery, time);
-        do
-        {
-            await ImportAsync(stoppingToken);
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
+    protected override TimeSpan RunEvery => options.Value.CommitEvery;
 
-    private async Task ImportAsync(CancellationToken cancellationToken)
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        try
+        // A scope for each save, so what one reads is not held in memory for the next.
+        var saves = services.GetRequiredService<IServiceScopeFactory>();
+        for (var imported = 1; imported > 0;)
         {
-            // A scope for each save, so what one reads is not held in memory for the next.
-            for (var imported = 1; imported > 0;)
+            await using var scope = saves.CreateAsyncScope();
+            var run = await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync(cancellationToken: cancellationToken);
+            imported = run.Rows;
+            if (imported > 0)
             {
-                await using var scope = scopes.CreateAsyncScope();
-                var run = await scope.ServiceProvider.GetRequiredService<ImportCommits>().ImportNextAsync(cancellationToken: cancellationToken);
-                imported = run.Rows;
-                if (imported > 0)
-                {
-                    LogImported(imported);
-                }
+                LogImported(imported);
+            }
 
-                foreach (var failure in run.Failures)
-                {
-                    LogFailed(failure);
-                }
+            foreach (var failure in run.Failures)
+            {
+                LogFailed(failure);
             }
         }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-        }
     }
+
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Imported {Rows} row(s) of committed statements")]
     private partial void LogImported(int rows);

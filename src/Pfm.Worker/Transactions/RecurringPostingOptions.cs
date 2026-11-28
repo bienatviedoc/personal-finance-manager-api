@@ -1,4 +1,4 @@
-namespace Pfm.Worker.Recurring;
+namespace Pfm.Worker.Transactions;
 
 /// <summary>How the worker posts recurring rules, from the <c>RecurringRules</c> configuration section.</summary>
 public sealed class RecurringPostingOptions

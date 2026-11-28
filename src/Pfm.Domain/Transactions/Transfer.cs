@@ -63,13 +63,13 @@ public sealed class Transfer
 
     /// <param name="from">What leaves the source account.</param>
     /// <param name="to">What arrives on the destination account.</param>
-    /// <param name="today">Today's date in the user's time zone.</param>
-    public static Transfer Record(LegAmount from, LegAmount to, DateOnly date, string? note, DateOnly today, DateTimeOffset now)
+    public static Transfer Record(AccountAmount from, AccountAmount to, DateOnly date, string? note, Moment at)
     {
+        ArgumentNullException.ThrowIfNull(at);
         GuardCanMove(from, to);
-        var id = Guid.CreateVersion7(now);
-        var outLeg = OfLeg(nameof(Amount), () => Transaction.RecordLeg(id, TransactionType.TransferOut, from, date, note, today, now));
-        var inLeg = OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(id, TransactionType.TransferIn, to, date, note, today, now));
+        var id = Guid.CreateVersion7(at.Now);
+        var outLeg = OfLeg(nameof(Amount), () => Transaction.RecordLeg(id, TransactionType.TransferOut, from, date, note, at));
+        var inLeg = OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(id, TransactionType.TransferIn, to, date, note, at));
         return new Transfer(outLeg, inLeg);
     }
 
@@ -179,7 +179,7 @@ public sealed class Transfer
 
     /// <summary>Changes both legs together, to other accounts if need be; neither changes when a rule is broken.</summary>
     /// <exception cref="InvalidOperationException">The transfer is deleted.</exception>
-    public void Edit(LegAmount from, LegAmount to, DateOnly date, string? note, DateOnly today, DateTimeOffset now)
+    public void Edit(AccountAmount from, AccountAmount to, DateOnly date, string? note, Moment at)
     {
         if (IsDeleted)
         {
@@ -190,9 +190,9 @@ public sealed class Transfer
         GuardUnlocked(from, to, date);
 
         // Checked on a leg nobody keeps first, so the out leg is not left changed when the in leg is refused.
-        OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to, date, note, today, now));
-        OfLeg(nameof(Amount), () => OutLeg.EditLeg(from, date, note, today, now));
-        OfLeg(nameof(ToAmount), () => InLeg.EditLeg(to, date, note, today, now));
+        OfLeg(nameof(ToAmount), () => Transaction.RecordLeg(Id, TransactionType.TransferIn, to, date, note, at));
+        OfLeg(nameof(Amount), () => OutLeg.EditLeg(from, date, note, at));
+        OfLeg(nameof(ToAmount), () => InLeg.EditLeg(to, date, note, at));
     }
 
     /// <summary>Deletes both legs together, so both accounts' balances are as before the transfer. Deleting it again changes nothing.</summary>
@@ -210,7 +210,7 @@ public sealed class Transfer
     }
 
     /// <summary>Refuses, while either leg is reconciled, a change to the accounts, the amounts or the date.</summary>
-    private void GuardUnlocked(LegAmount from, LegAmount to, DateOnly date)
+    private void GuardUnlocked(AccountAmount from, AccountAmount to, DateOnly date)
     {
         if (!IsReconciled)
         {
@@ -263,7 +263,7 @@ public sealed class Transfer
         }
     }
 
-    private static void GuardCanMove(LegAmount from, LegAmount to)
+    private static void GuardCanMove(AccountAmount from, AccountAmount to)
     {
         ArgumentNullException.ThrowIfNull(from);
         ArgumentNullException.ThrowIfNull(to);
@@ -301,8 +301,3 @@ public sealed class Transfer
             return (Transaction)null!;
         });
 }
-
-/// <summary>What one leg of a transfer moves: an amount on an account, in that account's currency.</summary>
-/// <param name="Currency">The currency of the account, which the leg takes.</param>
-/// <param name="Amount">Greater than zero; the leg's type gives the sign.</param>
-public sealed record LegAmount(Guid AccountId, Currency Currency, decimal Amount);

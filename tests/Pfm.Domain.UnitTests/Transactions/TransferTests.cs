@@ -16,7 +16,7 @@ public class TransferTests
     public void A_transfer_is_a_transfer_out_leg_on_the_source_account_and_a_transfer_in_leg_on_the_destination_sharing_its_id()
     {
         var transfer = Transfer.Record(
-            new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today.AddDays(-1), "  for Tet ", Today, Monday);
+            new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today.AddDays(-1), "  for Tet ", new Moment(Today, Monday));
 
         var (outLeg, inLeg) = (transfer.OutLeg, transfer.InLeg);
         Assert.Equal((TransactionType.TransferOut, Everyday, Currency.VND, 2_000_000m), (outLeg.Type, outLeg.AccountId, outLeg.Currency, outLeg.Amount));
@@ -40,7 +40,7 @@ public class TransferTests
         var everyday = Account.Create("Everyday", AccountType.Current, null, Currency.VND, 5_000_000m, new DateOnly(2026, 1, 1), Monday);
         var savings = Account.Create("Savings", AccountType.Savings, null, Currency.VND, 0m, new DateOnly(2026, 1, 1), Monday);
 
-        var transfer = Transfer.Record(new LegAmount(everyday.Id, Currency.VND, 2_000_000m), new LegAmount(savings.Id, Currency.VND, 2_000_000m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(everyday.Id, Currency.VND, 2_000_000m), new AccountAmount(savings.Id, Currency.VND, 2_000_000m), Today, null, new Moment(Today, Monday));
 
         Assert.Equal(3_000_000m, everyday.BalanceWith(transfer.OutLeg.SignedAmount));
         Assert.Equal(2_000_000m, savings.BalanceWith(transfer.InLeg.SignedAmount));
@@ -50,9 +50,9 @@ public class TransferTests
     public void A_transfer_is_not_spending_so_it_moves_spent_in_no_category()
     {
         var groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
-        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 125_000m, Today, groceries, null, null, Today, Monday);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 125_000m), Today, groceries, null, null, new Moment(Today, Monday));
         expense.ConvertInto(Currency.VND, 125_000m, 1m, Today);
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today, null, new Moment(Today, Monday));
         transfer.OutLeg.ConvertInto(Currency.VND, 2_000_000m, 1m, Today);
         transfer.InLeg.ConvertInto(Currency.VND, 2_000_000m, 1m, Today);
 
@@ -63,7 +63,7 @@ public class TransferTests
     [Fact]
     public void A_leg_is_never_posted_by_a_recurring_rule()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
 
         Assert.Throws<InvalidOperationException>(() => transfer.OutLeg.PostedBy(Guid.CreateVersion7()));
         Assert.Throws<InvalidOperationException>(() => transfer.InLeg.PostedBy(Guid.CreateVersion7()));
@@ -73,7 +73,7 @@ public class TransferTests
     [Fact]
     public void A_leg_is_never_a_refund()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
 
         Assert.False(transfer.OutLeg.IsRefund);
         Assert.False(transfer.InLeg.IsRefund);
@@ -84,7 +84,7 @@ public class TransferTests
     [Fact]
     public void A_transfer_between_currencies_keeps_the_amount_entered_for_each_account()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 99.5m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_550_000m), new AccountAmount(Dollars, Currency.USD, 99.5m), Today, null, new Moment(Today, Monday));
 
         Assert.Equal((Currency.VND, 2_550_000m, -2_550_000m), (transfer.OutLeg.Currency, transfer.OutLeg.Amount, transfer.OutLeg.SignedAmount));
         Assert.Equal((Currency.USD, 99.5m, 99.5m), (transfer.InLeg.Currency, transfer.InLeg.Amount, transfer.InLeg.SignedAmount));
@@ -95,7 +95,7 @@ public class TransferTests
     public void Accounts_in_the_same_currency_move_the_same_amount()
     {
         var violation = Assert.Throws<TransferRuleViolation>(() =>
-            Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 1_900_000m), Today, null, Today, Monday));
+            Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 1_900_000m), Today, null, new Moment(Today, Monday)));
 
         Assert.Equal(nameof(Transfer.ToAmount), violation.Property);
     }
@@ -104,7 +104,7 @@ public class TransferTests
     public void A_transfer_is_between_two_different_accounts()
     {
         var violation = Assert.Throws<TransferRuleViolation>(() =>
-            Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Everyday, Currency.VND, 100m), Today, null, Today, Monday));
+            Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Everyday, Currency.VND, 100m), Today, null, new Moment(Today, Monday)));
 
         Assert.Equal(nameof(Transfer.ToAccountId), violation.Property);
     }
@@ -118,7 +118,7 @@ public class TransferTests
     public void Each_amount_is_greater_than_zero_and_fits_the_currency_of_its_account(string amount, string toAmount, string property)
     {
         var violation = Assert.Throws<TransferRuleViolation>(() =>
-            Transfer.Record(new LegAmount(Everyday, Currency.VND, Decimal(amount)), new LegAmount(Dollars, Currency.USD, Decimal(toAmount)), Today, null, Today, Monday));
+            Transfer.Record(new AccountAmount(Everyday, Currency.VND, Decimal(amount)), new AccountAmount(Dollars, Currency.USD, Decimal(toAmount)), Today, null, new Moment(Today, Monday)));
 
         Assert.Equal(property, violation.Property);
     }
@@ -127,7 +127,7 @@ public class TransferTests
     public void A_transfer_cannot_be_dated_in_the_future()
     {
         var violation = Assert.Throws<TransferRuleViolation>(() =>
-            Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today.AddDays(1), null, Today, Monday));
+            Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today.AddDays(1), null, new Moment(Today, Monday)));
 
         Assert.Equal(nameof(Transfer.Date), violation.Property);
     }
@@ -135,7 +135,7 @@ public class TransferTests
     [Fact]
     public void The_two_legs_read_back_in_any_order_pair_into_their_transfer()
     {
-        var recorded = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 99.5m), Today, "holiday", Today, Monday);
+        var recorded = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_550_000m), new AccountAmount(Dollars, Currency.USD, 99.5m), Today, "holiday", new Moment(Today, Monday));
 
         var transfer = Transfer.Of([recorded.InLeg, recorded.OutLeg]);
 
@@ -148,10 +148,10 @@ public class TransferTests
     [Fact]
     public void Transactions_that_are_not_the_two_legs_of_one_transfer_do_not_pair()
     {
-        var one = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
-        var other = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var one = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
+        var other = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         var groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
-        var expense = Transaction.Record(TransactionType.Expense, Everyday, Currency.VND, 100m, Today, groceries, null, null, Today, Monday);
+        var expense = Transaction.Record(TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 100m), Today, groceries, null, null, new Moment(Today, Monday));
 
         Assert.Throws<ArgumentException>(() => Transfer.Of([one.OutLeg]));
         Assert.Throws<ArgumentException>(() => Transfer.Of([one.OutLeg, other.InLeg]));
@@ -163,10 +163,10 @@ public class TransferTests
     [Fact]
     public void Editing_a_transfer_changes_both_legs_together()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, "for Tet", Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today, "for Tet", new Moment(Today, Monday));
         var (outId, inId) = (transfer.OutLeg.Id, transfer.InLeg.Id);
 
-        transfer.Edit(new LegAmount(Savings, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 99.5m), Today.AddDays(-2), null, Today, Tuesday);
+        transfer.Edit(new AccountAmount(Savings, Currency.VND, 2_550_000m), new AccountAmount(Dollars, Currency.USD, 99.5m), Today.AddDays(-2), null, new Moment(Today, Tuesday));
 
         var (outLeg, inLeg) = (transfer.OutLeg, transfer.InLeg);
         Assert.Equal((outId, TransactionType.TransferOut, Savings, Currency.VND, 2_550_000m), (outLeg.Id, outLeg.Type, outLeg.AccountId, outLeg.Currency, outLeg.Amount));
@@ -177,10 +177,10 @@ public class TransferTests
     [Fact]
     public void An_edit_that_breaks_a_rule_changes_neither_leg()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Dollars, Currency.USD, 80m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Dollars, Currency.USD, 80m), Today, null, new Moment(Today, Monday));
 
         var violation = Assert.Throws<TransferRuleViolation>(() =>
-            transfer.Edit(new LegAmount(Everyday, Currency.VND, 3_000_000m), new LegAmount(Dollars, Currency.USD, 0m), Today, null, Today, Tuesday));
+            transfer.Edit(new AccountAmount(Everyday, Currency.VND, 3_000_000m), new AccountAmount(Dollars, Currency.USD, 0m), Today, null, new Moment(Today, Tuesday)));
 
         Assert.Equal(nameof(Transfer.ToAmount), violation.Property);
         Assert.Equal((2_000_000m, 80m, Monday), (transfer.OutLeg.Amount, transfer.InLeg.Amount, transfer.OutLeg.UpdatedAt));
@@ -189,11 +189,11 @@ public class TransferTests
     [Fact]
     public void A_leg_whose_amount_date_or_account_changed_is_converted_into_the_base_currency_again()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_550_000m), new AccountAmount(Dollars, Currency.USD, 100m), Today, null, new Moment(Today, Monday));
         transfer.OutLeg.ConvertInto(Currency.VND, 2_550_000m, 1m, Today);
         transfer.InLeg.ConvertInto(Currency.VND, 2_550_000m, 25_500m, Today);
 
-        transfer.Edit(new LegAmount(Everyday, Currency.VND, 2_550_000m), new LegAmount(Dollars, Currency.USD, 99.5m), Today, "less the fee", Today, Tuesday);
+        transfer.Edit(new AccountAmount(Everyday, Currency.VND, 2_550_000m), new AccountAmount(Dollars, Currency.USD, 99.5m), Today, "less the fee", new Moment(Today, Tuesday));
 
         Assert.True(transfer.OutLeg.IsConverted);
         Assert.False(transfer.InLeg.IsConverted);
@@ -202,7 +202,7 @@ public class TransferTests
     [Fact]
     public void Deleting_a_transfer_deletes_both_legs_and_gives_both_accounts_their_money_back()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 2_000_000m), new LegAmount(Savings, Currency.VND, 2_000_000m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 2_000_000m), new AccountAmount(Savings, Currency.VND, 2_000_000m), Today, null, new Moment(Today, Monday));
 
         transfer.Delete(Tuesday);
 
@@ -216,20 +216,20 @@ public class TransferTests
     [Fact]
     public void A_deleted_transfer_stays_deleted_as_it_was_and_cannot_be_edited()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         transfer.Delete(Monday);
 
         transfer.Delete(Tuesday);
 
         Assert.Equal(Monday, transfer.OutLeg.DeletedAt);
         Assert.Throws<InvalidOperationException>(() =>
-            transfer.Edit(new LegAmount(Everyday, Currency.VND, 200m), new LegAmount(Savings, Currency.VND, 200m), Today, null, Today, Tuesday));
+            transfer.Edit(new AccountAmount(Everyday, Currency.VND, 200m), new AccountAmount(Savings, Currency.VND, 200m), Today, null, new Moment(Today, Tuesday)));
     }
 
     [Fact]
     public void Restoring_a_deleted_transfer_restores_both_legs_together()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         transfer.Delete(Monday);
 
         transfer.Restore(Tuesday);
@@ -242,7 +242,7 @@ public class TransferTests
     [Fact]
     public void A_leg_is_never_restored_on_its_own()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         transfer.Delete(Monday);
 
         Assert.Throws<InvalidOperationException>(() => transfer.InLeg.Restore(Tuesday));
@@ -252,12 +252,12 @@ public class TransferTests
     [Fact]
     public void A_leg_is_never_edited_or_deleted_on_its_own()
     {
-        var transfer = Transfer.Record(new LegAmount(Everyday, Currency.VND, 100m), new LegAmount(Savings, Currency.VND, 100m), Today, null, Today, Monday);
+        var transfer = Transfer.Record(new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Savings, Currency.VND, 100m), Today, null, new Moment(Today, Monday));
         var groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
 
         Assert.Throws<InvalidOperationException>(() => transfer.OutLeg.Delete(Tuesday));
         Assert.Throws<InvalidOperationException>(() =>
-            transfer.InLeg.Edit(TransactionType.Expense, Savings, Currency.VND, 100m, Today, groceries, null, null, Today, Tuesday));
+            transfer.InLeg.Edit(TransactionType.Expense, new AccountAmount(Savings, Currency.VND, 100m), Today, groceries, null, null, new Moment(Today, Tuesday)));
         Assert.False(transfer.IsDeleted);
     }
 
@@ -269,7 +269,7 @@ public class TransferTests
         var groceries = Category.Create("Groceries", CategoryKind.Expense, "shopping-cart", Color.Parse("#ea580c"), Monday);
 
         var violation = Assert.Throws<TransactionRuleViolation>(() =>
-            Transaction.Record(type, Everyday, Currency.VND, 100m, Today, groceries, null, null, Today, Monday));
+            Transaction.Record(type, new AccountAmount(Everyday, Currency.VND, 100m), Today, groceries, null, null, new Moment(Today, Monday)));
 
         Assert.Equal(nameof(Transaction.Type), violation.Property);
     }

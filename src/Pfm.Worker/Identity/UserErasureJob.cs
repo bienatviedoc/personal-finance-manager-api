@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Options;
 using Pfm.Application.Identity;
-using Pfm.Infrastructure.Identity;
 
 namespace Pfm.Worker.Identity;
 
@@ -11,36 +10,22 @@ namespace Pfm.Worker.Identity;
 /// </summary>
 public sealed partial class UserErasureJob(
     IServiceScopeFactory scopes, IOptions<UserErasureOptions> options, TimeProvider time, ILogger<UserErasureJob> logger)
-    : BackgroundService
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override TimeSpan RunEvery => options.Value.RunEvery;
+
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(options.Value.RunEvery, time);
-        do
+        var result = await services.GetRequiredService<EraseDeactivatedUsersHandler>()
+            .HandleAsync(new EraseDeactivatedUsersCommand(), cancellationToken);
+
+        if (result.Outcome.Users > 0)
         {
-            await EraseAsync(stoppingToken);
+            LogErased(result.Outcome.Users);
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task EraseAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var scope = scopes.CreateAsyncScope();
-            var result = await scope.ServiceProvider.GetRequiredService<EraseDeactivatedUsersHandler>()
-                .HandleAsync(new EraseDeactivatedUsersCommand(), cancellationToken);
-
-            if (result.Outcome.Users > 0)
-            {
-                LogErased(result.Outcome.Users);
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-        }
-    }
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Erased {Users} deactivated user(s) whose 30 days were over")]
     private partial void LogErased(int users);

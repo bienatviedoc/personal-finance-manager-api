@@ -1,6 +1,7 @@
 using FluentValidation;
 using Pfm.Application.Abstractions;
 using Pfm.Application.UseCases;
+using Pfm.Domain;
 using Pfm.Domain.Transactions;
 
 namespace Pfm.Application.Transactions.Transfers;
@@ -79,7 +80,7 @@ public sealed class EditTransferHandler(
         var between = read.Outcome;
         try
         {
-            transfer.Edit(between.From, between.To, command.Parsed.Date!.Value, command.Note, between.Today, clock.GetUtcNow());
+            transfer.Edit(between.From, between.To, command.Parsed.Date!.Value, command.Note, between.At(clock.GetUtcNow()));
         }
         catch (TransferRuleViolation violation)
         {
