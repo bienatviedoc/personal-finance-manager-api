@@ -10,34 +10,20 @@ namespace Pfm.Worker.Transactions;
 /// </summary>
 public sealed partial class DeletedTransactionPurgeJob(
     IServiceScopeFactory scopes, IOptions<DeletedTransactionPurgeOptions> options, TimeProvider time, ILogger<DeletedTransactionPurgeJob> logger)
-    : BackgroundService
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override TimeSpan RunEvery => options.Value.RunEvery;
+
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        using var timer = new PeriodicTimer(options.Value.RunEvery, time);
-        do
+        var purged = await services.GetRequiredService<DeletedTransactionPurge>().RunAsync(cancellationToken);
+        if (purged.Transactions > 0)
         {
-            await PurgeAsync(stoppingToken);
+            LogPurged(purged.Transactions);
         }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task PurgeAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await using var scope = scopes.CreateAsyncScope();
-            var purged = await scope.ServiceProvider.GetRequiredService<DeletedTransactionPurge>().RunAsync(cancellationToken);
-            if (purged.Transactions > 0)
-            {
-                LogPurged(purged.Transactions);
-            }
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
-        {
-            LogFailed(exception);
-        }
-    }
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Removed {Transactions} transaction(s) deleted more than 30 days ago for good")]
     private partial void LogPurged(int transactions);

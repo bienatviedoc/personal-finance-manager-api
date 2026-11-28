@@ -11,44 +11,30 @@ namespace Pfm.Worker.ExchangeRates;
 /// </summary>
 public sealed partial class ExchangeRateFetchJob(
     IServiceScopeFactory scopes, IOptions<ExchangeRateOptions> options, TimeProvider time, ILogger<ExchangeRateFetchJob> logger)
-    : BackgroundService
+    : PeriodicJob(scopes, time)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        using var timer = new PeriodicTimer(options.Value.FetchEvery, time);
-        do
-        {
-            await FetchAsync(stoppingToken);
-        }
-        while (await timer.WaitForNextTickAsync(stoppingToken));
-    }
+    protected override TimeSpan RunEvery => options.Value.FetchEvery;
 
-    private async Task FetchAsync(CancellationToken cancellationToken)
+    protected override async Task RunAsync(IServiceProvider services, CancellationToken cancellationToken)
     {
-        try
-        {
-            await using var scope = scopes.CreateAsyncScope();
-            var result = await scope.ServiceProvider.GetRequiredService<FetchExchangeRatesHandler>()
-                .HandleAsync(new FetchExchangeRatesCommand(options.Value.DaysBackWhenEmpty), cancellationToken);
+        var result = await services.GetRequiredService<FetchExchangeRatesHandler>()
+            .HandleAsync(new FetchExchangeRatesCommand(options.Value.DaysBackWhenEmpty), cancellationToken);
 
-            if (result.IsValid)
+        if (result.IsValid)
+        {
+            LogFetched(result.Outcome.Days);
+            if (result.Outcome.UsersNotSaved > 0)
             {
-                LogFetched(result.Outcome.Days);
-                if (result.Outcome.UsersNotSaved > 0)
-                {
-                    LogUsersNotSaved(result.Outcome.UsersNotSaved);
-                }
-            }
-            else
-            {
-                LogMisconfigured(ExchangeRateOptions.Section, string.Join(", ", result.Errors.Keys));
+                LogUsersNotSaved(result.Outcome.UsersNotSaved);
             }
         }
-        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        else
         {
-            LogFailed(exception);
+            LogMisconfigured(ExchangeRateOptions.Section, string.Join(", ", result.Errors.Keys));
         }
     }
+
+    protected override void OnFailed(Exception exception) => LogFailed(exception);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Fetched exchange rates for {Days} day(s)")]
     private partial void LogFetched(int days);
