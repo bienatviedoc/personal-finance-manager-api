@@ -3,8 +3,11 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace Pfm.Worker.UnitTests;
 
-/// <summary>A periodic job whose run each test sets; it records each run's scope, and each failure it is told of.</summary>
-internal sealed class TestJob(TimeSpan runEvery, Func<int, CancellationToken, Task>? run = null)
+/// <summary>
+/// A periodic job whose run each test sets; it records each run's scope, and each failure it is told of before
+/// handing it to <paramref name="onFailed"/>.
+/// </summary>
+internal sealed class TestJob(TimeSpan runEvery, Func<int, CancellationToken, Task>? run = null, Action<Exception>? onFailed = null)
     : PeriodicJob(NewServices().GetRequiredService<IServiceScopeFactory>(), TimeProvider.System)
 {
     private int _count;
@@ -22,7 +25,11 @@ internal sealed class TestJob(TimeSpan runEvery, Func<int, CancellationToken, Ta
         await (run?.Invoke(++_count, cancellationToken) ?? Task.CompletedTask);
     }
 
-    protected override void OnFailed(Exception exception) => Failures.Writer.TryWrite(exception);
+    protected override void OnFailed(Exception exception)
+    {
+        Failures.Writer.TryWrite(exception);
+        onFailed?.Invoke(exception);
+    }
 
     private static ServiceProvider NewServices() => new ServiceCollection().AddScoped<Probe>().BuildServiceProvider();
 

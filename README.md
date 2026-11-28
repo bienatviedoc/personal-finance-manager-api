@@ -157,12 +157,13 @@ Each job in `Pfm.Worker` derives from `PeriodicJob`, which holds the loop they s
 worker and the next every `RunEvery` after that, each run in a scope of its own (`RunAsync` is given its services; `ImportCommitJob` opens a further scope for
 each save from it, so what one save reads is not held for the next). A
 run that fails goes to the job's `OnFailed`, which logs it in the job's own words (and so reports it to the error
-tracker); the next run still happens. Stopping the worker cancels the run in progress, which is not a failure. A job
+tracker); the next run still happens, even if the logging itself throws. Stopping the worker cancels the run in progress, which is not a failure. A job
 gives only its interval, from its own options, its run and its log messages.
 
 A job's options are the worker's own, in the file beside it (`UserErasureOptions` beside `UserErasureJob`), and
 `WorkerJobs.AddJobs` registers each job with them: bound from the job's configuration section and checked as the
-worker starts, so an interval of no time stops the worker at start-up rather than leaving a job spinning. What
+worker starts, so an interval of no time, or one longer than a timer can wait (`PeriodicJob.MaxRunEvery`, about 49.7 days),
+stops the worker at start-up rather than leaving a job spinning or failing once it starts. What
 Infrastructure itself needs from the same section stays there: exchange rates are fetched from
 `ExchangeRateSourceOptions.SourceUrl`, while the worker's `ExchangeRateFetchOptions` say how often and how far back.
 A job lives in the folder named after the `Pfm.Application` folder of the use case it runs: its module

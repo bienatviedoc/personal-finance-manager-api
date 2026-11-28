@@ -39,7 +39,7 @@ public static class WorkerJobs
 
     /// <summary>
     /// Registers a job with its options, bound from its section and checked as the worker starts, its interval
-    /// (named <paramref name="interval"/>) among them.
+    /// (named <paramref name="interval"/>) among them: one a <see cref="PeriodicTimer"/> can wait.
     /// </summary>
     private static OptionsBuilder<TOptions> AddJob<TJob, TOptions>(
         this IServiceCollection services, string section, string interval, Func<TOptions, TimeSpan> runEvery)
@@ -48,10 +48,12 @@ public static class WorkerJobs
     {
         services.AddHostedService<TJob>();
         return services.AddOptions<TOptions>().BindConfiguration(section).ValidateOnStart()
-            .ValidateLongerThanZero(section, interval, runEvery);
+            .Validate(
+                options => runEvery(options) > TimeSpan.Zero && runEvery(options) <= PeriodicJob.MaxRunEvery,
+                $"{section}:{interval} must be longer than zero and no longer than {PeriodicJob.MaxRunEvery}.");
     }
 
-    /// <summary>Refuses a length of time of zero or less, named by its section and key in every job's one wording.</summary>
+    /// <summary>Refuses a length of time of zero or less, named by its section and key.</summary>
     private static OptionsBuilder<TOptions> ValidateLongerThanZero<TOptions>(
         this OptionsBuilder<TOptions> options, string section, string setting, Func<TOptions, TimeSpan> length)
         where TOptions : class =>

@@ -35,6 +35,8 @@ public class JobOptionsTests
         { "Imports:CommitEvery", "00:00:00" },
         { "AbandonedUploadSweep:RunEvery", "00:00:00" },
         { "AbandonedUploadSweep:KeepFor", "00:00:00" },
+        { "ExchangeRates:FetchEvery", "50.00:00:00" },
+        { "UserErasure:RunEvery", "50.00:00:00" },
     };
 
     [Theory]
@@ -55,6 +57,14 @@ public class JobOptionsTests
 
         var refusal = await Assert.ThrowsAsync<OptionsValidationException>(() => ValidateOnStartAsync(services));
         Assert.Contains(key, refusal.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_worker_starts_with_the_longest_interval_a_job_can_run_on()
+    {
+        await using var services = WorkerWith("UserErasure:RunEvery", PeriodicJob.MaxRunEvery.ToString());
+
+        await ValidateOnStartAsync(services);
     }
 
     [Fact]

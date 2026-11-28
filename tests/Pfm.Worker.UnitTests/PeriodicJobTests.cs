@@ -32,6 +32,23 @@ public class PeriodicJobTests
     }
 
     [Fact]
+    public async Task A_failure_that_cannot_be_reported_does_not_stop_the_job()
+    {
+        using var job = new TestJob(
+            TimeSpan.FromMilliseconds(10),
+            (count, _) => count == 1 ? throw new InvalidOperationException("The run failed.") : Task.CompletedTask,
+            _ => throw new InvalidOperationException("Reporting the failure failed."));
+
+        await job.StartAsync(CancellationToken.None);
+
+        await job.Failures.Reader.ReadAsync().AsTask().WaitAsync(Patience);
+        await job.Runs.Reader.ReadAsync().AsTask().WaitAsync(Patience);
+        await job.Runs.Reader.ReadAsync().AsTask().WaitAsync(Patience);
+        Assert.False(job.ExecuteTask!.IsFaulted);
+        await job.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Each_run_has_a_scope_of_its_own_disposed_when_it_ends()
     {
         using var job = new TestJob(TimeSpan.FromMilliseconds(10));
