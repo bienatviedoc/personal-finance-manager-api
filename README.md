@@ -304,7 +304,7 @@ one of the merged category's own subcategories is refused as an error on `target
   only that user waits for the next fetch (the worker logs a warning).
 - **A new base currency converts everything again.** `PATCH /me` with another `baseCurrency` converts every
   transaction of the user into it, each at the rate of its own date, in the same save as the profile. This can
-  only happen until the base currency locks (rule 12; see Budgets below).
+  only happen while the base currency is unlocked, that is while the user has no budget (rule 12; see Budgets below).
 - **A transfer is two linked transactions** (rules 3 and 4, [decision record 0001](docs/adr/0001-transfer-is-two-linked-transactions.md)):
   `POST /transfers` records a `transferOut` leg on the source account and a `transferIn` leg on the destination,
   sharing a `TransferId`, in one save. `Transfer` (`Pfm.Domain.Transactions`) is the only way to record, edit or
@@ -914,8 +914,11 @@ method on a port when it needs something Identity does, such as a reset token.
   stack runs over plain `http://localhost`, so there they follow the request's scheme instead (see
   `CookiePolicy`). In any other environment the API must sit behind TLS. A TLS-terminating proxy in front of it
   will also need forwarded headers configured; that belongs with the deployment work.
-- **Sessions** last 7 days, renewed while in use, and end within 5 minutes of the user's security stamp changing
-  (a password reset or deactivation).
+- **Sessions** last 7 days, renewed while in use, and end on their next request once the user's security stamp
+  changes (a new or reset password, two-factor turned on or off, deleting the user) or the user is deactivated:
+  that request answers 401 and clears the cookie. `SessionCheck` reads the user by id on every request that brings a
+  session cookie, uncached so every API instance agrees at once; a use case that then loads the signed-in user
+  gets them from the same `DbContext` without a second query.
 - **Keys** that sign cookies and emailed links are stored in the database, so sessions and links survive
   restarts and are shared by every API instance.
 
@@ -929,16 +932,20 @@ Spec section 8 (Privacy): a user can take everything the app holds about them, a
   UTF-8 with a byte order mark, so a spreadsheet reads Vietnamese text right; values are written as the API's
   JSON writes them, a list as its items separated by `; `. Text that starts with `=`, `+`, `-`, `@`, a tab or a
   carriage return (a payee an imported statement brought in, say) is written behind a single quote, so a spreadsheet
-  shows it rather than runs it as a formula (OWASP, CSV injection); numbers are not, so a negative amount stays a
-  number (`Csv`, which the transactions export writes with too). Transactions the user deleted are included while they are still held. Secrets (the
+  shows it rather than runs it as a formula (OWASP, CSV injection, spec section 13); numbers are not, so a negative
+  amount stays a number. Every string is text, even one that looks like a number (a payee typed as `-3`); an amount
+  is passed as `Csv.Number` to be written as one (`Csv`, which the transactions export writes with too, and whose
+  rule the SPA's `csv.ts` applies to the reports it saves). Transactions the user deleted are included while they are still held. Secrets (the
   password hash, the authenticator key, recovery codes) are not exported. The files the user attached are in
   it too, under `attachments/`, each named by its attachment's id and its own file name: they are fetched from
   object storage one by one (`IAttachmentFiles`, in `Pfm.Application.Contracts.Transactions`), those of deleted
   transactions included. The archive is written to the response as it is made (`AsynchronousBody` takes the few writes a ZIP
   archive makes synchronously), so the attached files are never all in memory at once.
 - **Deleting:** `POST /api/v1/me/deletion` with the `password` (`DeleteUser`) makes the user a deactivated user
-  (see the glossary): `Users.DeactivatedAt` is stamped, their security stamp changes, which ends every session
-  they have, and the session that asked is signed out at once. Nothing is erased yet.
+  (see the glossary): `Users.DeactivatedAt` is stamped and their security stamp changes, so every other session
+  they have is refused (401) from its next request, and the session that asked is signed out at once. Nothing is
+  erased yet. The worker acts for nobody's session: its jobs leave a deactivated user's data alone
+  (`IUserDeactivation`).
 - **Cancelling:** signing in within 30 days (`Deactivation.CancellationPeriod`) cancels the deletion.
   `POST /api/v1/auth/login` then answers 200 with `deletionCancelled: true` in place of its 204, so the SPA can
   say so. Only a sign-in that gets all the way through cancels: the password alone is not enough for a user who

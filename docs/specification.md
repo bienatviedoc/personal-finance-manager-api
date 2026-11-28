@@ -65,16 +65,16 @@ Eight concepts carry the whole product; the rules under the table are the ones m
 
 1. **Money is never a float.** Amounts use `decimal` in C#, `numeric(19,4)` in PostgreSQL, and are sent as strings in JSON. The frontend formats them and does not do arithmetic on them beyond display.
 2. **Amounts are stored positive; the type gives the sign.** Account balance = opening balance + income - expenses + refunds + transfers in - transfers out. The one exception to the type giving the sign is a refund: an expense with the refund flag set adds to the balance.
-3. **A transfer is two linked transactions** sharing a `TransferId`: a Transfer out leg on account A and a Transfer in leg on account B. Editing or deleting one updates or deletes the other in the same database transaction. Transfers never appear in income, expense or budget totals. A transfer is locked as soon as either leg is reconciled.
+3. **A transfer is two linked transactions** sharing a `TransferId`: a Transfer out leg on account A and a Transfer in leg on account B. The two legs change together: deleting one leg deletes the transfer, both legs in the same database transaction, and a leg is edited only through its transfer (`PUT /transfers/{id}`), which updates both; `PUT /transactions/{id}` refuses a leg. Transfers never appear in income, expense or budget totals. A transfer is locked as soon as either leg is reconciled.
 4. **Cross-currency transfers store both amounts.** The exchange rate is implied by the two legs, not looked up.
 5. **A transaction can be split** across several categories. The split lines must sum exactly to the transaction amount.
 6. **Budgets roll up.** Spending in a subcategory counts toward a budget set on its parent. A budget cannot be set on both a parent and its child for the same month.
-7. **Reports convert to the base currency at the rate on the transaction date.** Rates are stored per currency pair per day; a missing rate falls back to the nearest earlier date. Rates are fetched automatically each day from an external source; the user never enters them in v1. An amount is converted once, at its transaction-date rate, and is not revalued when rates move. If no rate exists on or before the date, the transaction is still saved and is flagged as not converted in budgets and reports until a rate arrives. Changing the base currency, which is only possible before the first budget (rule 12), converts every transaction again into the new one, each at the rate of its own date.
+7. **Reports convert to the base currency at the rate on the transaction date.** Rates are stored per currency pair per day; a missing rate falls back to the nearest earlier date. Rates are fetched automatically each day from an external source; the user never enters them in v1. An amount is converted once, at its transaction-date rate, and is not revalued when rates move. If no rate exists on or before the date, the transaction is still saved and is flagged as not converted in budgets and reports until a rate arrives. Changing the base currency, which is only possible while the user has no budget (rule 12), converts every transaction again into the new one, each at the rate of its own date.
 8. **Transaction date is a calendar date with no time**, interpreted in the user's time zone. Created and updated timestamps are UTC.
 9. **Credit cards and loans are accounts with a negative balance.** The user enters the amount owed as a positive number and the account shows it as a negative balance. Paying the card is a transfer from a current account, not an expense, so the spending is not counted twice.
 10. **Deletes are soft.** Accounts with history are archived, not deleted. An account can be archived at any balance, with a warning when the balance is not zero, and it stays in net worth and reports. Deleted transactions are recoverable for 30 days.
 11. **Reconciled transactions are locked.** Amount, date and account cannot change until the transaction is unreconciled. A reconciliation completes only when the difference is exactly zero; the app never creates an adjustment transaction.
-12. **The base currency locks once a budget exists.** It can be changed freely until the user's first budget is created, and again once the user has removed every budget.
+12. **The base currency locks once a budget exists.** It can be changed freely until the user's first budget is created, and again once the user has removed every budget: with no budget left, nothing compares an amount typed in the old currency with transactions converted into the new one.
 13. **A category's kind is fixed once it has transactions.** A subcategory always has the same kind as its parent.
 14. **"Account" always means a place money sits.** The sign-in identity is the user.
 
@@ -348,7 +348,7 @@ The API is JSON over HTTPS under `/api/v1`, described by an OpenAPI document fro
 | Accounts | `POST /accounts/{id}/reconciliations`; `POST /reconciliations/{id}/complete` | Start and lock a reconciliation |
 | Transactions | `GET /transactions?from&to&accountId&categoryId&type&tag&q&min&max` | Filtered, paged list with totals |
 | Transactions | `GET /transactions/quick-add?payee&type` | What quick add starts from: the account used last and the category a payee usually takes |
-| Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines |
+| Transactions | `POST /transactions`; `GET, PUT, DELETE /transactions/{id}` | Income and expense CRUD, including split lines. A leg of a transfer is read and deleted here (deleting its transfer, rule 3) but edited only through `PUT /transfers/{id}` |
 | Transactions | `POST /transactions/bulk` | Bulk recategorise, tag or delete |
 | Transfers | `POST /transfers`; `GET, PUT, DELETE /transfers/{id}`; `POST /transfers/mark`; `POST /transfers/{id}/unmark` | Creates, reads and maintains both legs |
 | Attachments | `GET, POST /transactions/{id}/attachments`; `GET, DELETE /attachments/{id}` | Receipts of a transaction and upload; a signed URL to open one, and removal |
@@ -406,6 +406,10 @@ Money logic is tested hardest at the domain and database level, because that is 
 | Frontend unit and component | Vitest, React Testing Library, MSW | Forms, money formatting, filter-to-URL mapping |
 | End to end | Playwright | Sign up, add income and expense, transfer, set budget, view report, import CSV |
 | Non-functional | k6 load test at 50,000 transactions; axe accessibility checks in CI | Section 8 targets |
+
+**CSV files the app writes**
+
+Every CSV file the app writes (the transactions export, the data export, a report downloaded in the browser) guards against formula injection (OWASP, CSV injection) by one rule, the same in the API and the frontend: a text cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written behind a single quote (`'`), so a spreadsheet shows it rather than runs it. Only text cells: a number (an amount, a share, a count) is written as it is, so an amount below zero stays a number. Any string is text, even one that looks like a number, such as a payee typed as `-3`.
 
 **Quality gates on every pull request**
 
