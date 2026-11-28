@@ -466,6 +466,36 @@ public class TransactionTests
     }
 
     [Fact]
+    public void A_split_of_one_line_on_a_deleted_transaction_or_a_leg_of_a_transfer_is_refused_for_what_it_is_edited()
+    {
+        var deleted = Spend(500_000m);
+        deleted.Delete(Monday);
+        var leg = Transfer.Record(
+            new AccountAmount(Everyday, Currency.VND, 100m), new AccountAmount(Guid.CreateVersion7(), Currency.VND, 100m), Today, null, new Moment(Today, Monday)).OutLeg;
+
+        Assert.Throws<InvalidOperationException>(() => deleted.EditSplit(
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 500_000m), Today, [new SplitLine(Groceries, 500_000m)], null, null, new Moment(Today, Tuesday)));
+        Assert.Throws<InvalidOperationException>(() => leg.EditSplit(
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 100m), Today, [new SplitLine(Groceries, 100m)], null, null, new Moment(Today, Tuesday)));
+    }
+
+    [Fact]
+    public void A_split_of_one_line_reports_its_type_amount_and_date_before_its_lines()
+    {
+        var oneLine = new[] { new SplitLine(Groceries, 500_000m) };
+
+        var transfer = Assert.Throws<TransactionRuleViolation>(() => Transaction.RecordSplit(
+            TransactionType.TransferOut, new AccountAmount(Everyday, Currency.VND, 500_000m), Today, oneLine, null, null, new Moment(Today, Monday)));
+        var amount = Assert.Throws<TransactionRuleViolation>(() => Split(0m, oneLine));
+        var date = Assert.Throws<TransactionRuleViolation>(() => Transaction.RecordSplit(
+            TransactionType.Expense, new AccountAmount(Everyday, Currency.VND, 500_000m), Today.AddDays(1), oneLine, null, null, new Moment(Today, Monday)));
+
+        Assert.Equal(
+            [nameof(Transaction.Type), nameof(Transaction.Amount), nameof(Transaction.Date)],
+            new[] { transfer.Property, amount.Property, date.Property });
+    }
+
+    [Fact]
     public void Every_line_of_a_split_takes_a_category_of_the_kind_the_transactions_type_takes()
     {
         var violation = Assert.Throws<TransactionRuleViolation>(() =>

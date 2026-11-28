@@ -98,8 +98,8 @@ public sealed class EditTransactionHandler(
         var dateBefore = transaction.Date;
         try
         {
-            var moves = new AccountAmount(against.Account.Id, against.Account.Currency, fields.Amount!.Value);
-            var at = new Moment(against.Today, clock.GetUtcNow());
+            var moves = against.Moves(fields.Amount!.Value);
+            var at = against.At(clock.GetUtcNow());
             if (against.Split is { } lines)
             {
                 transaction.EditSplit(fields.Type!.Value, moves, fields.Date!.Value, lines, command.Payee, command.Note, at, command.IsRefund);

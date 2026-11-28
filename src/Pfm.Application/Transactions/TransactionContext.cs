@@ -59,4 +59,11 @@ public sealed class TransactionContext(IAccountLookup accounts, ICategoryReposit
 /// <param name="BaseCurrency">The currency the transaction's amount is converted into.</param>
 /// <param name="Split">The lines of a split, each with one of the user's categories; null for a transaction that is not split.</param>
 internal sealed record RecordedAgainst(
-    AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency, IReadOnlyList<SplitLine>? Split = null);
+    AccountSummary Account, Category Category, DateOnly Today, Currency BaseCurrency, IReadOnlyList<SplitLine>? Split = null)
+{
+    /// <summary>What the transaction moves: this amount on the account, in its currency.</summary>
+    public AccountAmount Moves(decimal amount) => new(Account.Id, Account.Currency, amount);
+
+    /// <summary>The moment the transaction is recorded or edited: today for the user, and now.</summary>
+    public Moment At(DateTimeOffset now) => new(Today, now);
+}

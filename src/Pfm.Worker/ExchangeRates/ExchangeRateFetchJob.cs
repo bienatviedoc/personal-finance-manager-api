@@ -19,17 +19,10 @@ public sealed partial class ExchangeRateFetchJob(
         var result = await services.GetRequiredService<FetchExchangeRatesHandler>()
             .HandleAsync(new FetchExchangeRatesCommand(options.Value.DaysBackWhenEmpty), cancellationToken);
 
-        if (result.IsValid)
+        LogFetched(result.Outcome.Days);
+        if (result.Outcome.UsersNotSaved > 0)
         {
-            LogFetched(result.Outcome.Days);
-            if (result.Outcome.UsersNotSaved > 0)
-            {
-                LogUsersNotSaved(result.Outcome.UsersNotSaved);
-            }
-        }
-        else
-        {
-            LogMisconfigured(ExchangeRateFetchOptions.Section, string.Join(", ", result.Errors.Keys));
+            LogUsersNotSaved(result.Outcome.UsersNotSaved);
         }
     }
 
@@ -40,9 +33,6 @@ public sealed partial class ExchangeRateFetchJob(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The not-converted transactions of {Users} user(s) kept changing and were not converted; the next fetch tries again")]
     private partial void LogUsersNotSaved(int users);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Exchange rates were not fetched: the {Section} configuration is wrong ({Fields})")]
-    private partial void LogMisconfigured(string section, string fields);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Fetching exchange rates failed; the next fetch will catch up")]
     private partial void LogFailed(Exception exception);
